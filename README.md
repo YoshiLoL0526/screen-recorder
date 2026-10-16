@@ -1,9 +1,9 @@
 # Rec Studio — grabación de pantalla + editor de video
 
-> **Estado: F2 completada** — el motor de grabación (F1) tiene UI: pantalla de Grabar con
-> preview en vivo y Biblioteca, con capturas y prueba end-to-end en
-> [docs/10](docs/10-f2-ui.md). Siguiente fase: **F3** (editor de video), ver
-> [roadmap](docs/06-roadmap.md).
+> **Estado: F1.1 y F2.1 aplicados** — el grabador ya lleva **cursor propio** (sin la latencia
+> variable de WGC), **compensación de la deriva** del reloj de audio, **selección de región
+> arrastrando** y **cuenta atrás** ([docs/11](docs/11-f11-f21-arreglos.md)). Siguiente fase:
+> **F3** (editor de video), ver [roadmap](docs/06-roadmap.md).
 
 Aplicación de escritorio para **grabar la pantalla** (como Bandicam: monitor, ventana o región,
 con audio del sistema y micrófono) y **editar el resultado sin salir de la app** (cortes,

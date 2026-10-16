@@ -62,7 +62,12 @@ def main() -> int:
 
     if args.beep_every > 0:
         schedule = [{"target": t, "kind": "beep"} for t in np.arange(args.beep_every, total - 4, args.beep_every)]
-        print(f"soak de deriva: {args.minutes:.0f} min · beeps cada {args.beep_every:.0f}s · pausa a los {pause_at:.0f}s")
+        # dos eventos de cursor (inicio y final) para medir la estabilidad del desfase A/V
+        schedule.append({"target": first_event, "kind": "cursor", "from": pos_a, "to": pos_b})
+        schedule.append({"target": last_event, "kind": "cursor", "from": pos_c, "to": pos_d})
+        schedule.sort(key=lambda item: item["target"])
+        print(f"soak de deriva: {args.minutes:.0f} min · beeps cada {args.beep_every:.0f}s"
+              f" · cursor a {first_event:.0f}s y {last_event:.0f}s · pausa a los {pause_at:.0f}s")
     else:
         schedule = [
             {"target": first_event, "kind": "cursor", "from": pos_a, "to": pos_b},
@@ -121,7 +126,14 @@ def main() -> int:
 
     player.close()
     result = session.stop()
-    print(f"✔ {result.mp4} · {result.duration_s:.2f}s · {result.mp4.stat().st_size / 1e6:.1f} MB")
+    stopped = time.perf_counter()
+    wall_pause_for = args.pause_for
+    print(f"\n✔ {result.mp4} · {result.duration_s:.2f}s · {result.mp4.stat().st_size / 1e6:.1f} MB")
+    if result.audio:
+        for track in result.audio:
+            print(f"· deriva del dispositivo medida: {track.drift_ppm:+.0f} ppm"
+                  f" ({track.seconds:.1f}s de audio) → corrección en el mux")
+    _ = stopped, wall_pause_for
 
     exe = ffmpeg_mod.ffmpeg_exe()
     all_beeps = find_beeps(result.mp4, exe)

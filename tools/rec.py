@@ -36,13 +36,14 @@ def parse_region(value: str) -> tuple[int, int, int, int]:
 
 
 def build_config(args: argparse.Namespace) -> RecordingConfig:
+    cursor = "off" if args.no_cursor else args.cursor
     if args.window:
-        source = SourceConfig(kind="window", window_title=args.window, capture_cursor=not args.no_cursor)
+        source = SourceConfig(kind="window", window_title=args.window, cursor=cursor)
     elif args.region:
         source = SourceConfig(kind="region", monitor_index=args.monitor, region=args.region,
-                              capture_cursor=not args.no_cursor)
+                              cursor=cursor)
     else:
-        source = SourceConfig(kind="monitor", monitor_index=args.monitor, capture_cursor=not args.no_cursor)
+        source = SourceConfig(kind="monitor", monitor_index=args.monitor, cursor=cursor)
     if args.backend != "auto":
         source = replace(source, backend=args.backend)
 
@@ -183,7 +184,9 @@ def main() -> int:
     parser.add_argument("--region", type=parse_region, default=None, help="región X,Y,W,H dentro del monitor")
     parser.add_argument("--window", default=None, help="capturar la ventana cuyo título contenga este texto")
     parser.add_argument("--backend", default="auto", choices=["auto", "wgc", "dxgi", "dxcam", "mss"])
-    parser.add_argument("--no-cursor", action="store_true", help="no capturar el cursor")
+    parser.add_argument("--cursor", default="software", choices=["software", "native", "off"],
+                        help="cursor: propio (default, sin latencia de WGC), del sistema, o ninguno")
+    parser.add_argument("--no-cursor", action="store_true", help="atajo de --cursor off")
     parser.add_argument("--fps", type=int, default=60, choices=[15, 24, 30, 48, 60, 120])
     parser.add_argument("--preset", default="media", choices=["baja", "media", "alta", "insane"])
     parser.add_argument("--encoder", default="auto",

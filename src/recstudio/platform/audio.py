@@ -134,6 +134,8 @@ class AudioTrack:
     channels: int
     frames: int
     first_callback_t: float | None  # perf_counter del primer callback
+    last_callback_t: float | None = None
+    drift_ppm: float = 0.0  # reloj del dispositivo vs reloj del sistema (medido)
 
     @property
     def seconds(self) -> float:
@@ -150,7 +152,10 @@ class AudioRecorder:
         self.channels = min(2, max(1, device.channels))
         self.frames = 0
         self.first_callback_t: float | None = None
+        self.last_callback_t: float | None = None
         self._level = 0.0
+        self._samples: list[tuple[float, int]] = []  # (t, frames) para medir la deriva del reloj
+        self._callbacks = 0
         self._paused = threading.Event()
         self._queue: "queue.Queue[bytes]" = queue.Queue()
         self._stop = threading.Event()
@@ -176,9 +181,14 @@ class AudioRecorder:
     def _callback(self, in_data, frame_count, time_info, status):  # noqa: ANN001, pragma: no cover
         if self._paused.is_set():
             return (None, PA_CONTINUE)  # en pausa se descarta el bloque: el WAV no avanza
+        now = time.perf_counter()
         if self.first_callback_t is None:
-            self.first_callback_t = time.perf_counter()
+            self.first_callback_t = now
+        self.last_callback_t = now
         self.frames += frame_count
+        self._callbacks += 1
+        if self._callbacks % 64 == 0:  # ~1,5 s: muestreo para la deriva (regresión al parar)
+            self._samples.append((now, self.frames))
         # RMS barato del bloque (int16): muestrear como máximo 512 valores del primer canal
         chunk = memoryview(in_data).cast("h")
         stride = max(1, self.channels)
@@ -243,7 +253,36 @@ class AudioRecorder:
             channels=self.channels,
             frames=self.frames,
             first_callback_t=self.first_callback_t,
+            last_callback_t=self.last_callback_t,
+            drift_ppm=self._measure_drift(),
         )
+
+    def _measure_drift(self) -> float:
+        """ppm del reloj del dispositivo respecto al del sistema (regresión sin extremos).
+
+        Los buffers de los extremos sesgan la medida (su contenido precede/sucede al instante
+        del callback), así que se descartan los dos primeros y los dos últimos muestreos.
+        Necesita ≥ 60 s de grabación para tener precisión útil.
+        """
+        samples = self._samples
+        if len(samples) < 6 or self.first_callback_t is None or self.last_callback_t is None:
+            return 0.0
+        span = self.last_callback_t - self.first_callback_t
+        if span < 60.0:
+            return 0.0
+        interior = samples[2:-2]
+        if len(interior) < 3:
+            return 0.0
+        try:
+            import numpy as np
+
+            times = np.array([t for t, _ in interior], dtype=np.float64)
+            seconds = np.array([f for _, f in interior], dtype=np.float64) / self.rate
+            slope = float(np.polyfit(times, seconds, 1)[0])  # segundos de audio por segundo real
+        except Exception:
+            return 0.0
+        ppm = (slope - 1.0) * 1e6
+        return max(-5000.0, min(5000.0, round(ppm, 1)))
 
 
 class SilenceKeepAlive:

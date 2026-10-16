@@ -85,12 +85,23 @@ def main() -> int:
         if backup is not None:
             settings_file.write_text(backup, encoding="utf-8")
 
-    for name, out in (("ui-grabando", "interaccion-grabando"), ("ui-biblioteca", "interaccion-biblioteca")):
+    for name, out in (
+        ("ui-grabando", "interaccion-grabando"),
+        ("ui-biblioteca", "interaccion-biblioteca"),
+    ):
         source = SOURCE / f"{name}.png"
         if source.exists():
             target = DEST / f"{out}.png"
             shutil.copy(source, target)
             resize_in_place(target)
+            print(f"· {target} (de {source.name})")
+
+    extras = Path("tools/spikes/out/f21")
+    for name, out in (("cuenta-atras", "cuenta-atras"), ("editor-region-movido", "editor-region")):
+        source = extras / f"{name}.png"
+        if source.exists():
+            target = DEST / f"{out}.png"
+            shutil.copy(source, target)
             print(f"· {target} (de {source.name})")
 
     return 0

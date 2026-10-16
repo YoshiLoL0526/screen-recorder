@@ -23,6 +23,7 @@ class Settings:
     keepalive: bool = True
     mic_index: int = -1
     out_dir: str = ""
+    countdown_s: int = 0
 
     def normalized(self) -> "Settings":
         if not self.out_dir:

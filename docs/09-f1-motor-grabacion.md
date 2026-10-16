@@ -92,6 +92,10 @@ Estos seis habrían costado horas de depuración después; quedan documentados p
 
 ### Pendientes que pasan a F1.1 (no bloquean F2)
 
+> ✅ **Aplicados el 2026-10-16** (ver [11 — F1.1 + F2.1](11-f11-f21-arreglos.md)):
+> cursor propio, compensación activa de deriva (`asetrate`), editor de región arrastrable y
+> cuenta atrás. Queda pendiente el soak de 30 min como validación final del criterio.
+
 1. **Cursor propio** (software cursor) para eliminar la varianza de latencia de WGC.
 2. **Compensación activa de deriva** del dispositivo (~90 ppm) con ratio en el mux.
 3. Soak de 30 min (RNF-02 completo) con la compensación activa y eventos cada 5 min.

@@ -111,9 +111,12 @@ def on_key(e) -> bool | None:
 
 
 def shell():
+    from .region_editor import region_editor
+
     return column(grow=1, on_key=on_key)[
         header(),
         row(grow=1)[nav(), box(grow=1)[content()]],
         toast_layer(),
         modal_layer(),
+        region_editor(),
     ]

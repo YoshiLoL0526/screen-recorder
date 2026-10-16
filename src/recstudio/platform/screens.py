@@ -55,7 +55,11 @@ def monitor_size(monitor_index: int = 1) -> tuple[int, int]:
 
 def capture_reference_png(monitor_index: int = 1) -> bytes:
     """Captura el monitor como PNG en memoria (para elegir la región en la UI)."""
+    import io
+
     import mss
+    import numpy as np
+    from PIL import Image
 
     sct = mss.MSS() if hasattr(mss, "MSS") else mss.mss()
     try:
@@ -63,7 +67,11 @@ def capture_reference_png(monitor_index: int = 1) -> bytes:
         if not 1 <= monitor_index < len(monitors):
             raise CaptureError(f"no existe el monitor {monitor_index}")
         shot = sct.grab(monitors[monitor_index])
-        png = shot.png
-        return bytes(png)
+        # mss 10.x ya no expone `ScreenShot.png`: se codifica con PIL (está en el stack).
+        frame = np.frombuffer(shot.bgra, np.uint8).reshape(shot.height, shot.width, 4)
+        image = Image.fromarray(np.ascontiguousarray(frame[:, :, [2, 1, 0]]))
+        buffer = io.BytesIO()
+        image.save(buffer, "PNG", optimize=True)
+        return buffer.getvalue()
     finally:
         sct.close()

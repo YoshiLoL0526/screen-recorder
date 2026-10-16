@@ -223,7 +223,9 @@ class WgcBackend:
         from windows_capture import WindowsCapture
 
         kwargs: dict[str, object] = {
-            "cursor_capture": bool(self.source.capture_cursor),
+            # El cursor nativo solo si se pide: por defecto lo dibuja la app (software) para
+            # evitar la latencia variable de la composición de Windows (F0/F1: 12–119 ms).
+            "cursor_capture": self.source.cursor == "native",
             "draw_border": False,
             "dirty_region": False,
             # Medido en F0/F1: el intervalo se cuantiza al periodo del compositor (~10 ms en
@@ -300,8 +302,8 @@ def create_backend(source: SourceConfig, *, fps: int = 60, preferred: str | None
         if pref not in (None, "wgc"):
             raise CaptureError(f"la captura de ventanas requiere WGC (no {pref!r})")
         order = ["wgc"]
-    elif pref == "dxcam" and source.capture_cursor:
-        raise CaptureError("dxcam no captura el cursor: usa WGC o desactiva el cursor")
+    elif pref == "dxcam" and source.cursor == "native":
+        raise CaptureError("dxcam no captura el cursor del sistema: usa WGC o el cursor propio")
     else:
         order = [pref, *[b for b in _DEFAULT_ORDER if b != pref]] if pref else list(_DEFAULT_ORDER)
 

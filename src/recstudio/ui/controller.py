@@ -16,6 +16,7 @@ from typing import Any
 from .. import state
 from ..core.config import AudioConfig, ConfigError, RecordingConfig, SourceConfig
 from ..core.errors import RecStudioError
+from ..core.regions import clamp_region
 from ..platform import audio as audio_mod
 from ..platform import ffmpeg as ffmpeg_mod
 from ..platform import screens
@@ -51,6 +52,8 @@ class Controller:
         self._lock = threading.Lock()
         self._save_timer: threading.Timer | None = None
         self._closing = False
+        self._countdown_cancel = threading.Event()
+        self.region_drag_start: tuple[int, int, int, int] | None = None  # región al empezar un drag
 
     # -- ciclo de vida --------------------------------------------------------
 
@@ -89,11 +92,8 @@ class Controller:
         state.source_kind.set(s.source_kind)
         state.monitor_index.set(s.monitor_index)
         state.window_title.set(s.window_title)
-        x, y, w, h = s.region
-        state.region_x.set(str(x))
-        state.region_y.set(str(y))
-        state.region_w.set(str(w))
-        state.region_h.set(str(h))
+        state.set_region(s.region)
+        state.countdown_s.set(s.countdown_s)
         state.fps_target.set(s.fps)
         state.preset.set(s.preset)
         state.encoder.set(s.encoder)
@@ -105,7 +105,7 @@ class Controller:
     def _subscribe_settings(self) -> None:
         for signal in (
             state.theme_name, state.source_kind, state.monitor_index, state.window_title,
-            state.region_x, state.region_y, state.region_w, state.region_h,
+            state.region, state.countdown_s,
             state.fps_target, state.preset, state.encoder, state.audio_system,
             state.keepalive, state.mic_index, state.out_dir,
         ):
@@ -126,7 +126,8 @@ class Controller:
         s.source_kind = state.source_kind()
         s.monitor_index = int(state.monitor_index())
         s.window_title = state.window_title()
-        s.region = _parse_region() or s.region
+        s.region = _parse_region() or state.region()
+        s.countdown_s = int(state.countdown_s())
         s.fps = int(state.fps_target())
         s.preset = state.preset()
         s.encoder = state.encoder()
@@ -169,14 +170,96 @@ class Controller:
         region = _parse_region() if kind == "region" else None
         return int(state.monitor_index()), region
 
+    # -- editor de región -------------------------------------------------------
+
+    def open_region_editor(self) -> None:
+        """Captura el monitor y abre el editor de región (imagen + rectángulo arrastrable)."""
+
+        def worker() -> None:
+            import io
+
+            from PIL import Image
+
+            from ..platform import screens
+
+            try:
+                monitor_index = int(state.monitor_index())
+                png = screens.capture_reference_png(monitor_index)
+                monitor = next(
+                    (m for m in state.monitors() if m.index == monitor_index), None
+                )
+                bounds = (monitor.width, monitor.height) if monitor else (1920, 1080)
+                image = Image.open(io.BytesIO(png)).convert("RGB")
+                display_w = min(940, image.width)
+                display_h = max(2, round(image.height * display_w / image.width))
+                image = image.resize((display_w, display_h), Image.Resampling.LANCZOS)
+                buffer = io.BytesIO()
+                image.save(buffer, "PNG", optimize=True)
+                state.set_region(clamp_region(state.region(), bounds))
+                state.region_bounds.set(bounds)
+                state.region_ref_size.set((display_w, display_h))
+                state.region_ref.set(buffer.getvalue())
+                state.region_editing.set(True)
+            except Exception as exc:
+                state.toast("danger", f"No se pudo capturar la pantalla: {exc}")
+
+        threading.Thread(target=worker, daemon=True, name="region-ref").start()
+
+    def close_region_editor(self) -> None:
+        state.region_editing.set(False)
+        state.region_ref.set(b"")
+
+    def begin_region_drag(self) -> None:
+        self.region_drag_start = state.region()
+
+    def drag_region(self, dx: float, dy: float, corner: str | None) -> None:
+        """Aplica un delta de arrastre (px lógicos del editor) a la región."""
+        from ..core.regions import move_region, resize_region
+
+        start = self.region_drag_start or state.region()
+        bounds = state.region_bounds() or (1920, 1080)
+        display_w, display_h = state.region_ref_size()
+        if not display_w or not display_h:
+            return
+        scale_x = bounds[0] / display_w
+        scale_y = bounds[1] / display_h
+        step_x = dx * scale_x
+        step_y = dy * scale_y
+        if corner is None:
+            state.set_region(move_region(start, step_x, step_y, bounds))
+        else:
+            state.set_region(resize_region(start, corner, step_x, step_y, bounds))
+
     # -- grabación -------------------------------------------------------------
 
     def toggle_record(self) -> None:
         with self._lock:
+            if state.countdown() > 0:  # cancelar la cuenta atrás en curso
+                self._countdown_cancel.set()
+                state.countdown.set(0)
+                state.toast("info", "Cuenta atrás cancelada")
+                return
             if self.session is None:
-                threading.Thread(target=self._start_worker, daemon=True, name="rec-start").start()
+                seconds = int(state.countdown_s())
+                if seconds > 0:
+                    self._countdown_cancel.clear()
+                    threading.Thread(
+                        target=self._countdown_then_start, args=(seconds,), daemon=True, name="countdown"
+                    ).start()
+                else:
+                    threading.Thread(target=self._start_worker, daemon=True, name="rec-start").start()
             elif state.rec_state() in ("recording", "paused"):
                 threading.Thread(target=self._stop_worker, daemon=True, name="rec-stop").start()
+
+    def _countdown_then_start(self, seconds: int) -> None:
+        for remaining in range(seconds, 0, -1):
+            state.countdown.set(remaining)
+            if self._countdown_cancel.wait(1.0):
+                state.countdown.set(0)
+                return
+        state.countdown.set(0)
+        if not self._countdown_cancel.is_set() and not self._closing:
+            self._start_worker()
 
     def toggle_pause(self) -> None:
         session = self.session

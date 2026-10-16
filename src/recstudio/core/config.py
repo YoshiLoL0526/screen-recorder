@@ -24,24 +24,31 @@ BACKENDS = (None, "wgc", "dxgi", "dxcam", "mss")
 SourceKind = Literal["monitor", "window", "region"]
 
 
+CursorMode = Literal["software", "native", "off"]
+
+
 @dataclass(frozen=True)
 class SourceConfig:
     """Qué se graba.
 
     `region` es (x, y, ancho, alto) en píxeles físicos **relativos al monitor** elegido.
-    `monitor_index` es 1-based (como `windows-capture` y `mss`).
+    `monitor_index` es 1-based (como `windows-capture` y `mss`). `cursor`:
+    `"software"` (propio: sin la latencia variable de WGC), `"native"` (lo compone Windows)
+    u `"off"`.
     """
 
     kind: SourceKind = "monitor"
     monitor_index: int = 1
     window_title: str | None = None
     region: tuple[int, int, int, int] | None = None
-    capture_cursor: bool = True
+    cursor: CursorMode = "software"
     backend: str | None = None  # None = automático (ver platform.capture.create_backend)
 
     def validate(self) -> "SourceConfig":
         if self.backend not in BACKENDS:
             raise ConfigError(f"backend desconocido: {self.backend!r}")
+        if self.cursor not in ("software", "native", "off"):
+            raise ConfigError(f"cursor desconocido: {self.cursor!r}")
         if self.kind == "monitor":
             if self.monitor_index < 1:
                 raise ConfigError("monitor_index es 1-based (1 = primario)")

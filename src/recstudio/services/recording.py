@@ -30,8 +30,10 @@ from ..core.config import RecordingConfig
 from ..core.errors import CaptureError, FfmpegError, RecStudioError
 from ..platform import audio as audio_mod
 from ..platform import capture as capture_mod
+from ..platform import cursor as cursor_mod
 from ..platform import ffmpeg as ffmpeg_mod
 from ..platform import paths
+from ..platform import screens as screens_mod
 
 EventFn = Callable[[str, dict], None]
 
@@ -122,6 +124,9 @@ class RecordingSession:
         self._size = (0, 0)
         self._crop: tuple[int, int, int, int] | None = None
         self._last_frame: np.ndarray | None = None
+        self._cursor_mode = "off"
+        self._cursor: cursor_mod.CursorProvider | None = None
+        self._cursor_origin = (0, 0)
         self._t0_video: float | None = None
         self._pause_total = 0.0
         self._paused_at = 0.0
@@ -311,6 +316,24 @@ class RecordingSession:
             self._crop = None
             self._size = (width, height)
 
+        # Cursor propio: se dibuja en el loop con la posición leída en el instante de captura.
+        mode = cfg.source.cursor
+        if mode == "software":
+            if cfg.source.kind == "window":
+                self._warn("el cursor propio no está disponible en ventanas: se usa el del sistema")
+                mode = "native"
+            else:
+                monitor = next(
+                    (m for m in screens_mod.list_monitors() if m.index == cfg.source.monitor_index), None
+                )
+                if monitor is None:
+                    mode = "off"
+                else:
+                    self._cursor = cursor_mod.CursorProvider()
+                    crop_x, crop_y = (self._crop[0], self._crop[1]) if self._crop else (0, 0)
+                    self._cursor_origin = (monitor.left + crop_x, monitor.top + crop_y)
+        self._cursor_mode = mode
+
         cmd = ffmpeg_mod.capture_cmd(
             exe,
             encoder=self._encoder,
@@ -404,6 +427,14 @@ class RecordingSession:
                 continue
 
             prepared = self._prepare(frame)
+            if self._cursor is not None:
+                snapshot = self._cursor.snapshot()
+                if snapshot is not None:
+                    # on_copy: `_prepare` puede devolver una vista de `_last_frame`; dibujar
+                    # in place quemaría el cursor en el frame base y dejaría rastro (F1.1).
+                    prepared = cursor_mod.draw_cursor(
+                        prepared, snapshot, self._cursor_origin, on_copy=True
+                    )
             try:
                 assert self._proc.stdin is not None
                 self._proc.stdin.write(prepared.tobytes())
@@ -514,7 +545,12 @@ class RecordingSession:
             raise FfmpegError("el video temporal no tiene duración", details=ffmpeg_mod.stderr_tail(self._stderr_path))
 
         mux_tracks = [
-            ffmpeg_mod.MuxTrack(path=track.path, offset_s=offsets.get(track.path.name, 0.0))
+            ffmpeg_mod.MuxTrack(
+                path=track.path,
+                offset_s=offsets.get(track.path.name, 0.0),
+                rate=track.rate,
+                drift_ppm=float(getattr(track, "drift_ppm", 0.0) or 0.0),
+            )
             for track in tracks
         ]
         suffix = "-recuperada" if recover else ""
@@ -611,9 +647,11 @@ class RecordingSession:
                     "channels": track.channels,
                     "seconds": round(track.seconds, 3),
                     "offset_s": round(self._audio_offset(track), 4),
+                    "drift_ppm": round(float(getattr(track, "drift_ppm", 0.0) or 0.0), 1),
                 }
                 for track in result.audio
             ],
+            "cursor": self._cursor_mode,
             "config": _config_to_dict(self.config),
             "stats": asdict(stats),
             "warnings": result.warnings,

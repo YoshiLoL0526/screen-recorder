@@ -62,6 +62,12 @@ region_x = Signal("0")
 region_y = Signal("0")
 region_w = Signal("1280")
 region_h = Signal("720")
+countdown_s = Signal(0)  # segundos de cuenta atrás configurados (0 = sin cuenta atrás)
+countdown = Signal(0)  # segundos restantes mientras corre (0 = inactiva)
+region_ref = Signal(b"")  # captura de referencia (PNG) del monitor para elegir la región
+region_ref_size = Signal((0, 0))  # tamaño en px lógicos con el que se muestra la referencia
+region_bounds = Signal((0, 0))  # tamaño del monitor de la referencia (px físicos)
+region_editing = Signal(False)
 fps_target = Signal(60)
 preset = Signal("media")
 encoder = Signal("auto")
@@ -105,6 +111,16 @@ def drop_toast(toast_id: int) -> None:
 def set_theme(name: str) -> None:
     theme_name.set(name)
     theme.set(theme_by_name(name))
+
+
+def set_region(value: tuple[int, int, int, int]) -> None:
+    """Fija la región canónica y sincroniza los campos de texto."""
+    x, y, w, h = (int(v) for v in value)
+    region.set((x, y, w, h))
+    region_x.set(str(x))
+    region_y.set(str(y))
+    region_w.set(str(w))
+    region_h.set(str(h))
 
 
 def recordings_dir() -> Path:

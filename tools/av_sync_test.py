@@ -376,8 +376,15 @@ def main() -> int:
         print("· vídeo (contenido): no se detectó la ventana parpadeante")
     if cursor_lat is not None:
         print(f"· latencia de vídeo (cursor): {cursor_lat:+.0f} ms → desfase A/V: {(beep_t - cursor_t) * 1000:+.0f} ms")
-    verdict = "OK" if content_skew is not None and abs(content_skew) < 80 else "REVISAR"
-    print(f"· veredicto (contenido, RNF-02 < 80 ms): {verdict}")
+    verdict = "REVISAR"
+    if content_skew is not None:
+        verdict = "OK" if abs(content_skew) < 80 else "FUERA DE TOLERANCIA"
+        print(f"· veredicto (contenido, RNF-02 < 80 ms): {verdict}")
+    elif cursor_t is not None:
+        cursor_skew = (beep_t - cursor_t) * 1000
+        verdict = "OK" if abs(cursor_skew) < 80 else "FUERA DE TOLERANCIA"
+        print(f"· veredicto (cursor, RNF-02 < 80 ms): {verdict}"
+              f"  [sin marcador de contenido: el escritorio no muestra ventanas]")
     print(f"· vídeo: {result.mp4.name} ({result.duration_s:.2f}s, {result.width}×{result.height})")
     print(json.dumps({
         "event_at": round(event_at, 3),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from aurora import (
+    animate,
     box,
     button,
     column,
@@ -52,6 +53,33 @@ def preview_panel():
         not recording and chip("vista previa", tone="muted"),
     ]
 
+    countdown = state.countdown()
+    countdown_overlay = (
+        box(
+            position="absolute",
+            left=0,
+            right=0,
+            top=0,
+            bottom=0,
+            align="center",
+            justify="center",
+        )[
+            box(
+                width=120,
+                height=120,
+                radius="$full",
+                bg="#0B0D14CC",
+                border_width=3,
+                border_color="$rec",
+                align="center",
+                justify="center",
+                enter=animate.zoom(0.9),
+            )[text(str(countdown), size=56, weight=800, color="$rec")]
+        ]
+        if countdown > 0
+        else None
+    )
+
     content = (
         column(grow=1, align="center", justify="center")[
             image(data, fit="contain", grow=1, width="100%", key="preview-image")
@@ -75,6 +103,7 @@ def preview_panel():
     )[
         content,
         badges,
+        countdown_overlay,
     ]
 
 
@@ -215,6 +244,13 @@ def config_panel():
                 text("al", size=12, color="$muted"), text_input(state.region_h, width=58, key="rh"),
             ]
         )
+        source_block.append(
+            row(gap=8, align="center")[
+                spacer(),
+                button("Elegir región…", lambda: _open_region_editor(), variant="soft",
+                       padding=(5, 12), font_size=12),
+            ]
+        )
 
     audio_block = [
         field("Sistema", switch(state.audio_system, key="sw-system")),
@@ -233,6 +269,11 @@ def config_panel():
             state.encoder,
             [("auto", "Automático")] + [(name, name) for name, ok in encoders.items() if ok],
             key="sel-encoder",
+        )),
+        field("Cuenta atrás", select(
+            state.countdown_s,
+            [(0, "Sin cuenta atrás"), (3, "3 segundos"), (5, "5 segundos"), (10, "10 segundos")],
+            key="sel-countdown",
         )),
     ]
 
@@ -273,6 +314,13 @@ def _open_out_dir() -> None:
     from ...services import library
 
     library.reveal_in_explorer(paths.videos_dir())
+
+
+def _open_region_editor() -> None:
+    from ..controller import CONTROLLER
+
+    if CONTROLLER is not None:
+        CONTROLLER.open_region_editor()
 
 
 # -- pantalla ------------------------------------------------------------------

@@ -211,10 +211,14 @@ class MuxTrack:
 
     `offset_s` > 0: el audio arrancó después (se retrasa con `-itsoffset`).
     `offset_s` < 0: arrancó antes (se recorta con `atrim`).
+    `drift_ppm` ≠ 0: corrección del reloj del dispositivo medida durante la grabación
+    (`asetrate` con la tasa corregida; el pitch cambia ~0.009 %, inaudible).
     """
 
     path: Path
     offset_s: float = 0.0
+    rate: int = 0
+    drift_ppm: float = 0.0
 
 
 def mux_cmd(
@@ -242,10 +246,15 @@ def mux_cmd(
         if track.offset_s > 0.0005:
             args += ["-itsoffset", f"{track.offset_s:.3f}"]
         args += ["-i", str(track.path)]
+        steps: list[str] = []
         if track.offset_s < -0.0005:
-            chains.append(
-                f"[{i}:a]atrim=start={abs(track.offset_s):.3f},asetpts=PTS-STARTPTS[t{i}]"
-            )
+            steps.append(f"atrim=start={abs(track.offset_s):.3f},asetpts=PTS-STARTPTS")
+        if track.rate and abs(track.drift_ppm) >= 5.0:
+            corrected = round(track.rate * (1.0 + track.drift_ppm / 1e6))
+            steps.append(f"asetrate={corrected}")       # acorta/alarga según el reloj real
+            steps.append(f"aresample={track.rate}")     # vuelve a la tasa nominal (pre-amix)
+        if steps:
+            chains.append(f"[{i}:a]{','.join(steps)}[t{i}]")
             labels.append(f"[t{i}]")
         else:
             labels.append(f"[{i}:a]")
