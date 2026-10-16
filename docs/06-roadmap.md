@@ -42,7 +42,15 @@ suelto en `tools/spikes/`, se mide y se documenta el resultado.
 **Aceptación:** 10 min a 1080p60 con mic+sistema; deriva < 80 ms; pausa en medio sin desincronía;
 matar el proceso a mitad → oferta de recuperación válida. RNF-01/02/08 verificados.
 
-## F2 — UI de grabación + Biblioteca (1–2 semanas)
+## F2 — UI de grabación + Biblioteca (1–2 semanas) — ✅ implementado (2026-10-16)
+
+> Pantallas de Grabar y Biblioteca con Aurora, preview en vivo, stats con sparkline, toasts y
+> modal, atajos F9/F10, configuración persistente y recuperación de sesiones en la UI.
+> Prueba end-to-end con `App.pilot()` en `tools/f2_ui_test.py` (ver
+> [10 — F2](10-f2-ui.md), con capturas).
+>
+> Aceptación: ✅ grabar/parar/pausar solo con la UI y F9/F10; ✅ la UI no bloquea (el motor va en
+> hilos); ✅ «detener → biblioteca con miniatura → acciones».
 
 - `theme.py`, `state.py`, shell (sidebar/header), pantalla Grabar completa, preview en vivo,
   stats/sparkline, cuenta atrás, hotkeys in-app.

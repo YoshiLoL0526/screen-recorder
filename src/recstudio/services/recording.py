@@ -134,9 +134,27 @@ class RecordingSession:
     def state(self) -> RecState:
         return self._state
 
+    @property
+    def backend_name(self) -> str:
+        return self._backend_name
+
+    @property
+    def encoder_name(self) -> str:
+        return self._encoder
+
     def stats(self) -> RecordingStats:
         with self._lock:
             return self._stats.copy()
+
+    def preview_frame(self) -> np.ndarray | None:
+        """Copia del último frame (ya recortado a la región) para el preview de la UI."""
+        frame = self._last_frame
+        if frame is None:
+            return None
+        try:
+            return self._prepare(frame).copy()
+        except Exception:
+            return None
 
     def _event(self, name: str, **data: object) -> None:
         if self._on_event is not None:

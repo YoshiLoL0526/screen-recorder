@@ -20,6 +20,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 07 | [Decisiones (ADR)](07-decisiones.md) | Las decisiones técnicas con sus alternativas descartadas y consecuencias. |
 | 08 | [F0: resultados](08-f0-resultados.md) | Mediciones de los spikes (captura, pipe FFmpeg, audio, preview, drag/scroll, empaquetado) y decisiones ajustadas. |
 | 09 | [F1: motor de grabación](09-f1-motor-grabacion.md) | Implementación del grabador (paquete `recstudio` + CLI), bugs encontrados, mediciones y criterios de F1. |
+| 10 | [F2: UI de grabación + Biblioteca](10-f2-ui.md) | Pantalla de Grabar y Biblioteca en Aurora, capturas, prueba end-to-end con Pilot y aprendizajes de layout. |
 
 ## Orden de lectura sugerido
 
