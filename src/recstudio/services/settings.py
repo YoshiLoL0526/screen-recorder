@@ -26,6 +26,7 @@ class Settings:
     countdown_s: int = 0
     last_project: str = ""  # project.json abierto al cerrar (se reabre al arrancar)
     preview_audio: bool = True
+    export_preset: str = "rapido"  # preset del último export (core.graph.PRESETS)
 
     def normalized(self) -> "Settings":
         if not self.out_dir:

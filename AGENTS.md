@@ -5,23 +5,25 @@ Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora
 **FFmpeg** en subprocess. Todo el proyecto —docs, comentarios, UI, tests y commits— está en
 **español**; los commits usan prefijos `feat:` / `docs:`.
 
-Estado: F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1 y **F3 (editor)** implementados
-(`core/project.py`, `core/timeline.py`, `core/store.py`, `services/media.py`/`playback.py`,
-`ui/editor_controller.py`, `ui/timeline.py`, `ui/screens/editor.py`; ver `docs/12`). La siguiente
-fase es **F4 (export y efectos)**: `core/graph.py` y `services/export.py` aún **no existen**; su
-diseño está en `docs/04-editor.md`.
+Estado: F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1, **F3 (editor)** y **F4
+(export y efectos)** implementados. Editor: `core/project.py`, `core/timeline.py`,
+`core/store.py`, `services/media.py`/`playback.py`, `ui/editor_controller.py`, `ui/timeline.py`,
+`ui/screens/editor.py` (ver `docs/12`). Export: `core/effects.py`, `core/graph.py` (builder puro
+del filter graph), `core/keyframes.py` (corte sin recodificar), `services/export.py`,
+`ui/export_modal.py` (ver `docs/13`). La siguiente fase es **F5 (pulido y v1.0)**.
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 115 tests; la integración usa FFmpeg real
+uv run pytest                                   # 145 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
 uv run python tools/rec.py --list               # CLI de grabación (--probe-encoders, --recover…)
 uv run python tools/f2_ui_test.py               # e2e de la UI (app real con App.pilot, sin ventana)
 uv run python tools/f3_editor_test.py           # aceptación del editor (+ capturas en docs/assets/f3)
+uv run python tools/f4_export_test.py           # aceptación del export (NVENC, sync, byte a byte; --skip-long)
 ```
 
 No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run aurora build`
@@ -64,6 +66,14 @@ No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run au
   `KeyEvent.matches("+")` lanza excepción; `on_drag` llega también con un clic (fase `start`,
   x de ventana → `TL_X0`). En Windows, `Condition.wait` va a saltos de ~15.6 ms: para relojes
   usa `time.sleep`.
+- Export (`docs/13`): cada clip es **una entrada** (`-ss IN -t LEN -i`) y dura un número entero
+  de frames (`tpad` + `trim=end_frame`; el audio, `apad`+`atrim` a lo mismo): no cambies eso sin
+  revisar los golden de `tests/test_f4_graph.py`. El concat del corte rápido necesita
+  `-auto_convert 0` o los keyframes dejan de ser idénticos. Preview y graph comparten las
+  curvas de `core/effects.py` (lo exportado = lo visto).
+- Aurora 0.3: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
+  `height=0`; los handlers suscritos a `Signal` globales deben ignorar eventos tras `shutdown`
+  (los tests crean varias apps por proceso y `subscribe` no se deshace).
 - Editor: el canvas del timeline usa una función de dibujo de módulo (misma identidad ⇒ Aurora
   no redibuja si no cambian sus `Signal`); el playhead va en su propio `@component`. Proyectos en
   `<grabaciones>/Proyectos/*.rsproj/project.json`.

@@ -22,6 +22,7 @@ import numpy as np
 from aurora import Canvas, box, canvas, column, component, row, scroll, text
 
 from .. import state
+from ..core import effects as fx
 from ..core import timeline as tl
 from ..core.project import Project
 from ..services import media
@@ -173,6 +174,8 @@ def _draw_tracks(c: Canvas) -> None:
         meta = tl.format_time(clip.duration)
         if clip.speed != 1.0:
             meta = f"{clip.speed:g}× · {meta}"
+        if fx.has_effects(clip):
+            meta = f"fx · {meta}"
         if is_offline:
             meta = "sin archivo · " + meta
         c.text(label_x, VIDEO_TOP + 28, _ellipsis(meta, x + w - label_x - 6, 10.5), size=10.5,

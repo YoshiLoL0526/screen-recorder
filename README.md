@@ -1,9 +1,10 @@
 # Rec Studio — grabación de pantalla + editor de video
 
-> **Estado: F3 implementado** — además del grabador (F1/F2 con sus arreglos), la app ya tiene
-> **editor**: timeline con cortes, recortes, reordenar, velocidad y transiciones, undo/redo,
-> autoguardado y preview a 30 fps ([docs/12](docs/12-f3-editor.md)). Siguiente fase: **F4**
-> (export y efectos), ver [roadmap](docs/06-roadmap.md).
+> **Estado: F4 implementado** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
+> velocidad, transiciones, undo/redo, autoguardado, preview a 30 fps) y **export** (F4: MP4 con
+> FFmpeg, presets GPU/calidad/720p/sin recodificar, progreso y ETA, efectos de color, volumen,
+> fundidos y zoom) — ver [docs/12](docs/12-f3-editor.md) y [docs/13](docs/13-f4-export.md).
+> Siguiente fase: **F5** (pulido y v1.0), ver [roadmap](docs/06-roadmap.md).
 
 Aplicación de escritorio para **grabar la pantalla** (como Bandicam: monitor, ventana o región,
 con audio del sistema y micrófono) y **editar el resultado sin salir de la app** (cortes,
@@ -46,18 +47,20 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 - [07 — Decisiones (ADR)](docs/07-decisiones.md): por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido, etc.
 - [08 — F0: resultados](docs/08-f0-resultados.md): mediciones reales de captura, pipe FFmpeg, audio, preview y empaquetado.
 - [12 — F3: editor](docs/12-f3-editor.md): lo implementado del editor, mediciones y aprendizajes.
+- [13 — F4: export](docs/13-f4-export.md): filter graph, export, presets, corte rápido y efectos.
 
 ## Estructura del repositorio
 
 ```
 ├─ main.py            # punto de entrada de la app (uv run python main.py)
 ├─ docs/              # especificación, resultados y capturas
-├─ src/recstudio/     # paquete: core/ · platform/ · services/ · ui/ (F1 + F2 + F3)
+├─ src/recstudio/     # paquete: core/ · platform/ · services/ · ui/ (F1 + F2 + F3 + F4)
 ├─ tools/
 │  ├─ rec.py          # CLI de grabación (F1): --list, --region, --recover, --duration…
 │  ├─ f2_ui_test.py   # prueba end-to-end de la UI (grabar/pausar/parar con Pilot)
 │  ├─ f2_screenshots.py  # regenera las capturas de la documentación
 │  ├─ f3_editor_test.py  # aceptación del editor (3 clips, drags+undo, fps del preview) + capturas
+│  ├─ f4_export_test.py  # aceptación del export (sync A/V, NVENC 1 min, corte byte a byte) + capturas
 │  ├─ av_sync_test.py # prueba automática de sincronía A/V (beep + cursor)
 │  ├─ soak_test.py    # soak con pausa y medición de deriva
 │  ├─ recovery_test.py# recuperación de sesiones interrumpidas

@@ -56,7 +56,7 @@ def header():
     )[
         image(icons.CAMERA, width=20),
         text("Rec Studio", size=15, weight=700),
-        chip("F3", tone="accent"),
+        chip("F4", tone="accent"),
         spacer(),
         recording and chip(
             ("⏸ pausado" if rec == "paused" else "● grabando"), tone="rec" if rec == "recording" else "muted"

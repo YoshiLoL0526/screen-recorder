@@ -146,6 +146,22 @@ insp_transition = Signal("none")
 insp_transition_dur = Signal(0.5)
 insp_fps = Signal(60)
 
+# -- efectos y export (F4) ---------------------------------------------------------
+insp_volume = Signal(1.0)  # efecto `volume` del clip seleccionado
+insp_fade_in = Signal(0.0)
+insp_fade_out = Signal(0.0)
+insp_zoom = Signal(1.0)
+insp_brightness = Signal(0.0)
+insp_contrast = Signal(1.0)
+insp_saturation = Signal(1.0)
+insp_track_gain = Signal(1.0)  # volumen del audio original (track de video; 0 = silenciado)
+
+export_open = Signal(False)  # modal «Exportar»
+export_name = Signal("")  # nombre del archivo (sin extensión)
+export_preset = Signal("rapido")
+export_progress = Signal(None)  # services.export.ExportProgress | None
+export_blockers = Signal(())  # motivos por los que no se puede «sin recodificar»
+
 
 def toast(kind: str, text: str) -> None:
     """Encola un toast con auto-cierre (4 s; 6 s si lleva acción implícita)."""
@@ -186,3 +202,8 @@ def recordings_dir() -> Path:
 def projects_dir() -> Path:
     """Proyectos del editor: `<carpeta de grabaciones>/Proyectos/*.rsproj`."""
     return recordings_dir().expanduser() / "Proyectos"
+
+
+def exports_dir() -> Path:
+    """Exportaciones del editor: `<carpeta de grabaciones>/Exportados`."""
+    return recordings_dir().expanduser() / "Exportados"

@@ -238,44 +238,56 @@ Detalle de interacción en [05 — UI con Aurora](05-ui-aurora.md). Contrato con
 `core/graph.build(project, preset) -> GraphSpec(args, filter_complex, total_duration)` — función
 pura sobre el modelo: genera el comando completo y es 100 % testeable (golden strings).
 
+> Implementado en F4: ver [13 — F4](13-f4-export.md). La cadena real difiere del primer diseño
+> en dos puntos (motivos en 13): **una entrada por clip** con seek de entrada (`-ss IN -t LEN`)
+> en vez de `trim=start:end`, y **duraciones en frames enteros** (`tpad` + `trim=end_frame`, y
+> el audio a esa misma duración) para que ni los offsets ni el audio deriven.
+
 Cadena canónica **por clip de video** (el orden importa):
 
 ```
-trim=start=IN:end=OUT          # corte exacto (frame-accurate)
-setpts=(PTS-STARTPTS)/SPEED    # velocidad (divide el tiempo)
-eq=brightness=…:contrast=…:saturation=…     # efectos (si hay)
+-ss IN -t LEN -i archivo                     # seek preciso de entrada (una entrada por clip)
+setpts=(PTS-STARTPTS)/SPEED                  # velocidad (divide el tiempo)
+crop=w=iw/Z:h=ih/Z:x=(iw-ow)*CX:y=(ih-oh)*CY # zoom (si hay)
+eq=brightness=…:contrast=…:saturation=…      # color (si hay)
 scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:-1:-1:color=black   # normalización
-fps=FPS,format=yuv420p,setsar=1               # fps, formato y SAR para xfade
+fps=FPS,tpad=stop_mode=clone:stop=FPS,trim=end_frame=N    # N = round(duración·FPS) frames exactos
+fade=t=in|out (si hay) ,format=yuv420p,setsar=1           # fundidos, formato y SAR para xfade
 ```
 
-Cadena **por clip de audio**:
+Cadena **por clip de audio** (tramo audible: el entrante de una transición empieza tras el solape):
 
 ```
-atrim=start=IN:end=OUT, asetpts=PTS-STARTPTS, atempo=SPEED (0.5–2.0 en cadena),
-volume=GAIN, afade=t=in/out:d=0.03            # micro-fades anti-click
+atrim=start=SOLAPE·SPEED (si hay), asetpts=PTS-STARTPTS, aresample=48000, aformat=fltp:stereo,
+atempo=SPEED (0.5–2.0 en cadena), volume=GAIN, afade in/out (efecto o 30 ms anti-click),
+apad=whole_dur=D, atrim=duration=D           # D = la duración en frames del tramo de video
 ```
 
-**Transiciones** (`xfade`) encadenadas con la fórmula de offsets de arriba; y concatenación de
-audio con `concat` (los huecos con `anullsrc` si un clip no tiene audio). Ejemplo completo para
-el caso de los tests golden (2 clips, fade 0.5 s, clip 2 al doble de velocidad):
+**Transiciones** (`xfade`) encadenadas con la fórmula de offsets de arriba (en frames); los cortes
+consecutivos se unen con un solo `concat`; audio con `concat` (silencio de `anullsrc` si un clip
+no tiene audio) y `amix` con las pistas extra. Golden test (`tests/test_f4_graph.py`) para el
+caso de 2 clips, fundido de 0.5 s y clip 2 al doble de velocidad:
 
 ```bash
-ffmpeg -hide_banner -y -i a.mp4 -i b.mp4 -filter_complex "
-[0:v]trim=start=10:end=25,setpts=PTS-STARTPTS,scale=1920:1080:force_original_aspect_ratio=decrease,
-     pad=1920:1080:-1:-1:color=black,fps=60,format=yuv420p,setsar=1[v0];
-[1:v]trim=start=3.2:end=12,setpts=(PTS-STARTPTS)/2,scale=1920:1080:force_original_aspect_ratio=decrease,
-     pad=1920:1080:-1:-1:color=black,fps=60,format=yuv420p,setsar=1[v1];
-[v0][v1]xfade=transition=fade:duration=0.5:offset=14.5[vout];
-[0:a]atrim=start=10:end=25,asetpts=PTS-STARTPTS,afade=t=out:st=14.97:d=0.03[a0];
-[1:a]atrim=start=3.2:end=12,asetpts=PTS-STARTPTS,atempo=2,afade=t=in:st=0:d=0.03[a1];
-[a0][a1]concat=n=2:v=0:a=1[aout]
-" -map "[vout]" -map "[aout]" \
-  -c:v h264_nvenc -preset p5 -rc vbr -cq 20 -b:v 0 -pix_fmt yuv420p \
-  -c:a aac -b:a 192k -movflags +faststart out.mp4
+ffmpeg -hide_banner -nostdin -loglevel error -y \
+  -ss 10 -t 15.1 -i a.mp4 -ss 3.2 -t 8.9 -i b.mp4 -filter_complex "
+[0:v]setpts=PTS-STARTPTS,scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1:color=black,
+     fps=60,tpad=stop_mode=clone:stop=60,trim=end_frame=900,format=yuv420p,setsar=1[v0];
+[1:v]setpts=(PTS-STARTPTS)/2,scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:-1:-1:color=black,
+     fps=60,tpad=stop_mode=clone:stop=60,trim=end_frame=264,format=yuv420p,setsar=1[v1];
+[v0][v1]xfade=transition=fade:duration=0.5:offset=14.5[x1];
+[0:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,
+     afade=t=out:st=14.97:d=0.03,apad=whole_dur=15,atrim=duration=15[a0];
+[1:a]atrim=start=1,asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,
+     atempo=2,afade=t=in:st=0:d=0.03,apad=whole_dur=3.9,atrim=duration=3.9[a1];
+[a0][a1]concat=n=2:v=0:a=1[amain]
+" -map "[x1]" -map "[amain]" \
+  -c:v h264_nvenc -preset p5 -rc vbr -cq 21 -b:v 0 -pix_fmt yuv420p \
+  -c:a aac -b:a 192k -ar 48000 -movflags +faststart -progress pipe:1 -nostats out.mp4
 ```
 
-(El audio del clip 2 dura 4.4 s tras `atempo=2`: por eso `afade out` no lleva `st=14.97` pero sí
-el clip 1. Los golden tests fijan el string exacto para detectar regresiones.)
+(Total 900 + 264 − 30 = 1134 frames = 18.9 s. El audio del clip 2 salta los 0.5 s del solape
+— 1 s de fuente a 2× — y dura 3.9 s: 15 + 3.9 = 18.9 s, igual que el video.)
 
 ### Reglas de oro del graph (errores clásicos que evitamos)
 
@@ -288,6 +300,9 @@ el clip 1. Los golden tests fijan el string exacto para detectar regresiones.)
    camino rápido (abajo).
 
 ### "Corte rápido" sin recodificar (`core/keyframes.py`)
+
+> Implementado en F4. El inicio se imanta al keyframe **al exportar** (el proyecto no cambia) y
+> el concat usa `-auto_convert 0` para que los paquetes sean idénticos byte a byte (ver 13).
 
 Cuando el proyecto es solo cortes (sin transiciones, efectos ni velocidad) y **los cortes caen
 en keyframes**, se puede exportar sin tocar el video:
@@ -355,7 +370,7 @@ avisa si movió el corte (típico ≤ 1 s, el precio de cortar sin recodificar).
 | Transición más larga que los clips | Se acota a `min(dur_a, dur_b)/2` y se avisa. |
 | Clip de 0 frames tras trim | Trim tiene mínimo 1 frame; el drag anterior no permite cerrar más. |
 | Audio más corto que el video | El video manda; el audio rellena con silencio al final (no se recorta el video). |
-| Asset borrado / movido | Modo offline + reubicación. |
+| Asset borrado / movido | Modo offline + «Reubicar…» en el inspector; el export avisa y no arranca. |
 | Proyecto con fps distinto a los assets | Todo se normaliza al fps del proyecto en el render (aviso en el primer export lento). |
 | Muchos clips (100+) | El canvas culling solo dibuja lo visible; el graph sigue siendo lineal. |
 | Export cancelado | Parcial borrado; el proyecto no se toca. |

@@ -6,7 +6,8 @@
   1080p→540p, más rápido que el `Image.reduce` medido en F0 porque evita el RGB a tamaño real).
 - `FrameRenderer`: t global → `core.timeline.locate` → frame del clip; dentro de una transición
   decodifica también el entrante (otro decoder, aunque sea el mismo asset) y aproxima el efecto
-  en numpy. El render definitivo siempre será el de FFmpeg (F4).
+  en numpy, y aplica los efectos del clip (`core/effects.py`). El render definitivo es el de
+  FFmpeg (`core/graph.py`).
 - `Player`: hilo con reloj `perf_counter`: `t = t_inicio + (ahora − t_wall_0)`; si un frame
   tarda más que el tick se descartan ticks (nunca se acumula retraso).
 - `AudioPreview`: audio *best-effort* por `sounddevice`; si falla o se queda sin datos, silencio.
@@ -23,6 +24,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from ..core import effects as fx
 from ..core import timeline as tl
 from ..core.project import Clip, MediaAsset, Project
 
@@ -252,6 +254,49 @@ def blend(kind: str, a: np.ndarray, b: np.ndarray, p: float) -> np.ndarray:
 APPROXIMATE = frozenset({"wipeleft", "wiperight", "slideleft", "circleopen", "dissolve"})
 
 
+# -- efectos del preview (las mismas curvas que `core.graph`) ------------------------------
+
+_LUMA = np.array([0.299, 0.587, 0.114], np.float32)
+
+
+def apply_eq(rgb: np.ndarray, eq: dict[str, float]) -> np.ndarray:
+    """Aproximación RGB del filtro `eq` de FFmpeg (contraste alrededor de 0.5, brillo sumado,
+    saturación respecto a la luma)."""
+    f = rgb.astype(np.float32) * (1.0 / 255.0)
+    contrast, brightness, saturation = eq["contrast"], eq["brightness"], eq["saturation"]
+    if contrast != 1.0:
+        f = (f - 0.5) * contrast + 0.5
+    if brightness:
+        f += brightness
+    if saturation != 1.0:
+        gray = (f @ _LUMA)[..., None]
+        f = gray + (f - gray) * saturation
+    return (np.clip(f, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+
+
+def apply_zoom(rgb: np.ndarray, factor: float, cx: float, cy: float) -> np.ndarray:
+    """Recorte centrado en (cx, cy) de `1/factor` del frame, reescalado al tamaño original
+    (`crop=iw/f:ih/f:(iw-ow)*cx:(ih-oh)*cy` + `scale` del graph)."""
+    from PIL import Image
+
+    h, w = rgb.shape[:2]
+    cw, ch = max(2, int(round(w / factor))), max(2, int(round(h / factor)))
+    x, y = int(round((w - cw) * cx)), int(round((h - ch) * cy))
+    crop = Image.fromarray(np.ascontiguousarray(rgb[y : y + ch, x : x + cw]))
+    return np.asarray(crop.resize((w, h), Image.BILINEAR))
+
+
+def fade_envelope(t0: float, n: int, rate: float, duration: float, fin: float, fout: float) -> np.ndarray:
+    """`fx.fade_gain` vectorizado para `n` muestras desde `t0` (s del tramo)."""
+    t = t0 + np.arange(n, dtype=np.float32) / rate
+    k = np.ones(n, np.float32)
+    if fin > 0:
+        k = np.minimum(k, np.clip(t / fin, 0.0, 1.0))
+    if fout > 0:
+        k = np.minimum(k, np.clip((duration - t) / fout, 0.0, 1.0))
+    return k
+
+
 class FrameRenderer:
     """Compone el frame del preview para un instante global del proyecto."""
 
@@ -263,7 +308,10 @@ class FrameRenderer:
     def close(self) -> None:
         self.pool.close()
 
-    def _clip_frame(self, project: Project, clip: Clip, t_source: float, size: tuple[int, int], slot: int) -> np.ndarray:
+    def _clip_frame(
+        self, project: Project, clip: Clip, t_source: float, size: tuple[int, int], slot: int,
+        t_local: float | None = None,
+    ) -> np.ndarray:
         canvas = np.zeros((size[1], size[0], 3), np.uint8)
         try:
             asset: MediaAsset = project.asset(clip.asset_id)
@@ -279,9 +327,21 @@ class FrameRenderer:
             rgb = None
         if rgb is None:
             return canvas
+        # mismo orden que el graph: zoom (crop) → eq → letterbox → fundido
+        factor, cx, cy = fx.zoom(clip)
+        if factor > 1.0 + 1e-6:
+            rgb = apply_zoom(rgb, factor, cx, cy)
+        eq = fx.eq(clip)
+        if eq is not None:
+            rgb = apply_eq(rgb, eq)
         x = (size[0] - rgb.shape[1]) // 2
         y = (size[1] - rgb.shape[0]) // 2
         canvas[y : y + rgb.shape[0], x : x + rgb.shape[1]] = rgb
+        if t_local is not None:
+            fin, fout = fx.fades(clip, clip.duration)
+            k = fx.fade_gain(t_local, clip.duration, fin, fout)
+            if k < 1.0:
+                canvas = (canvas * k).astype(np.uint8)
         return canvas
 
     def render(self, project: Project, t: float) -> np.ndarray | None:
@@ -290,11 +350,12 @@ class FrameRenderer:
         if pos is None:
             self.last_transition = None
             return None
-        frame = self._clip_frame(project, pos.clip, pos.t_source, size, pos.index % 2)
+        frame = self._clip_frame(project, pos.clip, pos.t_source, size, pos.index % 2, pos.t_local)
         tr = tl.transition_at(project, t)
         if tr is not None:
             incoming = self._clip_frame(
-                project, tr.incoming.clip, tr.incoming.t_source, size, tr.incoming.index % 2
+                project, tr.incoming.clip, tr.incoming.t_source, size, tr.incoming.index % 2,
+                tr.incoming.t_local,
             )
             frame = blend(tr.transition.kind, frame, incoming, tr.progress)
             self.last_transition = tr.transition.kind
@@ -445,7 +506,7 @@ class AudioPreview:
                     continue
                 begin = max(t, segment.start)
                 local = segment.local + (begin - segment.start)
-                if not self._feed_segment(project, segment.clip, local, segment.end - begin, cancel):
+                if not self._feed_segment(project, segment, local, segment.end - begin, cancel):
                     return
         except Exception as exc:  # best-effort: un fallo deja el preview mudo, nunca la UI
             self.error = str(exc)
@@ -460,12 +521,20 @@ class AudioPreview:
             remaining -= n
         return True
 
-    def _feed_segment(self, project: Project, clip: Clip, local: float, seconds: float, cancel: threading.Event) -> bool:
+    def _feed_segment(
+        self, project: Project, segment: AudioSegment, local: float, seconds: float, cancel: threading.Event
+    ) -> bool:
         import av
 
+        clip = segment.clip
         asset = project.asset(clip.asset_id)
-        if not asset.has_audio:
+        gain = fx.gain(clip) * (0.0 if project.video.muted else project.video.gain)
+        if not asset.has_audio or gain <= 0:
             return self._silence(seconds, cancel)
+        # fundidos sobre el tramo audible del clip (igual que `core.graph`)
+        span = clip.duration - segment.local
+        fin, fout = fx.fades(clip, span)
+        offset = local - segment.local  # posición dentro del tramo al empezar
         try:
             container = av.open(asset.path)
         except Exception:
@@ -497,7 +566,10 @@ class AudioPreview:
                             [np.interp(idx, np.arange(len(data)), data[:, ch]) for ch in (0, 1)], axis=1
                         ).astype(np.float32)
                     data = data[: max(0, want - sent)]
-                    if len(data) and not self._push(np.ascontiguousarray(data), cancel):
+                    if len(data) and (gain != 1.0 or fin > 0 or fout > 0):
+                        env = fade_envelope(offset + sent / self.RATE, len(data), self.RATE, span, fin, fout)
+                        data = data * (env * gain)[:, None]
+                    if len(data) and not self._push(np.ascontiguousarray(data, dtype=np.float32), cancel):
                         return False
                     sent += len(data)
                 if sent >= want or (src_cursor is not None and src_cursor >= src_start + src_len + 0.05):

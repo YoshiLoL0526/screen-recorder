@@ -75,7 +75,17 @@ mientras graba (RNF-03); el flujo "detener → aparece en biblioteca con thumbna
 **Aceptación:** montar 3 clips con cortes exactos y previsualizarlos a ≥ 24 fps; todos los drags
 con undo correcto; abrir/cerrar proyecto preserva estado; RNF-04 y la "sensación" del timeline validada.
 
-## F4 — Export y transiciones (1–2 semanas)
+## F4 — Export y transiciones (1–2 semanas) — ✅ implementado (2026-10-16)
+
+> Builder del filter graph (golden tests), export con progreso/ETA/cancelar/verificación,
+> presets (GPU, calidad, 720p, sin recodificar), efectos por clip (color, volumen, fundidos,
+> zoom) visibles en el preview, reubicar archivos offline. Resultados y bugs en
+> [13 — F4](13-f4-export.md); aceptación automatizada en `tools/f4_export_test.py`.
+>
+> Aceptación: ✅ 3 clips + 2 transiciones + velocidad con duración exacta (546/546 frames) y A/V
+> en sync (≤ 10 ms); ✅ H.264 High/yuv420p/AAC/faststart; ✅ 1 min 1080p60 en 12.9 s con NVENC;
+> ✅ corte rápido idéntico byte a byte. Pendiente: probar a mano en un móvil físico. Las pistas
+> de música siguen en el backlog (el graph ya las mezcla, falta la UI).
 
 - `core/graph.py` (builder + golden tests) y `services/export.py` (progreso, ETA, cancelar).
 - 8 transiciones + efectos (eq, volumen, fades, velocidad) + presets de export + corte rápido.
@@ -97,7 +107,7 @@ consola; CI en verde (unit + golden + smoke UI); RNF-06/07 medidos.
 
 1. Hotkeys globales (pynput) + bandeja + minimizar a bandeja al grabar.
 2. Filmstrip de thumbnails en los clips (según S5/limitación de canvas).
-3. Pista de música + ducking básico; crossfades de audio (`acrossfade`).
+3. Pista de música (UI y preview: el graph de F4 ya la mezcla) + ducking básico; crossfades de audio (`acrossfade`).
 4. Textos/títulos sobre el video (drawtext o canvas futuro).
 5. Webcam PiP (segunda captura) + grabación de cara separada.
 6. Export GIF/WebM optimizado para compartir en un clic.

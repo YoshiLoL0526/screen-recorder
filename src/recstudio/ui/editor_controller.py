@@ -17,12 +17,16 @@ from dataclasses import replace
 from pathlib import Path
 
 from .. import state
+from ..core import effects as fx
+from ..core import graph as graph_mod
+from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
 from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
 from ..core.project import FPS_CHOICES, MediaAsset, Project
 from ..core.store import ProjectStore
-from ..services import media
+from ..services import export as export_mod
+from ..services import library, media
 from ..services import playback as playback_mod
 from ..services.settings import Settings
 
@@ -32,6 +36,17 @@ _AUTOSAVE_POLL = 2.0
 _CLICK_SLOP_PX = 3.0
 SPEED_CHOICES = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
 TRANSITION_DURATIONS = (0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0)
+
+# Campos de efectos del inspector: (signal, efecto, parámetro, valor neutro, etiqueta de undo)
+EFFECT_FIELDS = (
+    (state.insp_volume, "volume", "gain", 1.0, "volumen"),
+    (state.insp_fade_in, "fade_in", "seconds", 0.0, "fundido de entrada"),
+    (state.insp_fade_out, "fade_out", "seconds", 0.0, "fundido de salida"),
+    (state.insp_zoom, "zoom", "factor", 1.0, "zoom"),
+    (state.insp_brightness, "eq", "brightness", 0.0, "brillo"),
+    (state.insp_contrast, "eq", "contrast", 1.0, "contraste"),
+    (state.insp_saturation, "eq", "saturation", 1.0, "saturación"),
+)
 
 
 def _nearest_fps(fps: float) -> int:
@@ -51,6 +66,7 @@ class EditorController:
         self._io_lock = threading.Lock()  # abrir/guardar/importar: de uno en uno
         self._wave_lock = threading.Lock()
         self._wave_pending: set[str] = set()
+        self.exporter = export_mod.Exporter(self._on_export)
 
     # -- ciclo de vida ---------------------------------------------------------
 
@@ -59,11 +75,22 @@ class EditorController:
         EDITOR = self
         state.preview_audio.set(bool(self.settings.preview_audio))
         self.player.audio.muted = not state.preview_audio()  # type: ignore[union-attr]
-        state.selection.subscribe(lambda _v: self._sync_inspector())
-        state.insp_speed.subscribe(self._on_insp_speed)
-        state.insp_transition.subscribe(self._on_insp_transition)
-        state.insp_transition_dur.subscribe(self._on_insp_transition_dur)
-        state.insp_fps.subscribe(lambda fps: self.set_project_fps(int(fps)) if state.project_open() else None)
+        # Los `Signal` son globales y `subscribe` no se deshace: tras `shutdown` un controlador
+        # viejo (tests con varias apps en el mismo proceso) no debe reaccionar ni pisar el
+        # proyecto del nuevo.
+        def live(fn):  # noqa: ANN001, ANN202
+            return lambda value: None if self._closing.is_set() else fn(value)
+
+        state.selection.subscribe(live(lambda _v: self._sync_inspector()))
+        state.insp_speed.subscribe(live(self._on_insp_speed))
+        state.insp_transition.subscribe(live(self._on_insp_transition))
+        state.insp_transition_dur.subscribe(live(self._on_insp_transition_dur))
+        state.insp_fps.subscribe(live(lambda fps: self.set_project_fps(int(fps)) if state.project_open() else None))
+        for signal, kind, name, _neutral, label in EFFECT_FIELDS:
+            signal.subscribe(live(lambda value, k=kind, n=name, lb=label: self._on_insp_effect(k, n, lb, value)))
+        state.insp_track_gain.subscribe(live(self._on_insp_track_gain))
+        if self.settings.export_preset in graph_mod.PRESET_IDS:
+            state.export_preset.set(self.settings.export_preset)
         self.player.start()
         threading.Thread(target=self._autosave_loop, daemon=True, name="autosave").start()
         self.refresh_recent()
@@ -73,6 +100,9 @@ class EditorController:
 
     def shutdown(self) -> None:
         self._closing.set()
+        if self.exporter.busy:  # el parcial no debe quedarse a medias en la carpeta
+            self.exporter.cancel()
+            self.exporter.wait(5.0)
         self.player.stop()
         if self.store.dirty and self.store.path is not None and not self.store.read_only:
             try:
@@ -81,6 +111,7 @@ class EditorController:
                 pass
         self.settings.last_project = str(self.store.path) if self.store.path else ""
         self.settings.preview_audio = bool(state.preview_audio())
+        self.settings.export_preset = state.export_preset()
 
     def _autosave_loop(self) -> None:
         while not self._closing.wait(_AUTOSAVE_POLL):
@@ -119,11 +150,14 @@ class EditorController:
         """Lleva el modelo a los campos/selects del inspector (sus escuchas ignoran lo igual)."""
         project = self.store.project
         state.insp_fps.set(project.fps)
+        state.insp_track_gain.set(0.0 if project.video.muted else project.video.gain)
         clip = self.selected_clip()
         if clip is not None:
             state.insp_in.set(tl.format_time(clip.in_))
             state.insp_out.set(tl.format_time(clip.out_))
             state.insp_speed.set(clip.speed)
+            for signal, kind, name, neutral, _label in EFFECT_FIELDS:
+                signal.set(fx.param(clip, kind, name, neutral))
         index = self._transition_index()
         if index is not None:
             current = project.video.transitions[index]
@@ -135,6 +169,21 @@ class EditorController:
         clip = self.selected_clip()
         if clip is not None and clip.speed != speed:
             self.set_speed(speed)
+
+    def _on_insp_effect(self, kind: str, name: str, label: str, value: float) -> None:
+        clip = self.selected_clip()
+        if clip is None:
+            return
+        neutral = next(n for _s, k, p, n, _l in EFFECT_FIELDS if k == kind and p == name)
+        if abs(fx.param(clip, kind, name, neutral) - float(value)) < 1e-6:
+            return
+        self.set_effect(kind, label, **{name: float(value)})
+
+    def _on_insp_track_gain(self, value: float) -> None:
+        video = self.project.video
+        current = 0.0 if video.muted else video.gain
+        if state.project_open() and abs(current - float(value)) > 1e-6:
+            self.set_track_gain(float(value))
 
     def _current_transition(self):  # noqa: ANN202
         index = self._transition_index()
@@ -258,6 +307,24 @@ class EditorController:
         if clip is None:
             return
         self._apply("velocidad", tl.set_speed(self.project, clip.id, speed))
+
+    def set_effect(self, kind: str, label: str | None = None, **params: float) -> None:
+        clip = self.selected_clip()
+        if clip is None:
+            return
+        self._apply(label or kind, fx.set_effect(self.project, clip.id, kind, **params))
+
+    def reset_effects(self) -> None:
+        clip = self.selected_clip()
+        if clip is None or not clip.effects:
+            return
+        self._apply("quitar efectos", fx.clear_effects(self.project, clip.id))
+
+    def set_track_gain(self, value: float) -> None:
+        """Volumen del audio original de todos los clips (0 = silenciado)."""
+        value = max(0.0, min(fx.GAIN_MAX, value))
+        video = replace(self.project.video, muted=value <= 0, gain=value if value > 0 else self.project.video.gain)
+        self._apply("volumen del audio original", replace(self.project, video=video))
 
     def _transition_index(self) -> int | None:
         selection = state.selection()
@@ -549,6 +616,9 @@ class EditorController:
             if state.import_open():
                 state.import_open.set(False)
                 return True
+            if state.export_open():
+                self.close_export()
+                return True
             if state.selection() is not None:
                 state.selection.set(None)
                 return True
@@ -566,7 +636,7 @@ class EditorController:
             self.open_import()
             return True
         if e.matches("mod+e"):
-            self.export_hint()
+            self.open_export()
             return True
         if not state.project_open():
             return None
@@ -613,8 +683,120 @@ class EditorController:
 
     # -- proyectos (IO en hilos) ----------------------------------------------------
 
-    def export_hint(self) -> None:
-        state.toast("info", "El export (MP4, presets y transiciones con FFmpeg) llega en F4")
+    # -- export (F4) ---------------------------------------------------------------
+
+    def open_export(self) -> None:
+        if not state.project_open():
+            return
+        if not self.project.video.clips:
+            state.toast("info", "El timeline está vacío: importa un video primero")
+            return
+        progress = state.export_progress()
+        if progress is None or not progress.active:
+            state.export_progress.set(None)
+            state.export_name.set(self.project.name)
+        blockers = tuple(keyframes_mod.blockers(self.project))
+        state.export_blockers.set(blockers)
+        if blockers and state.export_preset() == "copia":
+            state.export_preset.set("rapido")
+        state.export_open.set(True)
+
+    def close_export(self) -> None:
+        """Cierra el modal; un export en curso sigue (la barra del editor muestra el %)."""
+        state.export_open.set(False)
+        progress = state.export_progress()
+        if progress is not None and not progress.active:
+            state.export_progress.set(None)
+
+    def start_export(self) -> None:
+        if self.exporter.busy:
+            state.toast("info", "Ya hay un export en curso")
+            return
+        project = self.project
+        missing = export_mod.offline_assets(project)
+        if missing:
+            state.toast("danger", f"Reubica los archivos que faltan antes de exportar: {', '.join(missing)}")
+            return
+        preset = state.export_preset()
+        if preset == "copia" and state.export_blockers():
+            state.toast("warning", "«Sin recodificar» no es posible: " + "; ".join(state.export_blockers()))
+            return
+        name = state.export_name().strip() or project.name
+        out = export_mod.unique_output(state.exports_dir(), name)
+        self.settings.export_preset = preset
+        try:
+            self.exporter.start(project, preset, out)
+        except RecStudioError as exc:
+            state.toast("danger", exc.message)
+
+    def cancel_export(self) -> None:
+        self.exporter.cancel()
+
+    def _on_export(self, progress: export_mod.ExportProgress) -> None:
+        previous = state.export_progress()
+        state.export_progress.set(progress)
+        if previous is not None and previous.state == progress.state:
+            return
+        if progress.state == "done":
+            state.toast("success", f"Exportado en {progress.elapsed:.1f} s · {Path(progress.out_path).name}")
+        elif progress.state == "error":
+            state.toast("danger", f"Export fallido: {progress.message}")
+        elif progress.state == "cancelled":
+            state.toast("info", "Export cancelado (archivo parcial borrado)")
+
+    def play_export(self) -> None:
+        progress = state.export_progress()
+        if progress is not None and progress.state == "done":
+            library.open_file(Path(progress.out_path))
+
+    def reveal_export(self) -> None:
+        progress = state.export_progress()
+        if progress is not None and progress.out_path and Path(progress.out_path).exists():
+            library.reveal_in_explorer(Path(progress.out_path))
+        else:
+            folder = state.exports_dir()
+            folder.mkdir(parents=True, exist_ok=True)
+            library.open_file(folder)
+
+    # -- archivos offline ---------------------------------------------------------
+
+    def relocate_asset(self, asset_id: str) -> None:
+        """«Reubicar…»: elige el archivo movido (diálogo en un hilo)."""
+        if not self._guard_editable():
+            return
+
+        def worker() -> None:
+            from ..platform import dialogs
+
+            try:
+                old = self.project.asset(asset_id)
+                folder = Path(old.path).parent
+                chosen = dialogs.open_videos(folder if folder.exists() else state.recordings_dir(),
+                                             title=f"Reubicar «{old.name}»")
+            except (OSError, ProjectError) as exc:
+                state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+                return
+            if chosen:
+                self.relocate_to(asset_id, chosen[0])
+
+        threading.Thread(target=worker, daemon=True, name="relocate").start()
+
+    def relocate_to(self, asset_id: str, path: Path) -> bool:
+        """Sustituye el archivo del asset (bloqueante: llamar desde un hilo). El nuevo debe
+        durar lo suficiente para sus clips (lo comprueba `Project.validate`)."""
+        try:
+            probed = media.probe(path, asset_id=asset_id)
+        except RecStudioError as exc:
+            state.toast("danger", exc.message)
+            return False
+        project = self.project
+        assets = tuple(probed if a.id == asset_id else a for a in project.assets)
+        if not self._apply("reubicar archivo", replace(project, assets=assets)):
+            return False
+        self._refresh_offline(self.project)
+        self._queue_waveform(probed)
+        state.toast("success", f"Archivo reubicado: {Path(path).name}")
+        return True
 
     def refresh_recent(self) -> None:
         def worker() -> None:

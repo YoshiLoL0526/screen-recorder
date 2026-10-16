@@ -15,6 +15,7 @@ from ...core import timeline as tl
 from ...core.project import TRANSITION_KINDS
 from ..components import chip, icon_button, mark_input_key, section
 from .. import icons
+from ..export_modal import export_chip, export_modal
 from ..timeline import EDITOR_PAD_X, PANEL_BORDER, timeline_view
 
 _TRANSITION_LABELS = {
@@ -28,6 +29,21 @@ _TRANSITION_LABELS = {
     "slideleft": "Deslizar ←",
     "circleopen": "Círculo",
 }
+
+# Opciones de los efectos del inspector (valor, etiqueta)
+_VOLUMES = [(v, f"{v * 100:.0f} %") for v in (0.0, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0)]
+_FADES = [(0.0, "Sin fundido")] + [(v, f"{v:g} s") for v in (0.25, 0.5, 1.0, 1.5, 2.0, 3.0)]
+_ZOOMS = [(v, f"{v:g}×") for v in (1.0, 1.1, 1.25, 1.5, 2.0, 3.0)]
+_BRIGHTNESS = [(v, f"{v:+.2f}" if v else "0 (original)") for v in (-0.3, -0.2, -0.1, -0.05, 0.0, 0.05, 0.1, 0.2, 0.3)]
+_CONTRAST = [(v, f"{v:g}×" if v != 1 else "1× (original)") for v in (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0)]
+_SATURATION = [(v, f"{v:g}×" if v != 1 else "1× (original)") for v in (0.0, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0)]
+
+
+def _options(options, current):
+    """Las opciones fijas más el valor actual si no está entre ellas (p. ej. de un proyecto viejo)."""
+    if all(abs(v - current) > 1e-6 for v, _ in options):
+        return sorted([*options, (current, f"{current:g}")])
+    return options
 
 
 def _editor():
@@ -62,6 +78,7 @@ def editor_toolbar():
         not read_only and chip("sin guardar" if dirty else "guardado", tone="text" if dirty else "muted"),
         importing and chip(f"analizando {importing[0]}…", tone="accent"),
         spacer(),
+        export_chip(),
         icon_button(icons.SAVE, _call("save"), tooltip="Guardar (Ctrl+S)", size=32, key="ed-save"),
         icon_button(icons.UNDO, _call("undo"), tooltip=f"Deshacer: {undo} (Ctrl+Z)" if undo else "Nada que deshacer",
                     size=32, key="ed-undo", opacity=1.0 if undo else 0.45),
@@ -69,7 +86,7 @@ def editor_toolbar():
                     size=32, key="ed-redo", opacity=1.0 if redo else 0.45),
         box(width=8),
         button("Importar", _call("open_import"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-import"),
-        button("Exportar…", _call("export_hint"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-export"),
+        button("Exportar…", _call("open_export"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-export"),
         button("Cerrar", _call("close_project"), variant="ghost", padding=(6, 12), font_size=12.5, key="ed-close"),
     ]
 
@@ -141,6 +158,32 @@ def _time_field(signal, on_submit, key: str, mark, mark_tip: str, mark_icon: byt
     ]
 
 
+def _effects_controls(clip):
+    from ...core import effects as fx
+
+    fin, fout = fx.fade_in(clip), fx.fade_out(clip)
+    gain = fx.gain(clip)
+    factor = fx.zoom(clip)[0]
+    eq = fx.eq(clip) or fx.EQ_DEFAULTS
+    return section(
+        "Efectos",
+        _row("Volumen", select(state.insp_volume, _options(_VOLUMES, gain), key="insp-volume")),
+        _row("Fundido ↗", select(state.insp_fade_in, _options(_FADES, fin), key="insp-fade-in")),
+        _row("Fundido ↘", select(state.insp_fade_out, _options(_FADES, fout), key="insp-fade-out")),
+        _row("Zoom", select(state.insp_zoom, _options(_ZOOMS, factor), key="insp-zoom")),
+        _row("Brillo", select(state.insp_brightness, _options(_BRIGHTNESS, eq["brightness"]), key="insp-bright")),
+        _row("Contraste", select(state.insp_contrast, _options(_CONTRAST, eq["contrast"]), key="insp-contrast")),
+        _row("Saturación", select(state.insp_saturation, _options(_SATURATION, eq["saturation"]), key="insp-sat")),
+        row(gap=8, align="center")[
+            text("Fundidos de imagen (a negro) y de audio.", size=11, color="$muted", grow=1, width=0,
+                 line_height=1.35),
+            clip.effects and button("Quitar efectos", _call("reset_effects"), variant="ghost", padding=(4, 8),
+                                    font_size=11.5, key="insp-fx-reset"),
+        ],
+        gap=8,
+    )
+
+
 def _transition_controls(index: int | None):
     if index is None:
         return None
@@ -180,7 +223,11 @@ def inspector():
         children.append(section(
             f"Clip {index + 1} de {len(project.video.clips)}",
             text(name, size=13.5, weight=600, max_lines=2),
-            offline and text("Archivo no encontrado (offline)", size=11.5, color="$danger"),
+            offline and row(gap=8, align="center")[
+                text("Archivo no encontrado (offline)", size=11.5, color="$danger", grow=1, width=0),
+                button("Reubicar…", _call("relocate_asset", clip.asset_id), variant="soft", padding=(4, 10),
+                       font_size=11.5, key="insp-relocate"),
+            ],
             _row("Entrada", _time_field(state.insp_in, _submit("submit_in"), "insp-in", _call("mark_in"),
                                         "Entrada = playhead", icons.STEP_BACK)),
             _row("Salida", _time_field(state.insp_out, _submit("submit_out"), "insp-out", _call("mark_out"),
@@ -189,6 +236,7 @@ def inspector():
             _row("Velocidad", select(state.insp_speed, [(s, f"{s:g}×") for s in SPEED_CHOICES], key="insp-speed")),
             gap=10,
         ))
+        children.append(_effects_controls(clip))
         if index < len(project.video.transitions):
             children.append(_transition_controls(index))
         children.append(row(gap=8)[
@@ -198,7 +246,7 @@ def inspector():
         ])
     elif selection and selection[0] == "transition" and selection[1] < len(project.video.transitions):
         children.append(_transition_controls(int(selection[1])))
-        children.append(text("Las transiciones se previsualizan de forma aproximada; el export (F4) usa xfade.",
+        children.append(text("Las transiciones se previsualizan de forma aproximada; el export usa xfade de FFmpeg.",
                              size=11.5, color="$muted", line_height=1.4))
     else:
         total = tl.total_duration(project)
@@ -208,12 +256,17 @@ def inspector():
             _row("Clips", str(len(project.video.clips))),
             _row("Resolución", f"{project.width}×{project.height}"),
             _row("FPS", select(state.insp_fps, [(f, f"{f} fps") for f in (24, 30, 60)], key="insp-fps")),
+            _row("Audio", select(state.insp_track_gain,
+                                 _options([(0.0, "Silenciado"), *_VOLUMES[1:]],
+                                          0.0 if project.video.muted else project.video.gain),
+                                 key="insp-track-gain")),
+            button("Exportar… (Ctrl+E)", _call("open_export"), padding=(7, 14), font_size=12.5, key="insp-export"),
             gap=10,
         ))
         children.append(section(
             "Atajos",
             text("Espacio reproducir · ←/→ fotograma · Mayús+←/→ 1 s · S dividir · Supr eliminar · "
-                 "Ctrl+Z/Y deshacer/rehacer · +/− zoom · 0 ajustar · Esc cancelar",
+                 "Ctrl+Z/Y deshacer/rehacer · +/− zoom · 0 ajustar · Ctrl+E exportar · Esc cancelar",
                  size=11.5, color="$muted", line_height=1.5),
         ))
     return column(key="ed-inspector", width=290, grow=0, shrink=0, bg="$surface", radius="$lg",
@@ -364,7 +417,7 @@ def editor_screen():
     body = (
         column(grow=1, padding=(12, EDITOR_PAD_X), gap=10)[
             editor_toolbar(),
-            row(grow=1, gap=12)[
+            row(grow=1, height=0, gap=12)[  # base 0: el inspector (alto) hace scroll en vez de empujar el timeline
                 column(grow=1, width=0, gap=8)[preview_panel(), transport()],
                 inspector(),
             ],
@@ -373,4 +426,4 @@ def editor_screen():
         if state.project_open()
         else empty_state()
     )
-    return column(grow=1)[body, import_modal()]
+    return column(grow=1)[body, import_modal(), export_modal()]

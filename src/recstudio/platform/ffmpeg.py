@@ -315,6 +315,29 @@ def run_capture_process(cmd: list[str], stderr_path: str | Path) -> subprocess.P
         raise FfmpegError(f"no se pudo lanzar ffmpeg: {exc}") from exc
 
 
+def run_progress_process(cmd: list[str], stderr_path: str | Path) -> subprocess.Popen[str]:
+    """Lanza un FFmpeg con `-progress pipe:1`: stdout (texto) por pipe y stderr a un archivo."""
+    stderr_file = open(stderr_path, "wb")
+    try:
+        return subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=stderr_file,
+                                encoding="utf-8", errors="replace", **NO_WINDOW)
+    except Exception as exc:
+        raise FfmpegError(f"no se pudo lanzar ffmpeg: {exc}") from exc
+    finally:
+        stderr_file.close()  # el hijo ya tiene su propio handle
+
+
+def progress_seconds(line: str) -> float | None:
+    """Segundos de salida de una línea de `-progress` (`out_time_us=…`), o `None`."""
+    key, _, value = line.strip().partition("=")
+    if key != "out_time_us":
+        return None
+    try:
+        return max(0.0, int(value) / 1_000_000)
+    except ValueError:  # «N/A» al principio
+        return None
+
+
 def stderr_tail(path: str | Path, *, lines: int = 30) -> str:
     try:
         text = Path(path).read_text(encoding="utf-8", errors="replace")

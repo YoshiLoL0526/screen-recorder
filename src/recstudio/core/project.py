@@ -8,8 +8,9 @@ Convenciones:
   timeline es `(out_ - in_) / speed`.
 - `Track.transitions[k]` une el clip `k` con el `k + 1` (transición *saliente* del clip `k`).
 - El track de video es una secuencia sin huecos (timeline magnético): el audio propio de cada
-  clip va enlazado a él. Las pistas de `audio` (música/segunda voz) se modelan ya, pero su
-  edición llega con el export (F4).
+  clip va enlazado a él. Las pistas de `audio` (música/segunda voz) se modelan y el export las
+  mezcla (`core/graph.py`), pero aún no tienen UI (backlog post-v1).
+- Efectos por clip: ver `core/effects.py` (como mucho un `Effect` de cada tipo).
 """
 
 from __future__ import annotations

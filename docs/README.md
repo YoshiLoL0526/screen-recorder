@@ -23,6 +23,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 10 | [F2: UI de grabación + Biblioteca](10-f2-ui.md) | Pantalla de Grabar y Biblioteca en Aurora, capturas, prueba end-to-end con Pilot y aprendizajes de layout. |
 | 11 | [F1.1 + F2.1: arreglos](11-f11-f21-arreglos.md) | Cursor propio (sin la latencia de WGC), compensación de deriva del reloj de audio, región arrastrable y cuenta atrás. |
 | 12 | [F3: editor](12-f3-editor.md) | Modelo de proyecto, timeline interactivo, undo/autosave, preview a 30 fps, mediciones y bugs de Aurora encontrados. |
+| 13 | [F4: export](13-f4-export.md) | Filter graph (golden), export con progreso/ETA/cancelar, presets, corte rápido byte a byte, efectos y mediciones. |
 
 ## Orden de lectura sugerido
 

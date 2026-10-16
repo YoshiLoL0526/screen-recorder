@@ -184,6 +184,50 @@ def waveform_slice(peaks: np.ndarray, t0: float, t1: float, columns: int) -> np.
     return np.stack((mins, maxs), axis=1)
 
 
+# -- keyframes (corte rápido) ------------------------------------------------------------
+
+
+def keyframes(path: str | Path) -> tuple[float, ...]:
+    """Instantes (s, ordenados) de los keyframes del video, cacheados en disco.
+
+    Solo demultiplexa (no decodifica): `packet.is_keyframe`. Los tiempos se dan respecto al
+    inicio del contenedor, que es como los interpreta `ffmpeg -ss` (ver `core.keyframes`).
+    """
+    import av
+
+    path = Path(path)
+    try:
+        file = _cache_dir("keyframes") / f"{_cache_key(path)}.npy"
+    except OSError as exc:
+        raise MediaError(f"no se pudo leer «{path.name}»: {exc}") from exc
+    if file.exists():
+        try:
+            return tuple(float(t) for t in np.load(file))
+        except Exception:
+            pass
+    try:
+        container = av.open(str(path))
+    except (av.FFmpegError, OSError) as exc:
+        raise MediaError(f"no se pudo abrir «{path.name}»: {exc}") from exc
+    try:
+        stream = container.streams.video[0]
+        origin = (container.start_time or 0) / 1_000_000
+        times = sorted(
+            float(packet.pts * stream.time_base) - origin
+            for packet in container.demux(stream)
+            if packet.is_keyframe and packet.pts is not None
+        )
+    except av.FFmpegError as exc:
+        raise MediaError(f"no se pudo indexar «{path.name}»: {exc}") from exc
+    finally:
+        container.close()
+    try:
+        np.save(file, np.asarray(times, np.float64))
+    except OSError:
+        pass
+    return tuple(times)
+
+
 # -- pósters -----------------------------------------------------------------------
 
 
