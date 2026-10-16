@@ -19,6 +19,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 06 | [Roadmap](06-roadmap.md) | Fases, entregables, criterios de aceptación, riesgos y mitigaciones. |
 | 07 | [Decisiones (ADR)](07-decisiones.md) | Las decisiones técnicas con sus alternativas descartadas y consecuencias. |
 | 08 | [F0: resultados](08-f0-resultados.md) | Mediciones de los spikes (captura, pipe FFmpeg, audio, preview, drag/scroll, empaquetado) y decisiones ajustadas. |
+| 09 | [F1: motor de grabación](09-f1-motor-grabacion.md) | Implementación del grabador (paquete `recstudio` + CLI), bugs encontrados, mediciones y criterios de F1. |
 
 ## Orden de lectura sugerido
 

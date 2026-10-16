@@ -1,8 +1,9 @@
 # Rec Studio — grabación de pantalla + editor de video
 
-> **Estado: F0 completada** (spikes medidos y decisiones validadas — ver
-> [docs/08](docs/08-f0-resultados.md)). La especificación completa del producto está en `docs/`;
-> la implementación empieza por la fase F1 del [roadmap](docs/06-roadmap.md).
+> **Estado: F1 completada** — motor de grabación implementado y medido
+> ([docs/09](docs/09-f1-motor-grabacion.md)), tras los spikes de F0
+> ([docs/08](docs/08-f0-resultados.md)). Siguiente fase: **F2** (UI de grabación + biblioteca
+> con aurora-ui), ver [roadmap](docs/06-roadmap.md).
 
 Aplicación de escritorio para **grabar la pantalla** (como Bandicam: monitor, ventana o región,
 con audio del sistema y micrófono) y **editar el resultado sin salir de la app** (cortes,
@@ -48,22 +49,33 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 ## Estructura del repositorio
 
 ```
-├─ main.py            # punto de entrada de la app
-├─ docs/              # especificación (leer primero)
-├─ assets/            # iconos y recursos   (se crea en F2)
-├─ src/recstudio/     # código de la app    (se crea en F1)
-└─ tests/             # tests (se crean en F1/F3)
+├─ main.py            # punto de entrada de la app (UI en F2)
+├─ docs/              # especificación y resultados (leer primero)
+├─ src/recstudio/     # paquete: core/ · platform/ · services/  (motor de F1 funcionando)
+├─ tools/
+│  ├─ rec.py          # CLI de grabación (F1): --list, --region, --recover, --duration…
+│  ├─ av_sync_test.py # prueba automática de sincronía A/V (beep + cursor)
+│  ├─ soak_test.py    # soak de 10 min con pausa y medición de deriva
+│  └─ spikes/         # scripts de F0 (mediciones originales)
+└─ tests/             # pytest: config, comandos FFmpeg y mux real
 ```
 
-## Puesta en marcha (desarrollo)
+## Puesta en marcha
 
 Requiere Python ≥ 3.12 y [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync                                        # entorno + dependencias
-uv run aurora dev main.py --inspector          # app con hot reload e inspector (F12)
-uv run pytest                                  # tests
-uv run aurora build --icon assets/icon.ico --include assets   # ejecutable distribuible
+uv sync                                   # entorno + dependencias
+uv run pytest                             # tests (unit + integración FFmpeg)
+
+# Grabador por CLI (motor de F1, sin UI todavía):
+uv run python tools/rec.py --list         # monitores, audio y encoders disponibles
+uv run python tools/rec.py --duration 30 -o salida/     # 30 s del monitor, con audio del sistema
+uv run python tools/rec.py --recover      # recupera una grabación interrumpida
+
+# UI (F2 en adelante):
+uv run aurora dev main.py --inspector     # hot reload + inspector (F12)
+uv run aurora build --icon assets/icon.ico --include assets   # ejecutable
 ```
 
 ## Licencia

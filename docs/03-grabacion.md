@@ -57,13 +57,23 @@ Selección por defecto (ajustada con los datos de F0, ver `docs/08-f0-resultados
 - Resto → `windows-capture` (es el default).
 - En Linux/macOS, o si falla el nativo → `mss` (con aviso de "modo compatible, menor fps").
 
-⚠️ **Gotchas medidos en F0** (van en el código con comentario):
+⚠️ **Gotchas medidos en F0/F1** (van en el código con comentario; detalle en
+`docs/08-f0-resultados.md` y `docs/09-f1-motor-grabacion.md`):
 
 - WGC es **damage-driven** por defecto: sin `minimum_update_interval`, una pantalla estática
-  entregó **4.5 fps** (no 60). El grabador abre siempre con `minimum_update_interval=1`.
-- En `windows-capture`, **`monitor_index` es 1-based** (`1` = primario; `0` lanza excepción).
+  entregó **4.5 fps**. El grabador abre siempre con `minimum_update_interval=1` (medido: el
+  valor se cuantiza al periodo del compositor; ≤8 ms ≈ sin throttle ~100 fps; 16 → ~50 fps).
+- En `windows-capture`, **`monitor_index` es 1-based** (`1` = primario; `0` lanza excepción) y
+  **`on_closed` es obligatorio** al registrar handlers.
+- El `Frame` de WGC expone **`frame_buffer` (numpy BGRA `(h, w, 4)`)**: se copia obligatoriamente
+  (el buffer se recicla). `convert_to_bgr()` muta el frame y devuelve el propio `Frame`.
+- **Una sola instancia de PyAudio por proceso**: `terminate()` sobre una instancia mata los
+  streams de las demás ⇒ el loopback se queda con un único bloque. Instancia compartida única.
+- El callback de PyAudio debe devolver **`paContinue` (0)**; `1` es `paComplete` y detiene el
+  stream tras el primer buffer. Firma: `(in_data, frame_count, time_info, status)`.
 - `dxcam` 0.3 usa el procesador `cv2` por defecto y arrastra `opencv-python`; fijamos
-  `processor_backend="numpy"` (BGRA directo, sin copias extra).
+  `processor_backend="numpy"` (BGRA directo) y CUIDADO: `dxcam.create()` es un **singleton**
+  por dispositivo/output.
 - La tasa del ring de `dxcam` en `video_mode` es *pacing* (duplica para mantener el ritmo),
   no pruebas de tasa de captura: la captura real va al ritmo del compositor.
 
@@ -183,9 +193,11 @@ Fragmentos de flags por encoder (se documentan en código como tabla):
          -af "aresample=async=1000:first_pts=0" -shortest out.mp4
   ```
 
-  `aresample=async=1000` compensa además el drift de reloj del dispositivo (válido para los
-  ±80 ms de RNF-02); en F0 la resolución de la medida quedó limitada por el buffer
-  (±1 buffer ≈ 23 ms), así que la validación fina de deriva es el test de 10 min de F1.
+  `aresample=async=1000` rellena huecos de timestamp (pausas largas, callbacks perdidos) — no
+  corrige la deriva continua del reloj del dispositivo (F1: ~90 ppm ⇒ ~53 ms/10 min, dentro del
+  criterio); esa corrección por ratio llega en F1.1 (ver `docs/09-f1-motor-grabacion.md`).
+  Si Δ es negativa (el audio arrancó **antes** que el video), se recorta su
+  inicio con `-af "atrim=start=…,asetpts=PTS-STARTPTS"` en lugar de `-itsoffset`.
 
 ## Preview en vivo y estadísticas
 

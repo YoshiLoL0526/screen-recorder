@@ -28,7 +28,11 @@ suelto en `tools/spikes/`, se mide y se documenta el resultado.
 
 **Deadline de decisiones:** al terminar F0 se revisan los ADR de 07 con los datos medidos.
 
-## F1 — Motor de grabación sin UI (1–2 semanas)
+## F1 — Motor de grabación sin UI (1–2 semanas) — ✅ implementado (2026-10-16)
+
+> Implementación y mediciones completas en [09 — F1](09-f1-motor-grabacion.md). Incluye la CLI
+> (`tools/rec.py`), la máquina de estados con pausa, mux con offsets, sidecar JSON y recuperación
+> tras crash, más 20 tests (unit + integración FFmpeg real).
 
 - `platform/capture.py` (backends + selección), `platform/audio.py`, `platform/ffmpeg.py`
   (localización del binario, run, parseo de progreso), `services/recording.py` (máquina de estados).
