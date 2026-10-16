@@ -1,0 +1,24 @@
+[project]
+name = "screen-recorder"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "aurora-ui>=0.3.0",
+    "av>=16",
+    "dxcam>=0.3.0 ; sys_platform == 'win32'",
+    "imageio-ffmpeg>=0.6",
+    "mss>=10",
+    "numpy>=2.0",
+    "pillow>=11",
+    "pyaudiowpatch>=0.2.12.9 ; sys_platform == 'win32'",
+    "sounddevice>=0.5",
+    "windows-capture>=2.0.1 ; sys_platform == 'win32'",
+]
+
+[dependency-groups]
+dev = [
+    "aurora-ui[build]>=0.3.0",
+    "psutil>=7.2.2",
+]
