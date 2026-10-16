@@ -24,6 +24,8 @@ class Settings:
     mic_index: int = -1
     out_dir: str = ""
     countdown_s: int = 0
+    last_project: str = ""  # project.json abierto al cerrar (se reabre al arrancar)
+    preview_audio: bool = True
 
     def normalized(self) -> "Settings":
         if not self.out_dir:

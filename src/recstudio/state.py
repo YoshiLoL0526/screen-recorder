@@ -13,6 +13,7 @@ from pathlib import Path
 
 from aurora import Signal
 
+from .core.project import Project
 from .platform import paths
 from .theme import STUDIO_DARK, theme_by_name
 
@@ -35,7 +36,7 @@ class Confirm:
 
 
 # -- navegación y aspecto -----------------------------------------------------
-screen = Signal("record")  # record | library | settings
+screen = Signal("record")  # record | library | editor | settings
 theme_name = Signal("dark")
 theme = Signal(STUDIO_DARK)
 toasts = Signal(())
@@ -92,6 +93,60 @@ recovering = Signal(())  # nombres de las carpetas que se están recuperando aho
 library_reload = Signal(0)  # contador: cambiarlo fuerza recarga
 
 
+# -- editor (F3) ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class TimelineDrag:
+    """Lo que el timeline dibuja durante un drag (el modelo ya va actualizado en el store)."""
+
+    kind: str  # move | trim_l | trim_r
+    clip_id: str
+    ghost: float = 0.0  # move: inicio del fantasma (s)
+    shift_index: int = -1  # trim_l: desde este clip se dibuja desplazado `shift` s…
+    shift: float = 0.0  # …para que el borde siga al ratón hasta soltar (luego se cierra el hueco)
+
+
+@dataclass(frozen=True)
+class RecentProject:
+    path: str  # project.json
+    name: str
+    modified_label: str
+    clips: int
+    duration_label: str
+
+
+editor_project = Signal(Project())
+project_open = Signal(False)
+project_path = Signal("")  # project.json del proyecto abierto
+project_dirty = Signal(False)
+project_read_only = Signal(False)
+undo_label = Signal("")
+redo_label = Signal("")
+playhead = Signal(0.0)  # segundos (frontera de frame en pausa)
+playing = Signal(False)
+preview_frame = Signal(b"")  # JPEG del preview del editor
+preview_note = Signal("")  # aviso discreto bajo el preview («transición aproximada», …)
+preview_audio = Signal(True)  # audio del preview (best-effort)
+selection = Signal(None)  # ("clip", id) | ("transition", índice) | None
+tl_zoom = Signal(60.0)  # px por segundo
+tl_scroll = Signal(0.0)  # desplazamiento horizontal del timeline (px)
+tl_view_w = Signal(1000.0)  # ancho visible del timeline (px)
+snap_on = Signal(True)
+tl_drag = Signal(None)  # TimelineDrag | None
+waveforms = Signal(0)  # versión: sube cada vez que llega un waveform nuevo
+offline_assets = Signal(frozenset())  # ids de assets cuyo archivo no existe
+importing = Signal(())  # nombres de archivo que se están analizando
+import_open = Signal(False)  # modal «Importar»
+recent_projects = Signal(())  # RecentProject…
+insp_in = Signal("")  # campos de tiempo del inspector (texto editable)
+insp_out = Signal("")
+insp_speed = Signal(1.0)  # selects del inspector (el controlador los sincroniza y escucha)
+insp_transition = Signal("none")
+insp_transition_dur = Signal(0.5)
+insp_fps = Signal(60)
+
+
 def toast(kind: str, text: str) -> None:
     """Encola un toast con auto-cierre (4 s; 6 s si lleva acción implícita)."""
     import threading
@@ -126,3 +181,8 @@ def set_region(value: tuple[int, int, int, int]) -> None:
 
 def recordings_dir() -> Path:
     return Path(out_dir())
+
+
+def projects_dir() -> Path:
+    """Proyectos del editor: `<carpeta de grabaciones>/Proyectos/*.rsproj`."""
+    return recordings_dir().expanduser() / "Proyectos"

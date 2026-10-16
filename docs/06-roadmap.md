@@ -60,7 +60,12 @@ matar el proceso a mitad → oferta de recuperación válida. RNF-01/02/08 verif
 **Aceptación:** grabar/parar/pausar solo con la UI y F9/F10; la UI mantiene < 8 ms por frame
 mientras graba (RNF-03); el flujo "detener → aparece en biblioteca con thumbnail → Editar" funciona.
 
-## F3 — Editor: modelo, timeline y preview (2–3 semanas)
+## F3 — Editor: modelo, timeline y preview (2–3 semanas) — ✅ implementado (2026-10-16)
+
+> Modelo, timeline, undo/autosave, preview a 30 fps y pantalla Editor completa; resultados,
+> mediciones y bugs en [12 — F3](12-f3-editor.md). Aceptación automatizada en
+> `tools/f3_editor_test.py`. Quedan para F4: efectos, pistas de audio independientes y
+> reubicar archivos offline.
 
 - `core/project.py`, `core/timeline.py`, `core/store.py` (undo/autosave) con su batería de tests.
 - `services/media.py` (probe, waveforms, thumbnails) y `services/playback.py` (preview + reloj).

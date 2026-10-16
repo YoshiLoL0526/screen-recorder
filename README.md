@@ -1,9 +1,9 @@
 # Rec Studio — grabación de pantalla + editor de video
 
-> **Estado: F1.1 y F2.1 aplicados** — el grabador ya lleva **cursor propio** (sin la latencia
-> variable de WGC), **compensación de la deriva** del reloj de audio, **selección de región
-> arrastrando** y **cuenta atrás** ([docs/11](docs/11-f11-f21-arreglos.md)). Siguiente fase:
-> **F3** (editor de video), ver [roadmap](docs/06-roadmap.md).
+> **Estado: F3 implementado** — además del grabador (F1/F2 con sus arreglos), la app ya tiene
+> **editor**: timeline con cortes, recortes, reordenar, velocidad y transiciones, undo/redo,
+> autoguardado y preview a 30 fps ([docs/12](docs/12-f3-editor.md)). Siguiente fase: **F4**
+> (export y efectos), ver [roadmap](docs/06-roadmap.md).
 
 Aplicación de escritorio para **grabar la pantalla** (como Bandicam: monitor, ventana o región,
 con audio del sistema y micrófono) y **editar el resultado sin salir de la app** (cortes,
@@ -45,22 +45,24 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 - [06 — Roadmap](docs/06-roadmap.md): fases F0–F5, riesgos y criterios de aceptación.
 - [07 — Decisiones (ADR)](docs/07-decisiones.md): por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido, etc.
 - [08 — F0: resultados](docs/08-f0-resultados.md): mediciones reales de captura, pipe FFmpeg, audio, preview y empaquetado.
+- [12 — F3: editor](docs/12-f3-editor.md): lo implementado del editor, mediciones y aprendizajes.
 
 ## Estructura del repositorio
 
 ```
 ├─ main.py            # punto de entrada de la app (uv run python main.py)
 ├─ docs/              # especificación, resultados y capturas
-├─ src/recstudio/     # paquete: core/ · platform/ · services/ · ui/ (F1 + F2)
+├─ src/recstudio/     # paquete: core/ · platform/ · services/ · ui/ (F1 + F2 + F3)
 ├─ tools/
 │  ├─ rec.py          # CLI de grabación (F1): --list, --region, --recover, --duration…
 │  ├─ f2_ui_test.py   # prueba end-to-end de la UI (grabar/pausar/parar con Pilot)
 │  ├─ f2_screenshots.py  # regenera las capturas de la documentación
+│  ├─ f3_editor_test.py  # aceptación del editor (3 clips, drags+undo, fps del preview) + capturas
 │  ├─ av_sync_test.py # prueba automática de sincronía A/V (beep + cursor)
 │  ├─ soak_test.py    # soak con pausa y medición de deriva
 │  ├─ recovery_test.py# recuperación de sesiones interrumpidas
 │  └─ spikes/         # scripts de F0 (mediciones originales)
-└─ tests/             # pytest: config, comandos FFmpeg, mux real, settings, biblioteca y UI
+└─ tests/             # pytest: config, FFmpeg, mux real, settings, biblioteca, UI y editor
 ```
 
 ## Puesta en marcha
@@ -71,7 +73,7 @@ Requiere Python ≥ 3.12 y [uv](https://docs.astral.sh/uv/):
 uv sync                                   # entorno + dependencias
 uv run pytest                             # tests (unit + integración FFmpeg)
 
-# La app (F2): grabar con preview en vivo, F9/F10, biblioteca…
+# La app: grabar con preview en vivo, F9/F10, biblioteca y editor (Ctrl+3)
 uv run python main.py
 uv run aurora dev main.py --inspector     # hot reload + inspector (F12)
 

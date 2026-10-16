@@ -1,0 +1,376 @@
+"""Pantalla del editor: barra de proyecto, preview + transporte, inspector y timeline.
+
+    column[ toolbar, row(grow=1)[ column[preview, transporte], inspector(290) ], timeline ]
+
+Cada panel es un `@component` que lee solo sus `Signal`: el preview (30 Hz) y el playhead no
+reconstruyen el inspector ni el canvas del timeline.
+"""
+
+from __future__ import annotations
+
+from aurora import box, button, column, component, image, row, scroll, select, spacer, text, text_input
+
+from ... import state
+from ...core import timeline as tl
+from ...core.project import TRANSITION_KINDS
+from ..components import chip, icon_button, mark_input_key, section
+from .. import icons
+from ..timeline import EDITOR_PAD_X, PANEL_BORDER, timeline_view
+
+_TRANSITION_LABELS = {
+    "none": "Corte (sin transición)",
+    "fade": "Fundido",
+    "fadeblack": "Fundido a negro",
+    "fadewhite": "Fundido a blanco",
+    "dissolve": "Disolver",
+    "wipeleft": "Barrido ←",
+    "wiperight": "Barrido →",
+    "slideleft": "Deslizar ←",
+    "circleopen": "Círculo",
+}
+
+
+def _editor():
+    from ..editor_controller import EDITOR
+
+    return EDITOR
+
+
+def _call(name: str, *args):
+    def handler() -> None:
+        editor = _editor()
+        if editor is not None:
+            getattr(editor, name)(*args)
+
+    return handler
+
+
+# -- barra superior ---------------------------------------------------------------
+
+
+@component
+def editor_toolbar():
+    project = state.editor_project()
+    dirty = state.project_dirty()
+    read_only = state.project_read_only()
+    undo, redo = state.undo_label(), state.redo_label()
+    importing = state.importing()
+    return row(gap=8, align="center", shrink=0)[
+        image(icons.CUT, width=18),
+        text(project.name, size=15, weight=700, max_lines=1),
+        read_only and chip("solo lectura", tone="muted"),
+        not read_only and chip("sin guardar" if dirty else "guardado", tone="text" if dirty else "muted"),
+        importing and chip(f"analizando {importing[0]}…", tone="accent"),
+        spacer(),
+        icon_button(icons.SAVE, _call("save"), tooltip="Guardar (Ctrl+S)", size=32, key="ed-save"),
+        icon_button(icons.UNDO, _call("undo"), tooltip=f"Deshacer: {undo} (Ctrl+Z)" if undo else "Nada que deshacer",
+                    size=32, key="ed-undo", opacity=1.0 if undo else 0.45),
+        icon_button(icons.REDO, _call("redo"), tooltip=f"Rehacer: {redo} (Ctrl+Y)" if redo else "Nada que rehacer",
+                    size=32, key="ed-redo", opacity=1.0 if redo else 0.45),
+        box(width=8),
+        button("Importar", _call("open_import"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-import"),
+        button("Exportar…", _call("export_hint"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-export"),
+        button("Cerrar", _call("close_project"), variant="ghost", padding=(6, 12), font_size=12.5, key="ed-close"),
+    ]
+
+
+# -- preview y transporte -----------------------------------------------------------
+
+
+@component
+def preview_panel():
+    frame = state.preview_frame()
+    note = state.preview_note()
+    has_clips = bool(state.editor_project().video.clips)
+    body = (
+        image(frame, fit="contain", grow=1, key="ed-preview-img")
+        if frame
+        else column(grow=1, align="center", justify="center", gap=6)[
+            text("Sin imagen" if has_clips else "El timeline está vacío", size=14, weight=600, color="$muted"),
+            text("Importa un video (Ctrl+I) para empezar" if not has_clips else "decodificando…",
+                 size=12, color="$muted"),
+        ]
+    )
+    return column(key="ed-preview", grow=1, height=0, min_height=160, bg="#000000", radius="$lg",
+                  border_width=1, border_color="$border", padding=6, gap=4)[
+        body,
+        note and row(justify="center")[text(note, size=11, color="#F5B851")],
+    ]
+
+
+@component
+def transport():
+    project = state.editor_project()
+    t = state.playhead()
+    playing = state.playing()
+    total = tl.total_duration(project)
+    audio = state.preview_audio()
+    frame = tl.frame_index(t, project.fps)
+    return row(key="ed-transport", gap=6, align="center", shrink=0)[
+        icon_button(icons.TO_START, _call("go_start"), tooltip="Inicio (Inicio)", size=32, key="tp-start"),
+        icon_button(icons.STEP_BACK, _call("step", -1), tooltip="−1 fotograma (←)", size=32, key="tp-back"),
+        icon_button(icons.PAUSE if playing else icons.PLAY, _call("toggle_play"),
+                    tooltip="Pausa (Espacio)" if playing else "Reproducir (Espacio)", size=38, key="tp-play"),
+        icon_button(icons.STEP_FWD, _call("step", 1), tooltip="+1 fotograma (→)", size=32, key="tp-fwd"),
+        icon_button(icons.TO_END, _call("go_end"), tooltip="Final (Fin)", size=32, key="tp-end"),
+        box(width=10),
+        text(tl.format_time(t), key="tp-time", size=15, weight=700, family="Consolas", letter_spacing=0.2),
+        text(f"/ {tl.format_time(total)}", size=13, color="$muted", family="Consolas"),
+        spacer(),
+        text(f"fotograma {frame} · {project.fps} fps", size=11.5, color="$muted", family="Consolas"),
+        icon_button(icons.SPEAKER if audio else icons.MUTE, _call("toggle_preview_audio"),
+                    tooltip="Audio del preview (M) · best-effort", size=30, key="tp-audio"),
+    ]
+
+
+# -- inspector -------------------------------------------------------------------------
+
+
+def _row(label: str, value):
+    return row(gap=8, align="center")[
+        text(label, size=12.5, color="$muted", width=74, shrink=0),
+        box(grow=1)[value] if not isinstance(value, str) else text(value, size=12.5, family="Consolas"),
+    ]
+
+
+def _time_field(signal, on_submit, key: str, mark, mark_tip: str, mark_icon: bytes):
+    return row(gap=6, align="center")[
+        text_input(signal, key=key, on_submit=on_submit, on_key=mark_input_key, grow=1, width=0,
+                   font_family="Consolas", padding=(7, 10)),
+        icon_button(mark_icon, mark, tooltip=mark_tip, size=30, key=f"{key}-mark"),
+    ]
+
+
+def _transition_controls(index: int | None):
+    if index is None:
+        return None
+    project = state.editor_project()
+    current = project.video.transitions[index]
+    limit = tl.transition_limit(project.video, index) if index < len(project.video.transitions) else 0
+    durations = [(d, f"{d:g} s") for d in (0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0) if d <= limit + 1e-9]
+    if current is not None and all(abs(d - current.duration) > 1e-6 for d, _ in durations):
+        durations.append((current.duration, f"{current.duration:.2f} s"))
+    kinds = [("none", _TRANSITION_LABELS["none"])] + [(k, _TRANSITION_LABELS[k]) for k in TRANSITION_KINDS]
+    return section(
+        f"Transición {index + 1} → {index + 2}",
+        _row("Tipo", select(state.insp_transition, kinds, key="insp-tr-kind")),
+        current is not None and _row("Duración", select(state.insp_transition_dur, durations, key="insp-tr-dur")),
+        limit < 0.2 and text("Clips demasiado cortos para una transición (mín. 0.4 s cada uno).",
+                             size=11.5, color="$muted"),
+        gap=8,
+    )
+
+
+@component
+def inspector():
+    from ..editor_controller import SPEED_CHOICES
+
+    project = state.editor_project()
+    selection = state.selection()
+    children = []
+
+    if selection and selection[0] == "clip" and project.has_clip(selection[1]):
+        clip = project.clip(selection[1])
+        index = project.video.index_of(clip.id)
+        try:
+            asset = project.asset(clip.asset_id)
+            name, offline = asset.name, asset.id in state.offline_assets()
+        except Exception:
+            name, offline = "?", True
+        children.append(section(
+            f"Clip {index + 1} de {len(project.video.clips)}",
+            text(name, size=13.5, weight=600, max_lines=2),
+            offline and text("Archivo no encontrado (offline)", size=11.5, color="$danger"),
+            _row("Entrada", _time_field(state.insp_in, _submit("submit_in"), "insp-in", _call("mark_in"),
+                                        "Entrada = playhead", icons.STEP_BACK)),
+            _row("Salida", _time_field(state.insp_out, _submit("submit_out"), "insp-out", _call("mark_out"),
+                                       "Salida = playhead", icons.STEP_FWD)),
+            _row("Duración", tl.format_time(clip.duration)),
+            _row("Velocidad", select(state.insp_speed, [(s, f"{s:g}×") for s in SPEED_CHOICES], key="insp-speed")),
+            gap=10,
+        ))
+        if index < len(project.video.transitions):
+            children.append(_transition_controls(index))
+        children.append(row(gap=8)[
+            button("✂ Dividir (S)", _call("split"), variant="soft", padding=(6, 12), font_size=12.5, key="insp-split"),
+            button("Eliminar", _call("delete_selected"), variant="soft", padding=(6, 12), font_size=12.5,
+                   key="insp-delete"),
+        ])
+    elif selection and selection[0] == "transition" and selection[1] < len(project.video.transitions):
+        children.append(_transition_controls(int(selection[1])))
+        children.append(text("Las transiciones se previsualizan de forma aproximada; el export (F4) usa xfade.",
+                             size=11.5, color="$muted", line_height=1.4))
+    else:
+        total = tl.total_duration(project)
+        children.append(section(
+            "Proyecto",
+            _row("Duración", tl.format_time(total)),
+            _row("Clips", str(len(project.video.clips))),
+            _row("Resolución", f"{project.width}×{project.height}"),
+            _row("FPS", select(state.insp_fps, [(f, f"{f} fps") for f in (24, 30, 60)], key="insp-fps")),
+            gap=10,
+        ))
+        children.append(section(
+            "Atajos",
+            text("Espacio reproducir · ←/→ fotograma · Mayús+←/→ 1 s · S dividir · Supr eliminar · "
+                 "Ctrl+Z/Y deshacer/rehacer · +/− zoom · 0 ajustar · Esc cancelar",
+                 size=11.5, color="$muted", line_height=1.5),
+        ))
+    return column(key="ed-inspector", width=290, grow=0, shrink=0, bg="$surface", radius="$lg",
+                  border_width=1, border_color="$border")[
+        scroll(key="insp-scroll", grow=1, padding=14, gap=16)[children]
+    ]
+
+
+def _submit(name: str):
+    def handler(value: str) -> None:
+        editor = _editor()
+        if editor is not None:
+            getattr(editor, name)(value)
+
+    return handler
+
+
+# -- timeline -----------------------------------------------------------------------
+
+
+@component
+def timeline_toolbar():
+    zoom = state.tl_zoom()
+    snap_on = state.snap_on()
+    has_selection = state.selection() is not None
+    return row(gap=6, align="center", shrink=0)[
+        icon_button(icons.ZOOM_OUT, _call("zoom_out"), tooltip="Alejar (−)", size=30, key="tl-zoom-out"),
+        icon_button(icons.ZOOM_IN, _call("zoom_in"), tooltip="Acercar (+)", size=30, key="tl-zoom-in"),
+        icon_button(icons.FIT, _call("zoom_fit"), tooltip="Ajustar al ancho (0)", size=30, key="tl-fit"),
+        text(f"{zoom:.0f} px/s", size=11.5, color="$muted", family="Consolas", width=70),
+        icon_button(icons.MAGNET, lambda: state.snap_on.set(not state.snap_on()),
+                    tooltip="Imán: " + ("activado" if snap_on else "desactivado"), size=30, key="tl-snap",
+                    bg="$primary" if snap_on else "$surface_hover"),
+        box(width=6),
+        icon_button(icons.CUT, _call("split"), tooltip="Dividir en el playhead (S)", size=30, key="tl-split"),
+        icon_button(icons.TRASH, _call("delete_selected"), tooltip="Eliminar selección (Supr)", size=30,
+                    key="tl-delete", opacity=1.0 if has_selection else 0.45),
+        spacer(),
+        text("Arrastra los clips para reordenar · sus bordes para recortar · la regla para moverte",
+             size=11, color="$muted", max_lines=1),
+    ]
+
+
+def timeline_panel():
+    return column(key="ed-timeline", gap=6, shrink=0, bg="$surface", radius="$lg", border_width=PANEL_BORDER,
+                  border_color="$border", padding=(8, 0, 4, 0))[
+        box(padding=(0, 10))[timeline_toolbar()],
+        timeline_view(),
+    ]
+
+
+# -- estados vacíos e importación ---------------------------------------------------------
+
+
+@component
+def empty_state():
+    recents = state.recent_projects()
+    recordings = state.recordings()
+
+    def open_recent(path: str):
+        def handler() -> None:
+            from pathlib import Path
+
+            editor = _editor()
+            if editor is not None:
+                editor.open_project(Path(path))
+
+        return handler
+
+    def recent_row(i: int, item: state.RecentProject):
+        return row(key=f"recent-{i}", gap=10, padding=(9, 12), radius="$md", bg="$surface_hover",
+                   bg_hover="$surface_pressed", align="center", cursor="pointer", on_click=open_recent(item.path))[
+            image(icons.CUT, width=16),
+            text(item.name, size=13, weight=600, grow=1, max_lines=1),
+            text(f"{item.clips} clips · {item.duration_label} · {item.modified_label}", size=11.5, color="$muted"),
+        ]
+
+    return column(grow=1, padding=(18, 20), gap=14)[
+        text("Editor", size=22, weight=700),
+        box(bg="$surface", radius="$lg", border_width=1, border_color="$border", padding=22, gap=12,
+            align="center")[
+            column(align="center", gap=8)[
+                text("Abre una grabación para editarla", size=17, weight=600),
+                text("Corta, reordena y ajusta la velocidad; el proyecto se guarda solo.", size=13, color="$muted"),
+                row(gap=10)[
+                    button("Ir a la Biblioteca", lambda: state.screen.set("library"), key="empty-library"),
+                    button("Importar archivo…", _call("open_import"), variant="soft", key="empty-import"),
+                ],
+                recordings and text(f"{len(recordings)} grabaciones disponibles en la Biblioteca",
+                                    size=11.5, color="$muted"),
+            ]
+        ],
+        recents and section("Proyectos recientes", column(gap=6)[[recent_row(i, r) for i, r in enumerate(recents)]]),
+    ]
+
+
+@component
+def import_modal():
+    if not state.import_open():
+        return column()
+    recordings = state.recordings()
+    importing = state.importing()
+
+    def add(path):
+        def handler() -> None:
+            editor = _editor()
+            if editor is not None:
+                editor.import_paths([path])
+
+        return handler
+
+    def rec_row(i: int, rec):
+        return row(key=f"imp-{i}", gap=10, padding=(7, 10), radius="$md", bg_hover="$surface_hover",
+                   align="center", cursor="pointer", on_click=add(rec.mp4))[
+            rec.thumb is not None and image(rec.thumb, width=72, height=41, fit="cover", radius=4),
+            column(grow=1, gap=2)[
+                text(rec.name, size=12.5, weight=600, max_lines=1),
+                text(f"{rec.duration_label} · {rec.created_label}", size=11, color="$muted"),
+            ],
+            text("+ añadir", size=12, weight=600, color="$primary"),
+        ]
+
+    close = lambda: state.import_open.set(False)  # noqa: E731
+    return column(layer="overlay", position="absolute", left=0, right=0, top=0, bottom=0, align="center",
+                  justify="center", capture=True)[
+        box(position="absolute", left=0, right=0, top=0, bottom=0, bg="#00000080", on_click=close)[None],
+        column(position="absolute", width=520, max_height=560, padding=20, gap=12, radius="$lg", bg="$surface",
+               border_width=1, border_color="$border", shadow=(0, 20, 50, "$shadow"), key="import-modal")[
+            row(align="center", gap=10)[
+                text("Importar", size=17, weight=700),
+                importing and chip(f"analizando {importing[0]}…", tone="accent"),
+                spacer(),
+                icon_button(icons.CLOSE, close, tooltip="Cerrar (Esc)", size=28),
+            ],
+            text("Elige una grabación de la Biblioteca o cualquier video del disco. Se añade al final del timeline.",
+                 size=12.5, color="$muted", line_height=1.4),
+            scroll(key="import-list", max_height=340, gap=2)[[rec_row(i, r) for i, r in enumerate(recordings)]]
+            if recordings else text("La Biblioteca está vacía.", size=12.5, color="$muted"),
+            row(justify="end", gap=10)[
+                button("Examinar…", _call("browse_import"), variant="soft", key="import-browse"),
+                button("Listo", close, key="import-done"),
+            ],
+        ],
+    ]
+
+
+def editor_screen():
+    body = (
+        column(grow=1, padding=(12, EDITOR_PAD_X), gap=10)[
+            editor_toolbar(),
+            row(grow=1, gap=12)[
+                column(grow=1, width=0, gap=8)[preview_panel(), transport()],
+                inspector(),
+            ],
+            timeline_panel(),
+        ]
+        if state.project_open()
+        else empty_state()
+    )
+    return column(grow=1)[body, import_modal()]

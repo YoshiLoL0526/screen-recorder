@@ -5,12 +5,14 @@ from __future__ import annotations
 from aurora import box, column, image, row, spacer, text
 
 from .. import state
-from .components import chip, icon_button, modal_layer, toast_layer
+from .components import chip, icon_button, modal_layer, take_input_key, toast_layer
 from . import icons
+from .timeline import NAV_W
 
 _NAV = (
     ("record", "Grabar", icons.RECORD),
     ("library", "Biblioteca", icons.LIBRARY),
+    ("editor", "Editor", icons.CUT),
     ("settings", "Ajustes", icons.SETTINGS),
 )
 
@@ -19,11 +21,15 @@ _SCREENS = {}
 
 def _screen_factory(name: str):
     if not _SCREENS:
+        from .screens.editor import editor_screen
         from .screens.library import library_screen
         from .screens.record import record_screen
         from .screens.settings import settings_screen
 
-        _SCREENS.update({"record": record_screen, "library": library_screen, "settings": settings_screen})
+        _SCREENS.update({
+            "record": record_screen, "library": library_screen, "editor": editor_screen,
+            "settings": settings_screen,
+        })
     return _SCREENS.get(name, _SCREENS["record"])
 
 
@@ -50,7 +56,7 @@ def header():
     )[
         image(icons.CAMERA, width=20),
         text("Rec Studio", size=15, weight=700),
-        chip("F2", tone="accent"),
+        chip("F3", tone="accent"),
         spacer(),
         recording and chip(
             ("⏸ pausado" if rec == "paused" else "● grabando"), tone="rec" if rec == "recording" else "muted"
@@ -78,7 +84,7 @@ def nav():
         ]
 
     return column(
-        width=196,
+        width=NAV_W,
         padding=(12, 12),
         gap=4,
         bg="$surface",
@@ -94,9 +100,15 @@ def content():
 
 def on_key(e) -> bool | None:
     from .controller import CONTROLLER
+    from .editor_controller import EDITOR
 
+    from_input = take_input_key()
     if CONTROLLER is None:
         return None
+    if state.screen() == "editor" and EDITOR is not None:
+        handled = EDITOR.on_key(e, from_input=from_input)
+        if handled:
+            return True
     if e.matches("f9"):
         CONTROLLER.toggle_record()
         return True

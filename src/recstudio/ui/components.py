@@ -45,22 +45,41 @@ def field(label: str, control):
 
 
 def icon_button(icon: bytes, on_click, *, tooltip: str | None = None, size: float = 34, **style):
-    element = box(
-        width=size,
-        height=size,
-        radius="$md",
-        align="center",
-        justify="center",
-        bg="$surface_hover",
-        bg_hover="$surface_pressed",
-        on_click=on_click,
-        cursor="pointer",
-        press_scale=0.94,
+    props = {
+        "width": size,
+        "height": size,
+        "radius": "$md",
+        "align": "center",
+        "justify": "center",
+        "bg": "$surface_hover",
+        "bg_hover": "$surface_pressed",
+        "cursor": "pointer",
+        "press_scale": 0.94,
         **style,
-    )[image(icon, width=size * 0.52)]
+    }
+    element = box(on_click=on_click, **props)[image(icon, width=size * 0.52)]
     if tooltip:
         element.style["tooltip"] = tooltip
     return element
+
+
+# -- teclado en campos de texto -----------------------------------------------------
+# Aurora entrega la tecla al `on_key` de la raíz aunque haya un campo enfocado (burbujeo), y
+# los handlers no saben qué nodo tiene el foco. Los campos que conviven con atajos de una sola
+# tecla (S, Espacio, Supr…) llevan `on_key=mark_input_key`: marca la pulsación como «de un
+# campo» y la deja seguir; la raíz la consulta con `take_input_key()` para no robarla.
+_input_key = False
+
+
+def mark_input_key(_e) -> None:  # noqa: ANN001
+    global _input_key
+    _input_key = True
+
+
+def take_input_key() -> bool:
+    global _input_key
+    value, _input_key = _input_key, False
+    return value
 
 
 def sparkline_fps():
@@ -100,22 +119,28 @@ def _toasts():
             bg=bg,
             align="center",
             shadow=(0, 10, 26, "$shadow"),
-            enter=animate.slide(y=14),
+            enter=animate.slide(y=-14),
             exit=animate.fade(),
+            shrink=0,
         )[
             image(icon, width=16),
             text(t.text, size=13, color=color, max_lines=2, width=340),
         ]
 
-    items = state.toasts()
+    items = state.toasts()[-3:]  # como mucho 3 a la vez (los más recientes)
+    # Arriba al centro, sobre el preview (zona sin controles). Una caja de la capa overlay se
+    # queda con los clics de todo lo que cubre: abajo a la derecha los toasts tapaban el final
+    # del timeline y el inspector durante 4 s. El contenedor mide 0 px de alto (los toasts
+    # desbordan hacia abajo), así que fuera de cada toast los clics siguen llegando.
     return column(
         layer="overlay",
         position="absolute",
-        right=18,
-        bottom=18,
+        left=0,
+        right=0,
+        top=62,
+        height=0,
         gap=8,
-        align="end",
-        width=420,
+        align="center",
     )[[item(t) for t in items]]
 
 

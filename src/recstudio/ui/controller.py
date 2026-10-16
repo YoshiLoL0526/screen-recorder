@@ -57,6 +57,9 @@ class Controller:
         # ignoran; si no, dos pulsaciones durante «Preparando…» creaban dos sesiones.
         self._busy = False
         self.region_drag_start: tuple[int, int, int, int] | None = None  # región al empezar un drag
+        from .editor_controller import EditorController
+
+        self.editor = EditorController(settings)
 
     # -- ciclo de vida --------------------------------------------------------
 
@@ -74,9 +77,11 @@ class Controller:
         threading.Thread(target=self._load_system_info, daemon=True, name="sysinfo").start()
         self.refresh_library()
         self._subscribe_settings()
+        self.editor.boot()
 
     def shutdown(self) -> None:
         self._closing = True
+        self.editor.shutdown()
         if self.session is not None:
             try:
                 self.session.abort()
@@ -110,7 +115,7 @@ class Controller:
             state.theme_name, state.source_kind, state.monitor_index, state.window_title,
             state.region, state.countdown_s,
             state.fps_target, state.preset, state.encoder, state.audio_system,
-            state.keepalive, state.mic_index, state.out_dir,
+            state.keepalive, state.mic_index, state.out_dir, state.project_path, state.preview_audio,
         ):
             signal.subscribe(lambda _value: self._schedule_save())
 
@@ -138,6 +143,8 @@ class Controller:
         s.keepalive = bool(state.keepalive())
         s.mic_index = int(state.mic_index())
         s.out_dir = state.out_dir()
+        s.last_project = state.project_path()
+        s.preview_audio = bool(state.preview_audio())
         s.save()
 
     def set_theme(self, name: str) -> None:

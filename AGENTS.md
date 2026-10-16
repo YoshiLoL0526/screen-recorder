@@ -5,21 +5,23 @@ Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora
 **FFmpeg** en subprocess. Todo el proyecto —docs, comentarios, UI, tests y commits— está en
 **español**; los commits usan prefijos `feat:` / `docs:`.
 
-Estado: F1 (motor), F2 (UI de grabación + Biblioteca) y F1.1/F2.1 implementados. La siguiente
-fase es **F3 (editor)**: `core/project.py`, `core/timeline.py`, `core/store.py`,
-`services/media.py`/`playback.py` y la pantalla Editor aún **no existen**; su diseño está en
-`docs/04-editor.md`.
+Estado: F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1 y **F3 (editor)** implementados
+(`core/project.py`, `core/timeline.py`, `core/store.py`, `services/media.py`/`playback.py`,
+`ui/editor_controller.py`, `ui/timeline.py`, `ui/screens/editor.py`; ver `docs/12`). La siguiente
+fase es **F4 (export y efectos)**: `core/graph.py` y `services/export.py` aún **no existen**; su
+diseño está en `docs/04-editor.md`.
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 75 tests; la integración usa FFmpeg real
+uv run pytest                                   # 115 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
 uv run python tools/rec.py --list               # CLI de grabación (--probe-encoders, --recover…)
 uv run python tools/f2_ui_test.py               # e2e de la UI (app real con App.pilot, sin ventana)
+uv run python tools/f3_editor_test.py           # aceptación del editor (+ capturas en docs/assets/f3)
 ```
 
 No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run aurora build`
@@ -57,6 +59,14 @@ No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run au
 - Aurora 0.3: `scroll()` añade `grow=1` (pasa `grow=0` en filas); columna que debe encoger:
   `grow=1, width=0`; los `select` no truncan etiquetas. Más límites y mitigaciones en `docs/05`
   («Limitaciones actuales de Aurora 0.3»).
+- Aurora 0.3 (F3): cualquier caja encima bloquea los clics aunque no tenga handlers (playhead,
+  toasts); la raíz recibe las teclas aunque haya un campo enfocado (usa `mark_input_key`);
+  `KeyEvent.matches("+")` lanza excepción; `on_drag` llega también con un clic (fase `start`,
+  x de ventana → `TL_X0`). En Windows, `Condition.wait` va a saltos de ~15.6 ms: para relojes
+  usa `time.sleep`.
+- Editor: el canvas del timeline usa una función de dibujo de módulo (misma identidad ⇒ Aurora
+  no redibuja si no cambian sus `Signal`); el playhead va en su propio `@component`. Proyectos en
+  `<grabaciones>/Proyectos/*.rsproj/project.json`.
 - Tests de UI: construyen la app real sin ventana con `build_app()` + `app.pilot(size=…)`; los
   que capturan pantalla hacen `pytest.skip` si no hay escritorio disponible. Los scripts de
   `tools/` (soak, av_sync, recovery, f2_ui) son pruebas de aceptación manual y algunos necesitan
@@ -66,8 +76,8 @@ No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run au
 
 - `docs/02-arquitectura.md`: capas, hilos y flujos. `docs/06-roadmap.md`: estado por fases
   (F0–F5). `docs/07-decisiones.md`: ADRs (por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido…).
-- `docs/09`/`10`/`11`: resultados de F1, F2 y F1.1+F2.1 (bugs, mediciones, aprendizajes de UI).
+- `docs/09`/`10`/`11`/`12`: resultados de F1, F2, F1.1+F2.1 y F3 (bugs, mediciones, aprendizajes de UI).
 - La cabecera de `docs/README.md` («Estado: diseño, sin implementación») está **obsoleta**; el
-  estado real es el del README raíz y `docs/09`–`11`.
+  estado real es el del README raíz y `docs/09`–`12`.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
   `build/`, `dist/`, `.venv`, `__pycache__` y `tools/spikes/out/` están ignorados: no son fuente.

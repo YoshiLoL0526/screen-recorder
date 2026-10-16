@@ -52,8 +52,11 @@ def recording_row(index: int):
     def open_it() -> None:
         library.open_file(rec.mp4)
 
-    def edit_hint() -> None:
-        state.toast("info", "El editor llega en F3 — el motor ya está listo (docs/04-editor.md).")
+    def edit() -> None:
+        from ..controller import CONTROLLER
+
+        if CONTROLLER is not None:
+            CONTROLLER.editor.open_recording(rec.mp4)
 
     return box(
         key=f"rec-{index}",
@@ -76,7 +79,7 @@ def recording_row(index: int):
                     rec.recovered and chip("Recuperada", tone="accent"),
                     spacer(),
                     button("▶ Reproducir", open_it, variant="soft", padding=(5, 12), font_size=12),
-                    button("✂ Editar", edit_hint, variant="soft", padding=(5, 12), font_size=12),
+                    button("✂ Editar", edit, variant="soft", padding=(5, 12), font_size=12, key=f"edit-{index}"),
                     icon_button(icons.FOLDER, lambda: library.reveal_in_explorer(rec.mp4),
                                 tooltip="Mostrar en el explorador", size=28),
                     icon_button(icons.TRASH, ask_delete, tooltip="Mover a la papelera", size=28),

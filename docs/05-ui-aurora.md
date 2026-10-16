@@ -271,7 +271,7 @@ Se registran en la raíz (`on_key`) y se delegan por pantalla; `e.matches("mod+s
 |---|---|
 | Cambio de pantalla | `enter=animate.slide(x=10)`, `exit=animate.fade()` en el contenedor. |
 | Botón REC | `transition=animate.tween(0.15)` para hover/pressed; punto rojo con `opacity` pulsante (`tween(0.9)`) mientras graba. |
-| Toast | `layer="overlay"`, `enter=animate.slide(y=14)`, `exit=animate.slide(y=14)`, auto-cierre 4 s (5 s si hay acción). |
+| Toast | `layer="overlay"` arriba al centro (contenedor de 0 px de alto: no tapa clics; ver docs/12), `enter=animate.slide(y=-14)`, auto-cierre 4 s, máximo 3. |
 | Modal | Fondo `#00000080` + tarjeta `enter=animate.zoom(0.96)`, `capture=True`. |
 | Filas de la biblioteca | `enter=animate.slide(y=8, transition=animate.spring())` escalonado (`delay=i*0.02`, cap 0.2 s). |
 | Cambio de clip seleccionado | La barra superior del clip aparece con `transition` (el canvas no anima; el efecto lo da el asa/handle overlay). |
@@ -304,7 +304,10 @@ def start_export():
 | Sin multi-ventana ni ventanas frameless/transparentes | No hay overlay de región sobre el escritorio ni mini-controles fuera de la ventana | Selección de región in-app sobre captura de referencia; controles de grabación en `layer="overlay"` dentro de la ventana |
 | `canvas()` no dibuja imágenes… | Sin filmstrip de thumbnails dentro de los clips | Clips con color+nombre+waveform (v1); filmstrip como capa de `image()` absolutas (post-v1, spike pendiente) |
 | Sin `on_hover` (solo `bg_hover`/`tooltip`) | Cursores por zona | Capa de cajas interactivas sobre el canvas — ✅ validado en F0 (S7): los cursores por elemento funcionan |
-| Sin coordenadas de nodo en `on_click`/`DragEvent` (la posición va en coordenadas de ventana; el clic no trae posición) | No se puede "clic en la regla → saltar a ese t" | Interacción por identidad + deltas; asa de playhead arrastrable; flechas ±1 frame. *Mejora propuesta a Aurora: `ClickEvent` con coordenadas o `rect` del nodo en handlers.* |
+| Sin coordenadas de nodo en `on_click`/`DragEvent` (la posición va en coordenadas de ventana; el clic no trae posición) | "Clic en la regla → saltar a ese t" no es directo | ✅ Resuelto en F3: `on_drag` llega también con un clic (fase `start`) y la x de ventana se convierte con el origen fijo del timeline (`TL_X0`) + `scroll`. *Mejora propuesta a Aurora: `rect` del nodo en handlers.* |
+| Cualquier caja encima bloquea los clics (aunque no tenga handlers) | Playhead y toasts tapaban asas y controles | Línea de playhead de 2 px con el asa solo en la regla; toasts en un contenedor de 0 px de alto (F3, docs/12). |
+| La raíz recibe las teclas aunque haya un campo enfocado | `S`/`Espacio` dividían o reproducían al escribir | Los campos marcan sus pulsaciones (`mark_input_key`) y los atajos sin modificador las ignoran. |
+| Sin scroll programático | El zoom no puede mantener el playhead a la vista | «Ajustar» (`0`) y zoom automático al importar. *Mejora propuesta: `scroll_to`.* |
 | `view()` completo por evento | Coste de reconstrucción | `@component` + `key` estables + Signals de grano fino + `virtual_list` |
 | Sin `slider` nativo | Controles continuos | Widget `slider()` propio con `canvas` + `on_drag` (reutilizable) |
 | Sin accesibilidad | — | Foco visible (`focus_color`), atajos completos, tooltips, buen contraste (post-v1: revisar con Aurora) |

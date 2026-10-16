@@ -42,3 +42,15 @@ class FfmpegError(RecStudioError):
 
 class DiskSpaceError(RecStudioError):
     code = "disk"
+
+
+class ProjectError(RecStudioError):
+    """Proyecto del editor inválido (invariante rota) o ilegible."""
+
+    code = "project"
+
+
+class MediaError(RecStudioError):
+    """Medio que no se puede abrir/decodificar (probe, preview, waveform)."""
+
+    code = "media"
