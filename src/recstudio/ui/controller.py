@@ -53,6 +53,9 @@ class Controller:
         self._save_timer: threading.Timer | None = None
         self._closing = False
         self._countdown_cancel = threading.Event()
+        # Arranque/parada en curso (incluye la cuenta atrás): mientras dure, F9 y el botón se
+        # ignoran; si no, dos pulsaciones durante «Preparando…» creaban dos sesiones.
+        self._busy = False
         self.region_drag_start: tuple[int, int, int, int] | None = None  # región al empezar un drag
 
     # -- ciclo de vida --------------------------------------------------------
@@ -239,7 +242,10 @@ class Controller:
                 state.countdown.set(0)
                 state.toast("info", "Cuenta atrás cancelada")
                 return
+            if self._busy:
+                return
             if self.session is None:
+                self._busy = True
                 seconds = int(state.countdown_s())
                 if seconds > 0:
                     self._countdown_cancel.clear()
@@ -248,18 +254,28 @@ class Controller:
                     ).start()
                 else:
                     threading.Thread(target=self._start_worker, daemon=True, name="rec-start").start()
-            elif state.rec_state() in ("recording", "paused"):
-                threading.Thread(target=self._stop_worker, daemon=True, name="rec-stop").start()
+            else:
+                self._request_stop_locked()
+
+    def _request_stop_locked(self) -> None:
+        """Lanza la parada una sola vez (llamar con `_lock` tomado)."""
+        if self._busy or self.session is None:
+            return
+        self._busy = True
+        threading.Thread(target=self._stop_worker, daemon=True, name="rec-stop").start()
 
     def _countdown_then_start(self, seconds: int) -> None:
-        for remaining in range(seconds, 0, -1):
-            state.countdown.set(remaining)
-            if self._countdown_cancel.wait(1.0):
-                state.countdown.set(0)
-                return
-        state.countdown.set(0)
-        if not self._countdown_cancel.is_set() and not self._closing:
-            self._start_worker()
+        try:
+            for remaining in range(seconds, 0, -1):
+                state.countdown.set(remaining)
+                if self._countdown_cancel.wait(1.0):
+                    state.countdown.set(0)
+                    return
+            state.countdown.set(0)
+            if not self._countdown_cancel.is_set() and not self._closing:
+                self._start_worker()
+        finally:
+            self._busy = False
 
     def toggle_pause(self) -> None:
         session = self.session
@@ -314,6 +330,12 @@ class Controller:
             return None
 
     def _start_worker(self) -> None:
+        try:
+            self._start_session()
+        finally:
+            self._busy = False
+
+    def _start_session(self) -> None:
         config = self._build_config()
         if config is None:
             state.rec_state.set("idle")
@@ -341,6 +363,12 @@ class Controller:
         threading.Thread(target=self._poll_worker, args=(session,), daemon=True, name="rec-poll").start()
 
     def _stop_worker(self) -> None:
+        try:
+            self._stop_session()
+        finally:
+            self._busy = False
+
+    def _stop_session(self) -> None:
         session = self.session
         if session is None:
             return
@@ -352,6 +380,7 @@ class Controller:
             state.rec_error.set(exc.message)
             state.toast("danger", f"Error al guardar: {exc.message}")
             self.session = None
+            self.refresh_library()  # el temporal puede haber quedado como recuperable
             return
         self.session = None
         state.rec_state.set("idle")
@@ -381,6 +410,15 @@ class Controller:
                     state.fps_history.set((*history[-_FPS_WINDOW:], stats.fps_real))
             if stats.error:
                 state.rec_error.set(stats.error)
+            if session.stopped_by_itself:  # error, disco lleno, límite o fuente cerrada
+                with self._lock:
+                    if self.session is not session:
+                        return
+                    if not self._busy:  # si hay otro arranque/parada en curso, reintentar
+                        if stats.error:
+                            state.toast("danger", f"La grabación se detuvo: {stats.error}")
+                        self._request_stop_locked()
+                        return
             time.sleep(_POLL_INTERVAL)
 
     # -- biblioteca ------------------------------------------------------------
@@ -417,16 +455,40 @@ class Controller:
         ))
 
     def recover(self, folder: Path) -> None:
+        """Muxea una sesión interrumpida (una sola vez por carpeta aunque se pulse dos veces)."""
+        with self._lock:
+            if folder.name in state.recovering():
+                return
+            state.recovering.set((*state.recovering(), folder.name))
+
         def worker() -> None:
             try:
                 result = rec_mod.recover_session(folder, out_dir=state.out_dir())
             except RecStudioError as exc:
                 state.toast("danger", f"No se pudo recuperar: {exc.message}")
                 return
+            finally:
+                with self._lock:
+                    state.recovering.set(tuple(n for n in state.recovering() if n != folder.name))
             state.toast("success", f"Recuperada: {result.mp4.name} ({result.duration_s:.1f}s)")
             self.refresh_library()
 
         threading.Thread(target=worker, daemon=True, name="recover").start()
+
+    def open_out_dir(self) -> None:
+        """Abre la carpeta de salida configurada (no la de por defecto)."""
+
+        def worker() -> None:
+            folder = state.recordings_dir().expanduser()
+            if not folder.is_dir():
+                state.toast("warning", f"La carpeta «{folder}» no existe todavía: se creará al grabar")
+                return
+            try:
+                library.open_file(folder)
+            except OSError as exc:
+                state.toast("danger", f"No se pudo abrir la carpeta: {exc}")
+
+        threading.Thread(target=worker, daemon=True, name="open-out-dir").start()
 
     def _on_confirm(self, confirm: state.Confirm) -> None:
         if confirm.action == "delete":

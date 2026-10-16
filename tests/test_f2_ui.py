@@ -82,11 +82,13 @@ def test_list_recordings_sin_sidecar_no_revienta(tmp_path: Path) -> None:
     assert items[0].thumb is None
 
 
-def test_list_recordings_ignora_recuperadas(tmp_path: Path) -> None:
+def test_list_recordings_incluye_recuperadas_marcadas(tmp_path: Path) -> None:
     _fake_recording(tmp_path, "normal")
     _fake_recording(tmp_path, "2026-01-01_10-00-00-recuperada")
-    names = [item.name for item in library.list_recordings(tmp_path)]
-    assert names == ["normal"]
+    items = {item.name: item for item in library.list_recordings(tmp_path)}
+    assert set(items) == {"normal", "2026-01-01_10-00-00-recuperada"}
+    assert items["2026-01-01_10-00-00-recuperada"].recovered
+    assert not items["normal"].recovered
 
 
 def test_duration_label_con_horas() -> None:

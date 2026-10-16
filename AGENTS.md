@@ -14,7 +14,7 @@ fase es **F3 (editor)**: `core/project.py`, `core/timeline.py`, `core/store.py`,
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 47 tests; la integración usa FFmpeg real
+uv run pytest                                   # 75 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)

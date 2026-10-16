@@ -154,9 +154,11 @@ class AudioRecorder:
         self.first_callback_t: float | None = None
         self.last_callback_t: float | None = None
         self._level = 0.0
-        self._samples: list[tuple[float, int]] = []  # (t, frames) para medir la deriva del reloj
+        self._samples: list[tuple[float, int]] = []  # (t sin pausas, frames) para la deriva
         self._callbacks = 0
         self._paused = threading.Event()
+        self._paused_at = 0.0
+        self._pause_total = 0.0  # tiempo real en pausa: se descuenta al medir la deriva
         self._queue: "queue.Queue[bytes]" = queue.Queue()
         self._stop = threading.Event()
         self._writer: threading.Thread | None = None
@@ -166,10 +168,14 @@ class AudioRecorder:
 
     def pause(self) -> None:
         """Deja de acumular audio sin cerrar el stream (los tiempos no avanzan)."""
-        self._paused.set()
+        if not self._paused.is_set():
+            self._paused_at = time.perf_counter()
+            self._paused.set()
 
     def resume(self) -> None:
-        self._paused.clear()
+        if self._paused.is_set():
+            self._pause_total += time.perf_counter() - self._paused_at
+            self._paused.clear()
 
     # -- niveles (vúmetro) ---------------------------------------------------
 
@@ -188,7 +194,8 @@ class AudioRecorder:
         self.frames += frame_count
         self._callbacks += 1
         if self._callbacks % 64 == 0:  # ~1,5 s: muestreo para la deriva (regresión al parar)
-            self._samples.append((now, self.frames))
+            # sin el tiempo en pausa: si no, la pausa parece reloj lento (−5000 ppm)
+            self._samples.append((now - self._pause_total, self.frames))
         # RMS barato del bloque (int16): muestrear como máximo 512 valores del primer canal
         chunk = memoryview(in_data).cast("h")
         stride = max(1, self.channels)
@@ -267,7 +274,7 @@ class AudioRecorder:
         samples = self._samples
         if len(samples) < 6 or self.first_callback_t is None or self.last_callback_t is None:
             return 0.0
-        span = self.last_callback_t - self.first_callback_t
+        span = self.last_callback_t - self.first_callback_t - self._pause_total
         if span < 60.0:
             return 0.0
         interior = samples[2:-2]

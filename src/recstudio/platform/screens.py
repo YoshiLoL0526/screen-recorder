@@ -23,6 +23,17 @@ class MonitorInfo:
         return f"Monitor {self.index} · {self.width}×{self.height}{star}"
 
 
+def _is_primary(mon: dict) -> bool:
+    """mss ≥ 10 marca `is_primary`; si no, el principal es el que está en (0, 0).
+
+    El orden de mss es el de EnumDisplayMonitors (el mismo que usa windows-capture para su
+    `monitor_index`), que **no** garantiza que el principal sea el 1.
+    """
+    if "is_primary" in mon:
+        return bool(mon["is_primary"])
+    return int(mon["left"]) == 0 and int(mon["top"]) == 0
+
+
 def list_monitors() -> list[MonitorInfo]:
     """Monitores físicos (mss: el índice 0 es el escritorio virtual, se omite)."""
     import mss
@@ -38,7 +49,7 @@ def list_monitors() -> list[MonitorInfo]:
                     top=int(mon["top"]),
                     width=int(mon["width"]),
                     height=int(mon["height"]),
-                    primary=(i == 1),
+                    primary=_is_primary(mon),
                 )
             )
         return infos

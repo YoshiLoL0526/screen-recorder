@@ -5,8 +5,8 @@ Decisiones de F0 (ver `docs/08-f0-resultados.md`):
   sobrescribir con la variable de entorno `RECSTUDIO_FFMPEG`.
 - Los encoders se prueban **codificando de verdad** (0.5 s de testsrc): en F0, AMF y QSV
   aparecían en `-encoders` pero no funcionaban sin hardware.
-- El mux final usa `-c:v copy` + AAC 48 kHz; `-t <duración>` recorta al video y `aresample`
-  compensa el reloj del dispositivo.
+- El mux final usa `-c:v copy` + AAC 48 kHz; `-t <duración>` recorta al video, `asetrate`
+  compensa la deriva del reloj del dispositivo y `aresample=async` rellena huecos.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,21 @@ _FPS_RE = re.compile(r"(\d+(?:\.\d+)?)\s*fps")
 _AUDIO_RE = re.compile(r"Audio:\s*([\w-]+)")
 _AUDIO_HZ_RE = re.compile(r",\s*(\d{4,6})\s*Hz")
 
+# Sin esto, con `pythonw` o la app empaquetada (sin consola propia) cada FFmpeg abre una
+# ventana de consola. Todo lanzamiento de FFmpeg pasa por `run()` o `run_capture_process()`.
+NO_WINDOW: dict[str, int] = (
+    {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
+)
+
+
+def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+    """Ejecuta FFmpeg sin ventana y captura su salida como texto UTF-8 (tolerante)."""
+    # `text=True` a secas decodifica con la página de códigos (cp1252) y revienta con rutas
+    # no ASCII en la salida de FFmpeg, que escribe UTF-8.
+    return subprocess.run(
+        cmd, capture_output=True, encoding="utf-8", errors="replace", **NO_WINDOW
+    )
+
 
 def ffmpeg_exe() -> str:
     override = os.environ.get(FFMPEG_ENV)
@@ -43,7 +59,7 @@ def ffmpeg_exe() -> str:
 
 def ffmpeg_version(exe: str | None = None) -> str:
     exe = exe or ffmpeg_exe()
-    proc = subprocess.run([exe, "-version"], capture_output=True, text=True)
+    proc = run([exe, "-version"])
     return proc.stdout.splitlines()[0] if proc.stdout else "?"
 
 
@@ -61,14 +77,12 @@ def probe_encoders(*, force: bool = False) -> dict[str, bool]:
 
     available: dict[str, bool] = {}
     for name in ENCODER_ORDER:
-        proc = subprocess.run(
+        proc = run(
             [
                 exe, "-hide_banner", "-loglevel", "error", "-y",
                 "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=0.5",
                 "-c:v", name, "-f", "null", "-",
-            ],
-            capture_output=True,
-            text=True,
+            ]
         )
         available[name] = proc.returncode == 0
 
@@ -129,7 +143,7 @@ def probe_media(path: str | Path, exe: str | None = None) -> MediaInfo:
     """Lee duración/streams con `ffmpeg -i` (imageio-ffmpeg no trae ffprobe)."""
     exe = exe or ffmpeg_exe()
     path = Path(path)
-    proc = subprocess.run([exe, "-hide_banner", "-i", str(path)], capture_output=True, text=True)
+    proc = run([exe, "-hide_banner", "-i", str(path)])
     text = proc.stderr
     if not path.exists():
         raise FfmpegError(f"no existe el archivo: {path}")
@@ -235,8 +249,9 @@ def mux_cmd(
     El audio pasa siempre por `aresample=async=1000`, que rellena huecos de timestamp (pausas
     largas, callbacks perdidos) y remuestrea a 48 kHz. OJO: `async` **no** corrige la deriva
     continua del reloj del dispositivo (F1: ~90 ppm ⇒ ~53 ms/10 min), porque los timestamps de
-    cada archivo son internamente coherentes; esa corrección (ratio con `atempo`/`aresample`)
-    llega en F1.1 — ver docs/09.
+    cada archivo son internamente coherentes. Esa deriva se corrige por pista con
+    `MuxTrack.drift_ppm` (medida por regresión al parar): `asetrate` a la tasa real del
+    dispositivo y `aresample` de vuelta a la nominal — ver docs/11.
     """
     args = [exe, "-hide_banner", "-loglevel", "warning", "-y", "-i", str(video)]
     chains: list[str] = []
@@ -282,11 +297,9 @@ def mux_cmd(
 
 def make_thumbnail(exe: str, video: str | Path, out_jpg: str | Path, *, at_s: float = 1.0) -> bool:
     """Miniatura JPEG del segundo `at_s` (best-effort)."""
-    proc = subprocess.run(
+    proc = run(
         [exe, "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{at_s:.2f}", "-i", str(video),
-         "-frames:v", "1", "-vf", "scale=-2:180", "-q:v", "5", str(out_jpg)],
-        capture_output=True,
-        text=True,
+         "-frames:v", "1", "-vf", "scale=-2:180", "-q:v", "5", str(out_jpg)]
     )
     return proc.returncode == 0 and Path(out_jpg).exists()
 
@@ -295,7 +308,8 @@ def run_capture_process(cmd: list[str], stderr_path: str | Path) -> subprocess.P
     """Lanza el proceso de captura con stdin por pipe y stderr a un archivo."""
     stderr_file = open(stderr_path, "wb")
     try:
-        return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr_file)
+        return subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=stderr_file,
+                                **NO_WINDOW)
     except Exception as exc:
         stderr_file.close()
         raise FfmpegError(f"no se pudo lanzar ffmpeg: {exc}") from exc

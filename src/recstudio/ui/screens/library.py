@@ -73,6 +73,7 @@ def recording_row(index: int):
                 row(gap=8, align="center")[
                     chip(rec.duration_label, tone="text"),
                     chip(f"{rec.size_mb:.1f} MB"),
+                    rec.recovered and chip("Recuperada", tone="accent"),
                     spacer(),
                     button("▶ Reproducir", open_it, variant="soft", padding=(5, 12), font_size=12),
                     button("✂ Editar", edit_hint, variant="soft", padding=(5, 12), font_size=12),
@@ -88,15 +89,18 @@ def recording_row(index: int):
 @component
 def recoverable_section():
     folders = state.recoverable()
+    busy = state.recovering()
     if not folders:
         return column()
 
     def row_for(folder):
         from ..controller import CONTROLLER
 
+        working = folder.name in busy
+
         def recover() -> None:
-            if CONTROLLER is not None:
-                CONTROLLER.recover(folder)
+            if CONTROLLER is not None and not working:
+                CONTROLLER.ask_recover(folder)
 
         return row(
             key=f"recov-{folder.name}",
@@ -110,7 +114,8 @@ def recoverable_section():
         )[
             text("Interrumpida", size=12, weight=700, color="#F5B851"),
             text(folder.name, size=12.5, color="$muted", grow=1, max_lines=1),
-            button("Recuperar", recover, variant="soft", padding=(5, 12), font_size=12),
+            button("Recuperando…" if working else "Recuperar", recover, variant="soft",
+                   padding=(5, 12), font_size=12, opacity=0.55 if working else 1.0),
         ]
 
     return column(gap=8)[[row_for(f) for f in folders]]

@@ -310,10 +310,10 @@ def config_panel():
 
 
 def _open_out_dir() -> None:
-    from ...platform import paths
-    from ...services import library
+    from ..controller import CONTROLLER
 
-    library.reveal_in_explorer(paths.videos_dir())
+    if CONTROLLER is not None:
+        CONTROLLER.open_out_dir()
 
 
 def _open_region_editor() -> None:

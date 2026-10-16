@@ -115,6 +115,20 @@ class MssBackend:
             self._sct = None
 
 
+def match_dxgi_output(
+    outputs: list[list[tuple[int, int]]], left: int, top: int
+) -> tuple[int, int] | None:
+    """(device_idx, output_idx) de la salida DXGI cuya esquina es (left, top), o None.
+
+    `outputs[d][o]` = esquina superior izquierda de la salida `o` del adaptador `d`.
+    """
+    for device_idx, corners in enumerate(outputs):
+        for output_idx, corner in enumerate(corners):
+            if corner == (left, top):
+                return device_idx, output_idx
+    return None
+
+
 class DxcamBackend:
     """DXGI con ring buffer paced (modo altas fps; sin cursor)."""
 
@@ -129,11 +143,27 @@ class DxcamBackend:
     def start(self, fps: int) -> None:
         import dxcam
 
+        from .screens import list_monitors
+
+        # dxcam numera por adaptador DXGI (y por GPU), no como EnumDisplayMonitors (mss/WGC):
+        # se busca la salida cuyo escritorio empieza donde el monitor elegido.
         idx = self.source.monitor_index
-        output_idx = None if idx == 1 else idx - 1
+        monitor = next((m for m in list_monitors() if m.index == idx), None)
+        if monitor is None:
+            raise CaptureError(f"no existe el monitor {idx}")
+        factory = getattr(dxcam, "__factory", None) or dxcam.DXFactory()
+        coords = [
+            [(o.desc.DesktopCoordinates.left, o.desc.DesktopCoordinates.top) for o in outputs]
+            for outputs in factory.outputs
+        ]
+        found = match_dxgi_output(coords, monitor.left, monitor.top)
+        if found is None:
+            raise CaptureError(f"dxcam: ninguna salida DXGI corresponde al monitor {idx}")
+        device_idx, output_idx = found
         try:
             self._cam = dxcam.create(
-                device_idx=0, output_idx=output_idx, output_color="BGRA", processor_backend="numpy"
+                device_idx=device_idx, output_idx=output_idx, output_color="BGRA",
+                processor_backend="numpy",
             )
             self._cam.start(target_fps=max(10, fps), video_mode=True)
         except Exception as exc:

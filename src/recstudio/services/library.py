@@ -32,6 +32,11 @@ class Recording:
         return self.mp4.stem
 
     @property
+    def recovered(self) -> bool:
+        """MP4 rehecho desde una sesión interrumpida (`recover_session`)."""
+        return "-recuperada" in self.mp4.stem
+
+    @property
     def size_mb(self) -> float:
         return self.size_bytes / 1e6
 
@@ -54,8 +59,6 @@ def list_recordings(out_dir: str | Path) -> list[Recording]:
         return []
     items: list[Recording] = []
     for mp4 in folder.glob("*.mp4"):
-        if "-recuperada" in mp4.stem:
-            continue  # las recuperadas se listan por su cuenta
         sidecar = mp4.with_suffix(".json")
         thumb = mp4.with_suffix(".jpg")
         data: dict = {}

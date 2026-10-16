@@ -88,6 +88,7 @@ preview = Signal(b"")  # JPEG en memoria (bytes)
 # -- biblioteca ----------------------------------------------------------------
 recordings = Signal(())
 recoverable = Signal(())
+recovering = Signal(())  # nombres de las carpetas que se están recuperando ahora mismo
 library_reload = Signal(0)  # contador: cambiarlo fuerza recarga
 
 

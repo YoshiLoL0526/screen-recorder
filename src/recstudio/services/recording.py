@@ -147,6 +147,13 @@ class RecordingSession:
     def encoder_name(self) -> str:
         return self._encoder
 
+    @property
+    def stopped_by_itself(self) -> bool:
+        """El bucle de captura se paró solo (error, disco, tamaño, fuente): falta `stop()`."""
+        return self._stop.is_set() and self._state in (
+            RecState.RECORDING, RecState.PAUSED, RecState.ERROR
+        )
+
     def stats(self) -> RecordingStats:
         with self._lock:
             return self._stats.copy()
@@ -221,27 +228,24 @@ class RecordingSession:
         self._event("resumed")
 
     def stop(self) -> RecordingResult:
-        if self._state not in (RecState.RECORDING, RecState.PAUSED):
+        # ERROR solo si llegó a grabar (FFmpeg murió a mitad, etc.): se libera todo y se muxea
+        # lo que haya en el MKV, que es resiliente a cortes.
+        started = self._capture_thread is not None
+        if self._state not in (RecState.RECORDING, RecState.PAUSED) and not (
+            self._state is RecState.ERROR and started
+        ):
             raise RecStudioError(f"no se puede detener una sesión en {self._state.value}")
         if self._state is RecState.PAUSED:
             self.resume()
+        error = self._stats.error if self._state is RecState.ERROR else None
+        if error:
+            self._warnings.append(f"la grabación se interrumpió: {error}")
         self._state = RecState.STOPPING
         with self._lock:
             self._stats.state = RecState.STOPPING.value
         self._event("stopping")
 
-        self._stop.set()
-        if self._capture_thread is not None:
-            self._capture_thread.join(timeout=10)
-
-        self._close_ffmpeg()
-        tracks = [recorder.stop() for recorder in self._recorders]
-        self._recorders.clear()
-        if self._keepalive is not None:
-            self._keepalive.stop()
-            self._keepalive = None
-        if self._backend is not None:
-            self._backend.stop()
+        tracks = self._release(join_timeout=10)
 
         if not self._mkv.exists() or self._mkv.stat().st_size == 0:
             self._set_error("no se escribió ningún frame")
@@ -273,20 +277,25 @@ class RecordingSession:
 
     def abort(self) -> None:
         """Detiene sin muxear (los temporales quedan para recuperación manual)."""
+        self._release(join_timeout=5)
+        self._write_session_json("aborted", {})
+        self._state = RecState.IDLE
+
+    def _release(self, *, join_timeout: float) -> list[audio_mod.AudioTrack]:
+        """Para captura, FFmpeg, audio y keep-alive (idempotente); devuelve las pistas."""
         self._stop.set()
         if self._capture_thread is not None:
-            self._capture_thread.join(timeout=5)
+            self._capture_thread.join(timeout=join_timeout)
         self._close_ffmpeg()
-        for recorder in self._recorders:
-            recorder.stop()
+        tracks = [recorder.stop() for recorder in self._recorders]
         self._recorders.clear()
         if self._keepalive is not None:
             self._keepalive.stop()
             self._keepalive = None
         if self._backend is not None:
             self._backend.stop()
-        self._write_session_json("aborted", {})
-        self._state = RecState.IDLE
+            self._backend = None
+        return tracks
 
     # -- arranque (interno) -----------------------------------------------------
 
@@ -444,6 +453,9 @@ class RecordingSession:
                 break
             if self._t0_video is None:
                 self._t0_video = time.perf_counter()
+                # ya hay t0: guardar los offsets reales para una posible recuperación (al
+                # arrancar aún valían 0 y el MP4 recuperado salía desfasado ~200 ms)
+                self._write_session_json("recording", self._current_offsets())
 
             skipped = getattr(self._backend, "skipped", 0)
             with self._lock:
@@ -558,7 +570,7 @@ class RecordingSession:
         cmd = ffmpeg_mod.mux_cmd(
             exe, video=self._mkv, tracks=mux_tracks, out_path=out_mp4, duration_s=info.duration_s
         )
-        proc = subprocess.run(cmd, capture_output=True, text=True)
+        proc = ffmpeg_mod.run(cmd)
         if proc.returncode != 0 or not out_mp4.exists():
             raise FfmpegError("falló el mux final", details=(proc.stderr or "")[-1500:])
 
@@ -752,10 +764,15 @@ def recover_session(
     session._backend_name = backend
     session._encoder = encoder
     ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
-    result = session._mux(tracks, offsets, recover=True)
+    result = session._mux(tracks, offsets, recover=True)  # valida el MP4 o lanza
     result.started_at = started_at
     result.ended_at = ended_at
-    session._write_session_json("recovered", offsets)
+    # MP4 válido: el temporal (GB de MKV + WAV) ya no hace falta. Si no se puede borrar
+    # entero, se marca para que no vuelva a aparecer como recuperable.
+    try:
+        shutil.rmtree(temp_dir)
+    except OSError:
+        session._write_session_json("recovered", offsets)
     return result
 
 
