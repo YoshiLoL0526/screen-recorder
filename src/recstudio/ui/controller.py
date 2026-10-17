@@ -44,6 +44,21 @@ def _parse_region() -> tuple[int, int, int, int] | None:
     return x, y, w, h
 
 
+REF_MAX_W = 940  # ancho máximo de la captura de referencia en el editor de región
+_REF_CHROME_H = 150  # título + botones + márgenes del diálogo del editor de región
+
+
+def fit_reference(width: int, height: int, view_h: float) -> tuple[int, int]:
+    """Tamaño (px lógicos) de la captura de referencia: cabe a lo ancho **y** a lo alto.
+
+    Antes solo se limitaba el ancho (940): con un monitor vertical (1080×1920) la imagen medía
+    ~1670 px de alto y los botones «Listo»/«Pantalla completa» quedaban fuera de la ventana.
+    """
+    max_h = max(200.0, view_h + 52 - _REF_CHROME_H)  # view_h no incluye la cabecera (52 px)
+    scale = min(1.0, REF_MAX_W / max(1, width), max_h / max(1, height))
+    return max(2, round(width * scale)), max(2, round(height * scale))
+
+
 class Controller:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -109,6 +124,9 @@ class Controller:
         state.keepalive.set(s.keepalive)
         state.mic_index.set(s.mic_index)
         state.out_dir.set(s.out_dir)
+        state.inspector_w.set(s.inspector_w)
+        state.inspector_open.set(s.inspector_open)
+        state.tl_tracks_extra.set(s.timeline_extra)
 
     def _subscribe_settings(self) -> None:
         for signal in (
@@ -116,6 +134,7 @@ class Controller:
             state.region, state.countdown_s,
             state.fps_target, state.preset, state.encoder, state.audio_system,
             state.keepalive, state.mic_index, state.out_dir, state.project_path, state.preview_audio,
+            state.inspector_w, state.inspector_open, state.tl_tracks_extra,
         ):
             signal.subscribe(lambda _value: self._schedule_save())
 
@@ -145,11 +164,59 @@ class Controller:
         s.out_dir = state.out_dir()
         s.last_project = state.project_path()
         s.preview_audio = bool(state.preview_audio())
+        s.inspector_w = float(state.inspector_w())
+        s.inspector_open = bool(state.inspector_open())
+        s.timeline_extra = float(state.tl_tracks_extra())
         s.save()
 
     def set_theme(self, name: str) -> None:
         state.set_theme(name)
         self._schedule_save()
+
+    def browse_out_dir(self) -> None:
+        """Selector de carpeta nativo (en un hilo: el diálogo es modal y bloquearía la UI)."""
+
+        def worker() -> None:
+            from ..platform import dialogs
+
+            try:
+                folder = dialogs.pick_folder(state.out_dir(), title="Carpeta de grabaciones")
+            except OSError as exc:
+                state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+                return
+            if folder is not None and str(folder) != state.out_dir():
+                state.out_dir.set(str(folder))
+                state.toast("success", f"Las grabaciones se guardarán en «{folder}»")
+                self.refresh_library()
+
+        threading.Thread(target=worker, daemon=True, name="pick-folder").start()
+
+    def ask_reset_settings(self) -> None:
+        state.confirm.set(state.Confirm(
+            action="reset-settings",
+            title="Restablecer ajustes",
+            message="Se vuelven a los valores por defecto la fuente, el video, el audio, la carpeta, el "
+                    "tema y la disposición del editor. Las grabaciones y los proyectos no se tocan.",
+        ))
+
+    def reset_settings(self) -> None:
+        defaults = Settings().normalized()
+        defaults.last_project = self.settings.last_project  # el proyecto abierto sigue abierto
+        self.settings = defaults
+        self.editor.settings = defaults
+        self._apply_settings()
+        self.editor.set_preview_audio(defaults.preview_audio, notify=False)
+        state.export_preset.set(defaults.export_preset)
+        self._save_settings()
+        self.refresh_library()
+        state.toast("success", "Ajustes restablecidos")
+
+    def reset_editor_layout(self) -> None:
+        defaults = Settings()
+        state.inspector_w.set(defaults.inspector_w)
+        state.inspector_open.set(defaults.inspector_open)
+        state.tl_tracks_extra.set(defaults.timeline_extra)
+        state.toast("info", "Disposición del editor restablecida")
 
     # -- info del sistema y preview -------------------------------------------
 
@@ -200,8 +267,7 @@ class Controller:
                 )
                 bounds = (monitor.width, monitor.height) if monitor else (1920, 1080)
                 image = Image.open(io.BytesIO(png)).convert("RGB")
-                display_w = min(940, image.width)
-                display_h = max(2, round(image.height * display_w / image.width))
+                display_w, display_h = fit_reference(image.width, image.height, state.view_h())
                 image = image.resize((display_w, display_h), Image.Resampling.LANCZOS)
                 buffer = io.BytesIO()
                 image.save(buffer, "PNG", optimize=True)
@@ -502,6 +568,8 @@ class Controller:
             self._delete_target(Path(confirm.target))
         elif confirm.action == "recover":
             self.recover(Path(confirm.target))
+        elif confirm.action == "reset-settings":
+            self.reset_settings()
 
     def _delete_target(self, mp4: Path) -> None:
         def worker() -> None:

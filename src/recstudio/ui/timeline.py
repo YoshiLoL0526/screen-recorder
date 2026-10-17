@@ -18,6 +18,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import numpy as np
 from aurora import Canvas, box, canvas, column, component, row, scroll, text
 
@@ -35,15 +37,55 @@ TL_X0 = NAV_W + EDITOR_PAD_X + PANEL_BORDER + LABEL_W  # x de ventana del borde 
 
 RULER_H = 24
 VIDEO_TOP = RULER_H + 6
-VIDEO_H = 62
-AUDIO_TOP = VIDEO_TOP + VIDEO_H + 6
+VIDEO_H = 62  # alto por defecto de las pistas (el divisor del editor las agranda o encoge)
 AUDIO_H = 40
-CONTENT_H = AUDIO_TOP + AUDIO_H + 8
+TRACKS_EXTRA_MIN = -14.0  # lo más que se pueden encoger (en px repartidos entre V y A)
+TRACKS_EXTRA_MAX = 420.0
+SPLIT_W = 12  # grosor de los divisores arrastrables del editor
+INSPECTOR_W_MIN, INSPECTOR_W_MAX = 240.0, 560.0
+PREVIEW_MIN_W = 320.0  # el divisor del inspector nunca deja el preview más estrecho que esto
+# Alto de todo lo que no es preview en el editor con las pistas por defecto (padding, barra,
+# transporte, divisor y panel del timeline), medido con `pilot.rect`. Con el alto útil de la
+# ventana (`state.view_h`) limita cuánto pueden crecer las pistas sin aplastar el preview.
+EDITOR_CHROME_H = 332.0
+PREVIEW_MIN_H = 160.0
 TAIL_PX = 240  # espacio tras el último clip (para soltar y desplazarse)
 HANDLE_W = 9
 _CHAR_W = 0.56  # ancho medio de carácter / tamaño de fuente (elipsis manual en el canvas)
 
 _TICKS = (0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800)
+
+
+@dataclass(frozen=True)
+class Tracks:
+    """Geometría vertical de las pistas; el alto extra lo fija el divisor preview/timeline (F5)."""
+
+    video_h: float
+    audio_h: float
+
+    @property
+    def audio_top(self) -> float:
+        return VIDEO_TOP + self.video_h + 6
+
+    @property
+    def content_h(self) -> float:
+        return self.audio_top + self.audio_h + 8
+
+
+def tracks_for(extra: float) -> Tracks:
+    extra = max(TRACKS_EXTRA_MIN, min(TRACKS_EXTRA_MAX, float(extra)))
+    return Tracks(video_h=round(VIDEO_H + extra * 0.6), audio_h=round(AUDIO_H + extra * 0.4))
+
+
+def max_tracks_extra(view_h: float) -> float:
+    """Lo más que pueden crecer las pistas con este alto útil sin bajar el preview de su mínimo."""
+    return max(TRACKS_EXTRA_MIN, min(TRACKS_EXTRA_MAX, view_h - EDITOR_CHROME_H - PREVIEW_MIN_H))
+
+
+def tracks() -> Tracks:
+    # El tope se aplica al dibujar (no al guardar): si la ventana encoge, las pistas también, y
+    # al volver a agrandarla recuperan el alto elegido.
+    return tracks_for(min(state.tl_tracks_extra(), max_tracks_extra(state.view_h())))
 
 
 def content_width(project: Project, zoom: float, view_w: float) -> float:
@@ -94,7 +136,7 @@ def _visible_range() -> tuple[float, float]:
     return scroll_x - view_w, scroll_x + 2 * view_w
 
 
-def _draw_ruler(c: Canvas, zoom: float, x0: float, x1: float) -> None:
+def _draw_ruler(c: Canvas, zoom: float, x0: float, x1: float, content_h: float) -> None:
     c.rect(0, 0, c.width, RULER_H, fill="$surface")
     c.line(0, RULER_H - 0.5, c.width, RULER_H - 0.5, stroke="$border")
     step = _tick_step(zoom)
@@ -104,7 +146,7 @@ def _draw_ruler(c: Canvas, zoom: float, x0: float, x1: float) -> None:
     while t <= end:
         x = t * zoom
         c.line(x, RULER_H - 9, x, RULER_H, stroke="$muted", stroke_width=1)
-        c.line(x, RULER_H, x, CONTENT_H, stroke="$grid", stroke_width=1)
+        c.line(x, RULER_H, x, content_h, stroke="$grid", stroke_width=1)
         c.text(x + 4, 4, _label(t, step), size=10, color="$muted", family="Consolas")
         if minor:
             for k in range(1, 5):
@@ -134,11 +176,13 @@ def _draw_tracks(c: Canvas) -> None:
     drag = state.tl_drag()
     offline = state.offline_assets()
     state.waveforms()  # dependencia: redibujar cuando llega un waveform
+    lay = tracks()
+    video_h, audio_top, audio_h = lay.video_h, lay.audio_top, lay.audio_h
     x0, x1 = _visible_range()
     c.clear("$track_bg")
-    c.rect(0, VIDEO_TOP - 3, c.width, VIDEO_H + 6, fill="$track_bg")
-    c.rect(0, AUDIO_TOP - 3, c.width, AUDIO_H + 6, fill="$track_alt")
-    _draw_ruler(c, zoom, max(0.0, x0), x1)
+    c.rect(0, VIDEO_TOP - 3, c.width, video_h + 6, fill="$track_bg")
+    c.rect(0, audio_top - 3, c.width, audio_h + 6, fill="$track_alt")
+    _draw_ruler(c, zoom, max(0.0, x0), x1, lay.content_h)
 
     clips = project.video.clips
     geo = Geometry(project, drag)
@@ -153,10 +197,10 @@ def _draw_tracks(c: Canvas) -> None:
         moving = drag is not None and drag.kind == "move" and drag.clip_id == clip.id
         selected = clip.id == selected_id
         if moving:  # el hueco que ocupará al soltar
-            c.rect(x + 1, VIDEO_TOP, w - 2, VIDEO_H, radius=6, stroke="$primary", stroke_width=1.5, dash=(5, 4))
+            c.rect(x + 1, VIDEO_TOP, w - 2, video_h, radius=6, stroke="$primary", stroke_width=1.5, dash=(5, 4))
             continue
-        c.rect(x + 1, VIDEO_TOP, w - 2, VIDEO_H, radius=6, fill="$clip")
-        c.rect(x + 1, VIDEO_TOP, w - 2, VIDEO_H, radius=6,
+        c.rect(x + 1, VIDEO_TOP, w - 2, video_h, radius=6, fill="$clip")
+        c.rect(x + 1, VIDEO_TOP, w - 2, video_h, radius=6,
                stroke="$primary" if selected else "$clip_edge", stroke_width=2 if selected else 1,
                dash=(4, 3) if is_offline else None)
         if selected:
@@ -182,7 +226,7 @@ def _draw_tracks(c: Canvas) -> None:
                color="$danger" if is_offline else "$muted", family="Consolas")
 
         # Pista de audio enlazada: banda + waveform del tramo de fuente.
-        c.rect(x + 1, AUDIO_TOP, w - 2, AUDIO_H, radius=5, fill="$clip_audio")
+        c.rect(x + 1, audio_top, w - 2, audio_h, radius=5, fill="$clip_audio")
         if asset is not None and asset.has_audio and zoom >= 20 and not is_offline:
             if asset.id not in peaks_by_asset:
                 peaks = media.cached_waveform(asset.path)
@@ -194,11 +238,11 @@ def _draw_tracks(c: Canvas) -> None:
                 if vx1 - vx0 > 2:
                     t0 = clip.in_ + (vx0 - x) / zoom * clip.speed
                     t1 = clip.in_ + (vx1 - x) / zoom * clip.speed
-                    pts = _waveform_points(peaks, vx0, vx1 - vx0, AUDIO_TOP, AUDIO_H, t0, t1, gain)
+                    pts = _waveform_points(peaks, vx0, vx1 - vx0, audio_top, audio_h, t0, t1, gain)
                     if pts is not None:
                         c.polygon(pts, fill="$wave")
         elif asset is not None and not asset.has_audio:
-            c.text(x + 8, AUDIO_TOP + 13, _ellipsis("sin audio", w - 12, 10), size=10, color="$muted")
+            c.text(x + 8, audio_top + 13, _ellipsis("sin audio", w - 12, 10), size=10, color="$muted")
 
     # Transiciones: zona de solape + rombo en la frontera.
     for index, transition in enumerate(project.video.transitions):
@@ -209,13 +253,13 @@ def _draw_tracks(c: Canvas) -> None:
         xa, xb = b_start * zoom, a_end * zoom
         if xb < x0 or xa > x1:
             continue
-        c.rect(xa, VIDEO_TOP + 6, max(2.0, xb - xa), VIDEO_H - 12, fill="#F5B85130", stroke="$transition",
+        c.rect(xa, VIDEO_TOP + 6, max(2.0, xb - xa), video_h - 12, fill="#F5B85130", stroke="$transition",
                stroke_width=1)
-        c.line(xa, VIDEO_TOP + 6, xb, VIDEO_TOP + VIDEO_H - 6, stroke="$transition", stroke_width=1)
-        c.line(xa, VIDEO_TOP + VIDEO_H - 6, xb, VIDEO_TOP + 6, stroke="$transition", stroke_width=1)
+        c.line(xa, VIDEO_TOP + 6, xb, VIDEO_TOP + video_h - 6, stroke="$transition", stroke_width=1)
+        c.line(xa, VIDEO_TOP + video_h - 6, xb, VIDEO_TOP + 6, stroke="$transition", stroke_width=1)
         cx = (xa + xb) / 2
         if zoom >= 40:
-            c.text(cx, VIDEO_TOP + VIDEO_H + 1, f"{transition.kind} {transition.duration:g}s", size=9.5,
+            c.text(cx, VIDEO_TOP + video_h + 1, f"{transition.kind} {transition.duration:g}s", size=9.5,
                    color="$transition", align="center")
     for index in range(len(project.video.transitions)):
         transition = project.video.transitions[index]
@@ -232,7 +276,7 @@ def _draw_tracks(c: Canvas) -> None:
     if drag is not None and drag.kind == "move" and project.has_clip(drag.clip_id):
         clip = project.clip(drag.clip_id)
         x, w = drag.ghost * zoom, max(2.0, clip.duration * zoom)
-        c.rect(x + 1, VIDEO_TOP - 2, w - 2, VIDEO_H + 4, radius=6, fill="#7C5CFF55", stroke="$primary", stroke_width=2)
+        c.rect(x + 1, VIDEO_TOP - 2, w - 2, video_h + 4, radius=6, fill="#7C5CFF55", stroke="$primary", stroke_width=2)
         try:
             name = project.asset(clip.asset_id).name
         except Exception:
@@ -305,6 +349,8 @@ def timeline_layer():
     x0, x1 = _visible_range()
     width = content_width(project, zoom, state.tl_view_w())
     geo = Geometry(project, drag)
+    lay = tracks()
+    video_h, content_h = lay.video_h, lay.content_h
 
     boxes = []
     for index, clip in enumerate(project.video.clips):
@@ -319,7 +365,7 @@ def timeline_layer():
                 left=x,
                 top=VIDEO_TOP,
                 width=w,
-                height=VIDEO_H,
+                height=video_h,
                 radius=6,
                 bg="#00000000",
                 bg_hover="#FFFFFF0D",
@@ -327,10 +373,10 @@ def timeline_layer():
                 on_drag=_clip_drag(clip.id),
             )[
                 box(key=f"trim-l-{clip.id}", position="absolute", left=0, top=0, width=min(HANDLE_W, w / 3),
-                    height=VIDEO_H, radius=4, bg="#00000000", bg_hover="#7C5CFF88", cursor="col-resize",
+                    height=video_h, radius=4, bg="#00000000", bg_hover="#7C5CFF88", cursor="col-resize",
                     on_drag=_trim_drag(clip.id, "l")),
                 box(key=f"trim-r-{clip.id}", position="absolute", right=0, top=0, width=min(HANDLE_W, w / 3),
-                    height=VIDEO_H, radius=4, bg="#00000000", bg_hover="#7C5CFF88", cursor="col-resize",
+                    height=video_h, radius=4, bg="#00000000", bg_hover="#7C5CFF88", cursor="col-resize",
                     on_drag=_trim_drag(clip.id, "r")),
             ]
         )
@@ -365,8 +411,8 @@ def timeline_layer():
             )
         )
 
-    return box(key="tl-layer", width=width, height=CONTENT_H, shrink=0)[
-        canvas(_draw_tracks, key="tl-canvas", width=width, height=CONTENT_H, on_drag=_canvas_drag),
+    return box(key="tl-layer", width=width, height=content_h, shrink=0)[
+        canvas(_draw_tracks, key="tl-canvas", width=width, height=content_h, on_drag=_canvas_drag),
         boxes,
     ]
 
@@ -375,10 +421,11 @@ def timeline_layer():
 def playhead_layer():
     zoom = state.tl_zoom()
     x = state.playhead() * zoom
+    content_h = tracks().content_h
     # Cualquier caja encima tapa los clics de lo de debajo (aunque no tenga handlers): el
     # contenedor es la propia línea de 2 px y el asa (12 px) solo vive en la regla, para no
     # tapar las asas de trim de un clip cuyo borde coincide con el playhead (lo normal tras dividir).
-    return box(position="absolute", left=x - 1, top=0, width=2, height=CONTENT_H, bg="$playhead")[
+    return box(position="absolute", left=x - 1, top=0, width=2, height=content_h, bg="$playhead")[
         box(key="playhead", position="absolute", left=-5, top=0, width=12, height=RULER_H - 6, radius=3,
             bg="$playhead", cursor="col-resize", on_drag=_playhead_drag),
     ]
@@ -397,9 +444,10 @@ def track_labels():
             text(title, size=11, weight=700, color="$muted")
         ]
 
-    return box(width=LABEL_W, height=CONTENT_H, shrink=0)[
-        label("V", VIDEO_TOP, VIDEO_H),
-        label("A", AUDIO_TOP, AUDIO_H),
+    lay = tracks()
+    return box(width=LABEL_W, height=lay.content_h, shrink=0)[
+        label("V", VIDEO_TOP, lay.video_h),
+        label("A", lay.audio_top, lay.audio_h),
     ]
 
 
@@ -407,11 +455,12 @@ def timeline_view():
     """Regla + pistas desplazables (lo que no es la barra de herramientas)."""
     project = state.editor_project()
     width = content_width(project, state.tl_zoom(), state.tl_view_w())
-    return row(grow=0, shrink=0, height=CONTENT_H + 12)[
+    content_h = tracks().content_h
+    return row(grow=0, shrink=0, height=content_h + 12)[
         track_labels(),
         column(grow=1, width=0)[
-            scroll(axis="x", key="tl-scroll", height=CONTENT_H + 12, on_scroll=_on_scroll)[
-                box(key="tl-content", width=width, height=CONTENT_H, shrink=0)[
+            scroll(axis="x", key="tl-scroll", height=content_h + 12, on_scroll=_on_scroll)[
+                box(key="tl-content", width=width, height=content_h, shrink=0)[
                     timeline_layer(),
                     playhead_layer(),
                 ]

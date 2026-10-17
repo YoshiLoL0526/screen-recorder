@@ -1,0 +1,63 @@
+# CI de Rec Studio (docs/14): tests (unit + golden + integración con FFmpeg + UI con Pilot) y
+# build del ejecutable con su smoke test. Solo Windows: la app y su captura/audio lo son.
+#
+# Los tests no graban de verdad (sesiones falsas) y la UI se construye sin ventana, así que el
+# runner no necesita monitor, GPU ni tarjeta de sonido: lo que depende de ellos hace
+# `pytest.skip` o degrada solo (preview de audio mudo, NVENC «no disponible»).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"  # los scripts imprimen ✓/✗ y la consola del runner es cp1252
+
+jobs:
+  tests:
+    name: pytest
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Entorno (Python de .python-version + uv.lock)
+        run: uv sync --locked
+
+      - name: Tests
+        run: uv run pytest -q
+
+  build:
+    name: aurora build + smoke del exe
+    runs-on: windows-latest
+    needs: tests
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Entorno
+        run: uv sync --locked
+
+      - name: Build + smoke (imports, MP4 con el FFmpeg incluido, UI sin ventana)
+        run: uv run python tools/check_build.py
+
+      - name: Subir el ejecutable
+        uses: actions/upload-artifact@v4
+        with:
+          name: rec-studio-windows
+          path: dist/Rec Studio/
+          retention-days: 14

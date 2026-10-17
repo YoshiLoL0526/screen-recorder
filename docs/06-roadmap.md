@@ -94,7 +94,14 @@ con undo correcto; abrir/cerrar proyecto preserva estado; RNF-04 y la "sensació
 de la esperada, audio en sync, reproducible en un móvil y en Windows; export de 1 min 1080p60
 < 40 s con NVENC (RNF-05); corte rápido sin recodificar idéntico byte a byte en los tramos conservados.
 
-## F5 — Pulido y v1.0 (1–2 semanas)
+## F5 — Pulido y v1.0 (1–2 semanas) — ✅ implementado (2026-10-16, v1.0.0)
+
+> Detalle en [14 — F5: pulido](14-f5-pulido.md). Hecho: Ajustes completos (selector de carpeta,
+> valores por defecto, editor, sistema, restablecer), layout adaptable (preview vertical,
+> ventana grande, Ajustes con scroll), divisores del editor + inspector ocultable, `Esc`/`Intro`
+> en modales, icono, `[tool.aurora.build]`, smoke del exe (`tools/check_build.py`: ✅ build 27 s,
+> 369 MB, smoke rc=0), 13 tests y CI en `.github/workflows/ci.yml` (sin ejecutar aún: falta el
+> remoto en GitHub). Pendiente: prueba en máquina limpia, RNF-06/07 con ventana real; `strings.py` descartado mientras la app sea solo en español.
 
 - Ajustes completos, tema claro/oscuro, toasts/modales pulidos, estados vacíos, textos (strings.py).
 - `aurora build` + icono + smoke test del exe (`tools/check_build.py`).

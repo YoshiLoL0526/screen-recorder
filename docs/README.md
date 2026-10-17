@@ -4,8 +4,8 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 (recortes y transiciones simples), con toda la interfaz construida sobre
 [**aurora-ui**](https://yoshilol0526.github.io/aurora/) (`aurora-ui>=0.3.0`).
 
-> Estado: **diseño**. Aún no hay implementación; estos documentos son la especificación
-> que guía el desarrollo.
+> Estado: **v1.0.0 implementada** (F0–F5). Los documentos 01–07 son la especificación de
+> diseño; 08–14 recogen lo implementado en cada fase, con mediciones y bugs encontrados.
 
 ## Índice
 
@@ -24,6 +24,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 11 | [F1.1 + F2.1: arreglos](11-f11-f21-arreglos.md) | Cursor propio (sin la latencia de WGC), compensación de deriva del reloj de audio, región arrastrable y cuenta atrás. |
 | 12 | [F3: editor](12-f3-editor.md) | Modelo de proyecto, timeline interactivo, undo/autosave, preview a 30 fps, mediciones y bugs de Aurora encontrados. |
 | 13 | [F4: export](13-f4-export.md) | Filter graph (golden), export con progreso/ETA/cancelar, presets, corte rápido byte a byte, efectos y mediciones. |
+| 14 | [F5: pulido y v1.0](14-f5-pulido.md) | Layout adaptable, divisores del editor, Ajustes completos, icono, `aurora build` + smoke del exe y bugs de layout. |
 
 ## Orden de lectura sugerido
 

@@ -1,6 +1,9 @@
 """Pantalla del editor: barra de proyecto, preview + transporte, inspector y timeline.
 
-    column[ toolbar, row(grow=1)[ column[preview, transporte], inspector(290) ], timeline ]
+    column[ toolbar, row(grow=1)[ column[preview, transporte], ┃, inspector ], ━, timeline ]
+
+Los divisores (┃ ━) se arrastran (F5): ┃ cambia el ancho del inspector y ━ el alto de las pistas
+del timeline (y con ello el del preview). El inspector se oculta con `I` o el botón de panel.
 
 Cada panel es un `@component` que lee solo sus `Signal`: el preview (30 Hz) y el playhead no
 reconstruyen el inspector ni el canvas del timeline.
@@ -16,7 +19,7 @@ from ...core.project import TRANSITION_KINDS
 from ..components import chip, icon_button, mark_input_key, section
 from .. import icons
 from ..export_modal import export_chip, export_modal
-from ..timeline import EDITOR_PAD_X, PANEL_BORDER, timeline_view
+from ..timeline import EDITOR_PAD_X, PANEL_BORDER, PREVIEW_MIN_W, SPLIT_W, timeline_view
 
 _TRANSITION_LABELS = {
     "none": "Corte (sin transición)",
@@ -84,6 +87,9 @@ def editor_toolbar():
                     size=32, key="ed-undo", opacity=1.0 if undo else 0.45),
         icon_button(icons.REDO, _call("redo"), tooltip=f"Rehacer: {redo} (Ctrl+Y)" if redo else "Nada que rehacer",
                     size=32, key="ed-redo", opacity=1.0 if redo else 0.45),
+        icon_button(icons.PANEL, _call("toggle_inspector"),
+                    tooltip=("Ocultar" if state.inspector_open() else "Mostrar") + " el inspector (I)", size=32,
+                    key="ed-panel", bg="$surface_pressed" if state.inspector_open() else "$surface_hover"),
         box(width=8),
         button("Importar", _call("open_import"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-import"),
         button("Exportar…", _call("open_export"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-export"),
@@ -99,8 +105,13 @@ def preview_panel():
     frame = state.preview_frame()
     note = state.preview_note()
     has_clips = bool(state.editor_project().video.clips)
+    # El hueco lo decide el layout (`width/height=0` + `grow`), nunca el tamaño de la imagen; y
+    # `fit="contain"` la centra en él: sin esto, al agrandar la ventana el frame se quedaba
+    # pegado a la izquierda y sin aprovechar el espacio.
     body = (
-        image(frame, fit="contain", grow=1, key="ed-preview-img")
+        column(grow=1, height=0, align="center", justify="center")[
+            image(frame, fit="contain", grow=1, height=0, width="100%", key="ed-preview-img")
+        ]
         if frame
         else column(grow=1, align="center", justify="center", gap=6)[
             text("Sin imagen" if has_clips else "El timeline está vacío", size=14, weight=600, color="$muted"),
@@ -111,7 +122,7 @@ def preview_panel():
     return column(key="ed-preview", grow=1, height=0, min_height=160, bg="#000000", radius="$lg",
                   border_width=1, border_color="$border", padding=6, gap=4)[
         body,
-        note and row(justify="center")[text(note, size=11, color="#F5B851")],
+        row(justify="center")[text(note, size=11, color="#F5B851")] if note else None,
     ]
 
 
@@ -266,10 +277,10 @@ def inspector():
         children.append(section(
             "Atajos",
             text("Espacio reproducir · ←/→ fotograma · Mayús+←/→ 1 s · S dividir · Supr eliminar · "
-                 "Ctrl+Z/Y deshacer/rehacer · +/− zoom · 0 ajustar · Ctrl+E exportar · Esc cancelar",
+                 "Ctrl+Z/Y deshacer/rehacer · +/− zoom · 0 ajustar · I inspector · Ctrl+E exportar · Esc cancelar",
                  size=11.5, color="$muted", line_height=1.5),
         ))
-    return column(key="ed-inspector", width=290, grow=0, shrink=0, bg="$surface", radius="$lg",
+    return column(key="ed-inspector", width=state.inspector_w(), grow=0, shrink=0, bg="$surface", radius="$lg",
                   border_width=1, border_color="$border")[
         scroll(key="insp-scroll", grow=1, padding=14, gap=16)[children]
     ]
@@ -413,14 +424,50 @@ def import_modal():
     ]
 
 
+def _split_drag(which: str):
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_split()
+        else:
+            editor.drag_split(which, e.dx, e.dy)
+
+    return handler
+
+
+def splitter(which: str):
+    """Divisor arrastrable: «inspector» (vertical, entre preview e inspector) o «timeline»."""
+    vertical = which == "inspector"
+    grip = box(width=3 if vertical else 40, height=34 if vertical else 3, radius="$full", bg="$border")
+    size = {"width": SPLIT_W} if vertical else {"height": SPLIT_W}
+    return box(
+        key=f"split-{which}",
+        shrink=0,
+        align="center",
+        justify="center",
+        radius="$md",
+        bg_hover="$surface_hover",
+        cursor="col-resize" if vertical else "row-resize",
+        tooltip="Arrastra para redimensionar",
+        on_drag=_split_drag(which),
+        **size,
+    )[grip]
+
+
 def editor_screen():
+    show_inspector = state.inspector_open()
     body = (
-        column(grow=1, padding=(12, EDITOR_PAD_X), gap=10)[
+        column(grow=1, padding=(12, EDITOR_PAD_X), gap=0)[
             editor_toolbar(),
-            row(grow=1, height=0, gap=12)[  # base 0: el inspector (alto) hace scroll en vez de empujar el timeline
-                column(grow=1, width=0, gap=8)[preview_panel(), transport()],
-                inspector(),
+            box(height=10, shrink=0),
+            row(grow=1, height=0)[  # base 0: el inspector (alto) hace scroll en vez de empujar el timeline
+                column(grow=1, width=0, gap=8, min_width=PREVIEW_MIN_W)[preview_panel(), transport()],
+                show_inspector and splitter("inspector"),
+                show_inspector and inspector(),
             ],
+            splitter("timeline"),
             timeline_panel(),
         ]
         if state.project_open()

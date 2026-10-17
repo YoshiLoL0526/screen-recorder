@@ -37,6 +37,7 @@ class Confirm:
 
 # -- navegación y aspecto -----------------------------------------------------
 screen = Signal("record")  # record | library | editor | settings
+view_h = Signal(720.0)  # alto útil bajo la cabecera (lo mide el `on_scroll` de la navegación)
 theme_name = Signal("dark")
 theme = Signal(STUDIO_DARK)
 toasts = Signal(())
@@ -133,6 +134,9 @@ tl_zoom = Signal(60.0)  # px por segundo
 tl_scroll = Signal(0.0)  # desplazamiento horizontal del timeline (px)
 tl_view_w = Signal(1000.0)  # ancho visible del timeline (px)
 snap_on = Signal(True)
+tl_tracks_extra = Signal(0.0)  # alto extra de las pistas (divisor preview/timeline, F5)
+inspector_w = Signal(290.0)  # ancho del inspector (divisor preview/inspector, F5)
+inspector_open = Signal(True)  # inspector visible (I) — oculto, el preview usa todo el ancho
 tl_drag = Signal(None)  # TimelineDrag | None
 waveforms = Signal(0)  # versión: sube cada vez que llega un waveform nuevo
 offline_assets = Signal(frozenset())  # ids de assets cuyo archivo no existe

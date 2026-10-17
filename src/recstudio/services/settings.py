@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
 from ..platform import paths
+
+_SAVE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -27,6 +31,10 @@ class Settings:
     last_project: str = ""  # project.json abierto al cerrar (se reabre al arrancar)
     preview_audio: bool = True
     export_preset: str = "rapido"  # preset del último export (core.graph.PRESETS)
+    # Disposición del editor (F5): divisores y paneles
+    inspector_w: float = 290.0
+    inspector_open: bool = True
+    timeline_extra: float = 0.0
 
     def normalized(self) -> "Settings":
         if not self.out_dir:
@@ -35,7 +43,12 @@ class Settings:
             self.region = (0, 0, 1280, 720)
         else:
             self.region = tuple(int(v) for v in self.region)  # type: ignore[assignment]
-        known = {f.name for f in fields(Settings)}
+        try:
+            self.inspector_w = min(560.0, max(220.0, float(self.inspector_w)))
+            self.timeline_extra = min(420.0, max(-14.0, float(self.timeline_extra)))
+        except (TypeError, ValueError):
+            self.inspector_w, self.timeline_extra = 290.0, 0.0
+        self.inspector_open = bool(self.inspector_open)
         return self
 
     @classmethod
@@ -51,9 +64,18 @@ class Settings:
             return cls().normalized()
 
     def save(self) -> None:
-        try:
-            paths.settings_path().write_text(
-                json.dumps(asdict(self), indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-        except OSError:
-            pass
+        """Escritura atómica (temporal + `os.replace`) y serializada.
+
+        El guardado con debounce corre en un `Timer` y puede coincidir con otro (al cerrar, al
+        restablecer): con `write_text` directo, un lector podía ver el archivo truncado (vacío)
+        y un cierre a mitad de escritura dejaba los ajustes en blanco.
+        """
+        path = paths.settings_path()
+        payload = json.dumps(asdict(self), indent=2, ensure_ascii=False)
+        with _SAVE_LOCK:
+            tmp = path.with_name(path.name + ".tmp")
+            try:
+                tmp.write_text(payload, encoding="utf-8")
+                os.replace(tmp, path)
+            except OSError:
+                pass

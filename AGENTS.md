@@ -5,18 +5,20 @@ Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora
 **FFmpeg** en subprocess. Todo el proyecto —docs, comentarios, UI, tests y commits— está en
 **español**; los commits usan prefijos `feat:` / `docs:`.
 
-Estado: F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1, **F3 (editor)** y **F4
-(export y efectos)** implementados. Editor: `core/project.py`, `core/timeline.py`,
+Estado: **v1.0.0** — F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1, **F3 (editor)**,
+**F4 (export y efectos)** y **F5 (pulido)** implementados. Editor: `core/project.py`, `core/timeline.py`,
 `core/store.py`, `services/media.py`/`playback.py`, `ui/editor_controller.py`, `ui/timeline.py`,
 `ui/screens/editor.py` (ver `docs/12`). Export: `core/effects.py`, `core/graph.py` (builder puro
 del filter graph), `core/keyframes.py` (corte sin recodificar), `services/export.py`,
-`ui/export_modal.py` (ver `docs/13`). La siguiente fase es **F5 (pulido y v1.0)**.
+`ui/export_modal.py` (ver `docs/13`). Pulido: layout adaptable, divisores del editor, Ajustes,
+icono, `[tool.aurora.build]` y smoke del exe en `src/recstudio/smoke.py` (ver `docs/14`). Lo
+siguiente es el backlog post-v1 de `docs/06`.
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 145 tests; la integración usa FFmpeg real
+uv run pytest                                   # 158 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -24,10 +26,15 @@ uv run python tools/rec.py --list               # CLI de grabación (--probe-enc
 uv run python tools/f2_ui_test.py               # e2e de la UI (app real con App.pilot, sin ventana)
 uv run python tools/f3_editor_test.py           # aceptación del editor (+ capturas en docs/assets/f3)
 uv run python tools/f4_export_test.py           # aceptación del export (NVENC, sync, byte a byte; --skip-long)
+uv run python tools/f5_screenshots.py           # capturas de F5 (docs/assets/f5, contenido sintético)
+uv run python tools/check_build.py              # aurora build + smoke del exe (--skip-build: solo el smoke)
+uv run python tools/make_icon.py                # regenera assets/icon.ico
 ```
 
-No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run aurora build`
-(F5) referencia `assets/icon.ico`, que todavía no existe: el empaquetado no está montado.
+No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run aurora build` usa
+`[tool.aurora.build]` (onedir, sin consola) → `dist/Rec Studio/`. CI: `.github/workflows/ci.yml`
+(windows-latest: `uv sync --locked` + `pytest`, y luego `tools/check_build.py` con el exe como
+artefacto); los tests no pueden depender de monitor, GPU ni audio reales del runner.
 
 ## Arquitectura (reglas duras)
 
@@ -77,6 +84,12 @@ No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run au
 - Editor: el canvas del timeline usa una función de dibujo de módulo (misma identidad ⇒ Aurora
   no redibuja si no cambian sus `Signal`); el playhead va en su propio `@component`. Proyectos en
   `<grabaciones>/Proyectos/*.rsproj/project.json`.
+- Layout (F5): todo contenedor `grow=1` cuyo contenido puede no caber (imágenes, pantallas
+  largas) lleva `height=0` (columna) o `width=0` (fila); si no, crece y empuja controles fuera
+  de la ventana. El alto útil de la ventana es `state.view_h` (lo da el `on_scroll` de la
+  navegación); la geometría de pistas sale de `ui/timeline.tracks()`, no de constantes.
+- `settings.json` se escribe atómico (tmp + `os.replace`); los campos nuevos de `Settings` se
+  validan en `normalized()`. `platform.ffmpeg.run` usa `stdin=DEVNULL` (exe sin consola).
 - Tests de UI: construyen la app real sin ventana con `build_app()` + `app.pilot(size=…)`; los
   que capturan pantalla hacen `pytest.skip` si no hay escritorio disponible. Los scripts de
   `tools/` (soak, av_sync, recovery, f2_ui) son pruebas de aceptación manual y algunos necesitan
@@ -86,8 +99,7 @@ No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run au
 
 - `docs/02-arquitectura.md`: capas, hilos y flujos. `docs/06-roadmap.md`: estado por fases
   (F0–F5). `docs/07-decisiones.md`: ADRs (por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido…).
-- `docs/09`/`10`/`11`/`12`: resultados de F1, F2, F1.1+F2.1 y F3 (bugs, mediciones, aprendizajes de UI).
-- La cabecera de `docs/README.md` («Estado: diseño, sin implementación») está **obsoleta**; el
-  estado real es el del README raíz y `docs/09`–`12`.
+- `docs/09`–`14`: resultados de F1, F2, F1.1+F2.1, F3, F4 y F5 (bugs, mediciones, aprendizajes
+  de UI). `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
   `build/`, `dist/`, `.venv`, `__pycache__` y `tools/spikes/out/` están ignorados: no son fuente.

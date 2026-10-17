@@ -449,7 +449,9 @@ class EditorController:
             self.player.play(state.playhead())
 
     def toggle_preview_audio(self) -> None:
-        enabled = not state.preview_audio()
+        self.set_preview_audio(not state.preview_audio())
+
+    def set_preview_audio(self, enabled: bool, *, notify: bool = True) -> None:
         state.preview_audio.set(enabled)
         audio = self.player.audio
         if audio is not None:
@@ -458,7 +460,8 @@ class EditorController:
                 audio.stop()
             elif self.player.playing:
                 audio.start(self.project, self.player.time)
-        state.toast("info", "Audio del preview activado" if enabled else "Preview en silencio")
+        if notify:
+            state.toast("info", "Audio del preview activado" if enabled else "Preview en silencio")
 
     # -- zoom -------------------------------------------------------------------
 
@@ -602,6 +605,40 @@ class EditorController:
         start = getattr(self, "_playhead_start", state.playhead())
         self.seek(start + dx / state.tl_zoom())
 
+    # -- disposición (F5): divisores e inspector ---------------------------------------
+
+    def begin_split(self) -> None:
+        from .timeline import max_tracks_extra
+
+        # Se parte del alto efectivo (ya topado), no del guardado: si la ventana encogió, el
+        # divisor responde desde donde se ve y no desde un valor que ya no cabe.
+        extra = min(state.tl_tracks_extra(), max_tracks_extra(state.view_h()))
+        self._split_start = (state.inspector_w(), extra)
+
+    def drag_split(self, which: str, dx: float, dy: float) -> None:
+        """Aplica el delta acumulado de un divisor (`DragEvent` da deltas desde el inicio)."""
+        from .timeline import (
+            INSPECTOR_W_MAX,
+            INSPECTOR_W_MIN,
+            LABEL_W,
+            PREVIEW_MIN_W,
+            SPLIT_W,
+            TRACKS_EXTRA_MIN,
+            max_tracks_extra,
+        )
+
+        width0, extra0 = getattr(self, "_split_start", (state.inspector_w(), state.tl_tracks_extra()))
+        if which == "inspector":
+            room = state.tl_view_w() + LABEL_W - SPLIT_W - PREVIEW_MIN_W  # ancho del editor − preview mín.
+            limit = max(INSPECTOR_W_MIN, min(INSPECTOR_W_MAX, room))
+            state.inspector_w.set(round(max(INSPECTOR_W_MIN, min(limit, width0 - dx))))
+        else:
+            limit = max_tracks_extra(state.view_h())
+            state.tl_tracks_extra.set(round(max(TRACKS_EXTRA_MIN, min(limit, extra0 - dy))))
+
+    def toggle_inspector(self) -> None:
+        state.inspector_open.set(not state.inspector_open())
+
     # -- teclado -------------------------------------------------------------------
 
     def on_key(self, e, *, from_input: bool = False) -> bool | None:  # noqa: ANN001
@@ -669,6 +706,9 @@ class EditorController:
             return True
         if e.matches("m"):
             self.toggle_preview_audio()
+            return True
+        if e.matches("i"):
+            self.toggle_inspector()
             return True
         if plain and e.text in ("+", "="):
             self.zoom_in()

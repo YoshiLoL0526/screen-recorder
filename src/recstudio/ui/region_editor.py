@@ -118,7 +118,7 @@ def _editor():
         )[
             row(gap=10, align="center")[
                 text("Elegir región", size=16, weight=700),
-                text("arrastra el recuadro o sus esquinas", size=12, color="$muted"),
+                text("arrastra el recuadro o sus esquinas · Intro o Esc para terminar", size=12, color="$muted"),
                 spacer(),
                 text(f"{x}, {y} · {w}×{h}", size=12, color="$muted", font_family="Consolas"),
             ],

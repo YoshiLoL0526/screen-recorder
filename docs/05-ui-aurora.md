@@ -312,6 +312,9 @@ def start_export():
 | Sin `slider` nativo | Controles continuos | Widget `slider()` propio con `canvas` + `on_drag` (reutilizable) |
 | Sin accesibilidad | — | Foco visible (`focus_color`), atajos completos, tooltips, buen contraste (post-v1: revisar con Aurora) |
 | `Signal.set` compara con `==` | Dataclasses mutables no dispararían | Todo el estado complejo es `frozen=True` (regla de proyecto) |
+| Un hijo `grow=1` usa su contenido como base del flex | Una imagen alta o una pantalla larga estiraban su contenedor y empujaban controles fuera de la ventana (F5) | `height=0` (columna) / `width=0` (fila) en todo contenedor que crece y cuyo contenido puede no caber; ver docs/14. |
+| Sin API para el tamaño de la ventana | Los divisores no saben cuánto pueden crecer | `on_scroll` también se emite al hacer layout: la navegación es un `scroll` y su alto es `state.view_h` (F5). |
+| Sin `wrap` en filas | Listas de chips de longitud variable | Texto unido con « · ». |
 
 ## Tests de UI
 

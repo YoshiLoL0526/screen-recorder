@@ -30,6 +30,11 @@ PRESET_OPTIONS = (
     ("alta", "Alta · 1080p60"),
     ("insane", "Insane · 2K"),
 )
+COUNTDOWN_OPTIONS = ((0, "Sin cuenta atrás"), (3, "3 segundos"), (5, "5 segundos"), (10, "10 segundos"))
+
+
+def encoder_options() -> list[tuple[str, str]]:
+    return [("auto", "Automático")] + [(name, name) for name, ok in state.encoders().items() if ok]
 
 
 def time_label(seconds: float) -> str:
@@ -80,9 +85,12 @@ def preview_panel():
         else None
     )
 
+    # `height=0`/`width=0` + `grow=1`: el hueco lo decide el layout, no la imagen. Sin esto, una
+    # región muy vertical (p. ej. 400×1600) imponía su alto y empujaba el botón GRABAR fuera de
+    # la ventana.
     content = (
-        column(grow=1, align="center", justify="center")[
-            image(data, fit="contain", grow=1, width="100%", key="preview-image")
+        column(grow=1, height=0, align="center", justify="center", padding=4)[
+            image(data, fit="contain", grow=1, height=0, width="100%", key="preview-image")
         ]
         if data
         else column(grow=1, align="center", justify="center", gap=6)[
@@ -93,11 +101,12 @@ def preview_panel():
 
     return box(
         grow=1,
+        height=0,
         bg="#000000",
         radius="$lg",
         border_width=1,
         border_color="$rec" if recording and rec == "recording" else "$border",
-        min_height=240,
+        min_height=200,
         shadow=(0, 10, 30, "$shadow"),
         key="preview-panel",
     )[
@@ -216,7 +225,6 @@ def config_panel():
     kind = state.source_kind()
     monitors = state.monitors()
     devices = [d for d in state.audio_devices() if d.kind == "input"]
-    encoders = state.encoders()
 
     source_block = [
         field("Fuente", select(
@@ -228,7 +236,7 @@ def config_panel():
     if kind == "monitor":
         source_block.append(field("Monitor", select(
             state.monitor_index,
-            [(m.index, f"Monitor {m.index} · {m.width}×{m.height}") for m in monitors] or [(1, "Monitor 1")],
+            [(m.index, f"{m.index} · {m.width}×{m.height}") for m in monitors] or [(1, "1")],
             key="sel-monitor",
         )))
     elif kind == "window":
@@ -265,22 +273,16 @@ def config_panel():
     video_block = [
         field("FPS", select(state.fps_target, list(FPS_OPTIONS), key="sel-fps")),
         field("Calidad", select(state.preset, list(PRESET_OPTIONS), key="sel-preset")),
-        field("Encoder", select(
-            state.encoder,
-            [("auto", "Automático")] + [(name, name) for name, ok in encoders.items() if ok],
-            key="sel-encoder",
-        )),
-        field("Cuenta atrás", select(
-            state.countdown_s,
-            [(0, "Sin cuenta atrás"), (3, "3 segundos"), (5, "5 segundos"), (10, "10 segundos")],
-            key="sel-countdown",
-        )),
+        field("Encoder", select(state.encoder, encoder_options(), key="sel-encoder")),
+        field("Cuenta atrás", select(state.countdown_s, list(COUNTDOWN_OPTIONS), key="sel-countdown")),
     ]
 
     out_block = [
         field("Carpeta", text_input(state.out_dir, key="out-dir")),
-        row(gap=8)[
+        row(gap=8, align="center")[
             spacer(),
+            button("Cambiar…", lambda: _browse_out_dir(), variant="soft", padding=(5, 12), font_size=12,
+                   key="rec-browse-out"),
             icon_button(icons.FOLDER, lambda: _open_out_dir(), tooltip="Abrir la carpeta"),
         ],
     ]
@@ -316,6 +318,13 @@ def _open_out_dir() -> None:
         CONTROLLER.open_out_dir()
 
 
+def _browse_out_dir() -> None:
+    from ..controller import CONTROLLER
+
+    if CONTROLLER is not None:
+        CONTROLLER.browse_out_dir()
+
+
 def _open_region_editor() -> None:
     from ..controller import CONTROLLER
 
@@ -326,7 +335,7 @@ def _open_region_editor() -> None:
 # -- pantalla ------------------------------------------------------------------
 
 def record_screen():
-    return row(grow=1, gap=0)[
+    return row(grow=1, height=0, gap=0)[  # base 0: la config (alta) hace scroll en vez de estirar la fila
         # `width=0 + grow=1`: el truco de Aurora para que la columna ocupe el resto sin que
         # su min-content (la imagen) impida encoger al panel de configuración.
         column(grow=1, width=0, padding=16, gap=12, min_width=440, shrink=1)[

@@ -1,6 +1,6 @@
 [project]
 name = "screen-recorder"
-version = "0.1.0"
+version = "1.0.0"
 description = "Rec Studio: grabador de pantalla y editor de video con interfaz aurora-ui"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -30,3 +30,10 @@ dev = [
     "psutil>=7.2.2",
     "pytest>=8",
 ]
+
+[tool.aurora.build]
+script = "main.py"
+name = "Rec Studio"
+icon = "assets/icon.ico"
+onefile = false  # onedir: arranca al instante con numpy/PyAV/FFmpeg dentro (docs/02)
+console = false

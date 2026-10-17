@@ -77,3 +77,69 @@ def open_videos(initial_dir: str | Path | None = None, *, title: str = "Importar
     raw = ctypes.wstring_at(ctypes.addressof(buffer), size)
     end = raw.find("\0\0")
     return _split_multi(raw[: end + 1] if end >= 0 else raw)
+
+
+# -- selector de carpeta (F5) ----------------------------------------------------------
+
+_BIF_RETURNONLYFSDIRS = 0x0001
+_BIF_NEWDIALOGSTYLE = 0x0040
+_BFFM_INITIALIZED = 1
+_BFFM_SETSELECTIONW = 0x0467
+
+_CALLBACK_TYPE = ctypes.WINFUNCTYPE if sys.platform == "win32" else ctypes.CFUNCTYPE
+_BFFCALLBACK = _CALLBACK_TYPE(ctypes.c_int, wintypes.HWND, wintypes.UINT, wintypes.LPARAM, wintypes.LPARAM)
+
+
+class _BROWSEINFOW(ctypes.Structure):  # noqa: N801
+    _fields_ = [
+        ("hwndOwner", wintypes.HWND),
+        ("pidlRoot", ctypes.c_void_p),
+        ("pszDisplayName", wintypes.LPWSTR),
+        ("lpszTitle", wintypes.LPCWSTR),
+        ("ulFlags", wintypes.UINT),
+        ("lpfn", _BFFCALLBACK),
+        ("lParam", wintypes.LPARAM),
+        ("iImage", ctypes.c_int),
+    ]
+
+
+def pick_folder(initial_dir: str | Path | None = None, *, title: str = "Elegir carpeta") -> Path | None:
+    """Diálogo «Buscar carpeta» de Windows (`SHBrowseForFolderW`); `None` si se cancela.
+
+    El estilo nuevo (con «Crear carpeta») exige COM inicializado en el hilo que lo abre: el
+    controlador siempre lo llama desde un hilo propio, así que se inicializa aquí.
+    """
+    if sys.platform != "win32":
+        return None
+    ole32, shell32, user32 = ctypes.windll.ole32, ctypes.windll.shell32, ctypes.windll.user32
+    ole32.CoInitialize(None)
+    try:
+        start = str(initial_dir) if initial_dir and Path(initial_dir).is_dir() else None
+        user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPCWSTR)
+
+        def on_event(hwnd, msg, _lparam, _data):  # noqa: ANN001, ANN202
+            if msg == _BFFM_INITIALIZED and start:
+                user32.SendMessageW(hwnd, _BFFM_SETSELECTIONW, 1, start)
+            return 0
+
+        callback = _BFFCALLBACK(on_event)  # referencia viva mientras dure el diálogo
+        display = ctypes.create_unicode_buffer(260)
+        info = _BROWSEINFOW()
+        info.pszDisplayName = ctypes.cast(display, wintypes.LPWSTR)
+        info.lpszTitle = title
+        info.ulFlags = _BIF_RETURNONLYFSDIRS | _BIF_NEWDIALOGSTYLE
+        info.lpfn = callback
+        shell32.SHBrowseForFolderW.restype = ctypes.c_void_p
+        pidl = shell32.SHBrowseForFolderW(ctypes.byref(info))
+        if not pidl:
+            return None
+        try:
+            path = ctypes.create_unicode_buffer(1024)
+            shell32.SHGetPathFromIDListW.argtypes = (ctypes.c_void_p, wintypes.LPWSTR)
+            if not shell32.SHGetPathFromIDListW(pidl, path):
+                return None
+            return Path(path.value) if path.value else None
+        finally:
+            ole32.CoTaskMemFree(ctypes.c_void_p(pidl))
+    finally:
+        ole32.CoUninitialize()
