@@ -54,6 +54,8 @@ class Recording:
 
 def list_recordings(out_dir: str | Path) -> list[Recording]:
     """Todos los MP4 de la carpeta (con sidecar/miniatura si existen), el más nuevo primero."""
+    if not str(out_dir).strip():  # carpeta sin configurar: no listar el directorio actual
+        return []
     folder = Path(out_dir)
     if not folder.exists():
         return []

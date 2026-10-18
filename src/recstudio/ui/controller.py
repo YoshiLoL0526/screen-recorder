@@ -19,6 +19,7 @@ from ..core.errors import RecStudioError
 from ..core.regions import clamp_region
 from ..platform import audio as audio_mod
 from ..platform import ffmpeg as ffmpeg_mod
+from ..platform import paths
 from ..platform import screens
 from ..services import library
 from ..services import preview as preview_mod
@@ -96,6 +97,11 @@ class Controller:
 
     def shutdown(self) -> None:
         self._closing = True
+        # El guardado con debounce puede dispararse después del cierre (y, en los tests, después
+        # de que se restaure `paths.settings_path`: escribía el `settings.json` real).
+        if self._save_timer is not None:
+            self._save_timer.cancel()
+            self._save_timer = None
         self.editor.shutdown()
         if self.session is not None:
             try:
@@ -124,9 +130,26 @@ class Controller:
         state.keepalive.set(s.keepalive)
         state.mic_index.set(s.mic_index)
         state.out_dir.set(s.out_dir)
+        self._warn_blocked_out_dir()
         state.inspector_w.set(s.inspector_w)
         state.inspector_open.set(s.inspector_open)
         state.tl_tracks_extra.set(s.timeline_extra)
+
+    def _warn_blocked_out_dir(self) -> None:
+        """Avisa si Windows no dejó crear la carpeta de grabaciones por defecto.
+
+        El aviso lo deja `paths.videos_dir()` (solo cuando tuvo que usar la carpeta de reserva) y
+        se consume una sola vez.
+        """
+        blocked = paths.take_blocked_videos_dir()
+        if blocked is None:
+            return
+        folder, fallback = blocked
+        state.toast(
+            "warning",
+            f"Windows bloqueó «{folder}» (acceso controlado a carpetas): las grabaciones irán a "
+            f"«{fallback}»; puedes cambiar la carpeta en Ajustes",
+        )
 
     def _subscribe_settings(self) -> None:
         for signal in (
@@ -381,8 +404,17 @@ class Controller:
             else:
                 source = SourceConfig(kind="monitor", monitor_index=int(state.monitor_index()))
 
-            out_dir = Path(state.out_dir()).expanduser()
-            out_dir.mkdir(parents=True, exist_ok=True)
+            out_dir = state.recordings_dir()
+            try:
+                out_dir.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                # Windows puede denegar la escritura en carpetas protegidas («Acceso controlado a
+                # carpetas») devolviendo un WinError 2 desconcertante: se explica en el aviso.
+                raise ConfigError(
+                    f"no se puede escribir en «{out_dir}»: {exc.strerror or exc}. Elige otra "
+                    "carpeta en Ajustes o permite Rec Studio en el «Acceso controlado a carpetas» "
+                    "de Seguridad de Windows"
+                ) from exc
 
             config = RecordingConfig(
                 fps=int(state.fps_target()),
@@ -416,19 +448,22 @@ class Controller:
         state.rec_error.set("")
         state.fps_history.set(())
         state.rec_state.set("starting")
-        session = rec_mod.RecordingSession(
-            config, out_dir=Path(state.out_dir()), on_event=self._engine_event
-        )
+        session: rec_mod.RecordingSession | None = None
         try:
+            # La construcción también puede fallar (carpeta de salida o temporal no escribible).
+            session = rec_mod.RecordingSession(
+                config, out_dir=state.recordings_dir(), on_event=self._engine_event
+            )
             session.start()
         except RecStudioError as exc:
             state.rec_state.set("error")
             state.rec_error.set(exc.message)
             state.toast("danger", f"No se pudo grabar: {exc.message}")
-            try:
-                session.abort()
-            except Exception:
-                pass
+            if session is not None:
+                try:
+                    session.abort()
+                except Exception:
+                    pass
             return
         self.session = session
         state.rec_state.set("recording")

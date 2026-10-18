@@ -76,7 +76,10 @@ encoder = Signal("auto")
 audio_system = Signal(True)
 keepalive = Signal(True)
 mic_index = Signal(-1)  # -1 = sin micrófono
-out_dir = Signal(str(paths.videos_dir()))
+# Vacío hasta que arranca el controlador: `Settings.normalized()` resuelve la carpeta por defecto.
+# Antes se resolvía aquí, al importar, y un bloqueo de escritura de Windows (Videos protegido por
+# Defender) tumbaba la app antes de abrir ventana.
+out_dir = Signal("")
 
 # -- datos del sistema (se cargan una vez al arrancar) -------------------------
 monitors = Signal(())
@@ -200,7 +203,9 @@ def set_region(value: tuple[int, int, int, int]) -> None:
 
 
 def recordings_dir() -> Path:
-    return Path(out_dir())
+    """Carpeta de grabaciones configurada (antes de arrancar el controlador, la de por defecto)."""
+    value = out_dir()
+    return Path(value).expanduser() if value else paths.videos_dir()
 
 
 def projects_dir() -> Path:

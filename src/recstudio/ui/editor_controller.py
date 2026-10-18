@@ -25,6 +25,7 @@ from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
 from ..core.project import FPS_CHOICES, MediaAsset, Project
 from ..core.store import ProjectStore
+from ..platform import paths
 from ..services import export as export_mod
 from ..services import library, media
 from ..services import playback as playback_mod
@@ -795,7 +796,9 @@ class EditorController:
             library.reveal_in_explorer(Path(progress.out_path))
         else:
             folder = state.exports_dir()
-            folder.mkdir(parents=True, exist_ok=True)
+            if not paths.ensure_dir(folder):
+                state.toast("warning", f"No se pudo crear «{folder}»: revisa los permisos")
+                return
             library.open_file(folder)
 
     # -- archivos offline ---------------------------------------------------------

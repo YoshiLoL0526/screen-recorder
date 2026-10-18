@@ -4,6 +4,7 @@ limpieza), cursores monocromos, FFmpeg sin consola y orden de monitores."""
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import threading
@@ -14,9 +15,10 @@ import numpy as np
 import pytest
 
 from recstudio import state
-from recstudio.platform import capture, screens
+from recstudio.platform import capture, paths, screens
 from recstudio.platform import ffmpeg as F
 from recstudio.platform.cursor import CursorSnapshot, draw_cursor, shape_from_color, shape_from_mono
+from recstudio.services import library
 from recstudio.services import recording as rec_mod
 
 
@@ -259,3 +261,148 @@ def test_salida_dxgi_por_coordenadas() -> None:
     assert capture.match_dxgi_output(outputs, 0, 0) == (0, 1)
     assert capture.match_dxgi_output(outputs, -1280, 0) == (1, 0)
     assert capture.match_dxgi_output(outputs, 5000, 0) is None
+
+
+# -- 7) Windows bloquea la escritura en ~/Videos (Acceso controlado a carpetas) -------------
+
+def _bloquear_escritura(monkeypatch: pytest.MonkeyPatch, bloqueada: Path) -> None:
+    """Simula el bloqueo de Defender: `mkdir` falla con WinError 2 por debajo de esa ruta.
+
+    Es lo que hace el minifiltro del «Acceso controlado a carpetas»: en vez de «acceso denegado»
+    devuelve «no se puede encontrar el archivo especificado», y `pathlib` con `parents=True` lo
+    interpreta como un padre que falta y reintenta en vano.
+    """
+    real = Path.mkdir
+    prefix = str(bloqueada).lower()
+
+    def fake(self: Path, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003, ANN202
+        if str(self).lower().startswith(prefix):
+            raise FileNotFoundError(2, "El sistema no puede encontrar el archivo especificado")
+        return real(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fake)
+
+
+def test_ensure_dir_no_lanza(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _bloquear_escritura(monkeypatch, tmp_path / "protegida")
+    assert paths.ensure_dir(tmp_path / "protegida" / "sub") is False
+    assert paths.ensure_dir(tmp_path / "libre") is True
+    assert (tmp_path / "libre").is_dir()
+
+
+def test_videos_dir_usa_la_carpeta_de_reserva(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    _bloquear_escritura(monkeypatch, Path.home() / "Videos")
+    paths.take_blocked_videos_dir()  # descartar avisos de otros tests
+
+    out = paths.videos_dir()
+    assert out == tmp_path / paths.APP_NAME / "videos" and out.is_dir()
+    assert paths.take_blocked_videos_dir() == (Path.home() / "Videos" / paths.APP_NAME, out)
+    assert paths.take_blocked_videos_dir() is None  # el aviso se da una sola vez
+
+
+def test_ajustes_con_carpeta_bloqueada_no_revientan(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Antes, `Settings.load()` propagaba el error y la app moría al importar `state`."""
+    from recstudio.services.settings import Settings
+
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(paths, "settings_path", lambda: tmp_path / "settings.json")
+    _bloquear_escritura(monkeypatch, Path.home() / "Videos")
+
+    loaded = Settings.load()
+    assert loaded.out_dir == str(tmp_path / paths.APP_NAME / "videos")
+
+
+def test_arranque_avisa_de_la_carpeta_bloqueada(controller, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:  # noqa: ANN001
+    from recstudio.services.settings import Settings
+
+    ctl, _ = controller
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    _bloquear_escritura(monkeypatch, Path.home() / "Videos")
+    paths.take_blocked_videos_dir()
+    ctl.settings = Settings().normalized()  # resuelve la carpeta por defecto (bloqueada)
+    state.toasts.set(())
+
+    ctl._apply_settings()
+
+    assert state.out_dir() == str(tmp_path / paths.APP_NAME / "videos")
+    assert state.toasts() and state.toasts()[-1].kind == "warning"
+    assert "bloqueó" in state.toasts()[-1].text
+    ctl._apply_settings()  # el aviso no se repite
+    assert len(state.toasts()) == 1
+
+
+def test_grabar_avisa_si_la_carpeta_esta_bloqueada(controller, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:  # noqa: ANN001
+    ctl, _ = controller
+    bloqueada = tmp_path / "protegida"
+    bloqueada.mkdir()
+    _bloquear_escritura(monkeypatch, bloqueada)
+    state.out_dir.set(str(bloqueada))
+    state.source_kind.set("monitor")
+    state.monitor_index.set(1)
+    state.fps_target.set(60)
+    state.preset.set("media")
+    state.rec_state.set("idle")
+    state.toasts.set(())
+
+    assert ctl._build_config() is None
+    assert state.rec_state() == "error"
+    assert state.toasts()[-1].kind == "danger"
+    assert "no se puede escribir" in state.toasts()[-1].text
+
+
+def test_la_sesion_no_escribe_fuera_de_su_carpeta(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Carpeta de salida imposible: error de dominio (no un `OSError` crudo en un hilo)."""
+    from recstudio.core.config import RecordingConfig
+    from recstudio.core.errors import DiskSpaceError
+
+    bloqueada = tmp_path / "protegida"
+    bloqueada.mkdir()
+    _bloquear_escritura(monkeypatch, bloqueada)
+
+    with pytest.raises(DiskSpaceError):
+        rec_mod.RecordingSession(RecordingConfig(), out_dir=bloqueada, temp_dir=tmp_path / "t")
+
+
+def test_la_biblioteca_ignora_una_carpeta_sin_configurar(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "suelto.mp4").write_bytes(b"no es un mp4")
+    assert library.list_recordings("") == []
+
+
+def test_el_cierre_cancela_el_guardado_pendiente(controller, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: ANN001
+    """El debounce no debe escribir los ajustes después de cerrar (ni en el `settings.json` real)."""
+    ctl, _ = controller
+    calls: list[int] = []
+
+    class EditorStub:
+        def shutdown(self) -> None:
+            pass
+
+    monkeypatch.setattr(ctl, "editor", EditorStub())
+    monkeypatch.setattr(ctl, "_save_settings", lambda: calls.append(1))
+    ctl._schedule_save()
+    assert ctl._save_timer is not None
+
+    ctl.shutdown()
+    assert ctl._save_timer is None
+    time.sleep(1.2)  # el Timer ya estaría disparado
+    assert calls == [1]  # solo el guardado explícito del cierre
+
+
+def test_importar_el_estado_no_depende_de_crear_videos(tmp_path: Path) -> None:
+    """Regresión del traceback original: importar `state` tocaba el disco y tumbaba la app."""
+    perfil = tmp_path / "perfil"
+    perfil.mkdir()
+    (perfil / "Videos").write_text("un fichero con ese nombre impide crear la carpeta")
+    env = {**os.environ, "USERPROFILE": str(perfil), "HOME": str(perfil),
+           "LOCALAPPDATA": str(tmp_path / "local")}
+
+    proc = subprocess.run(
+        [sys.executable, "-c", "import recstudio.state as s; print(s.out_dir())"],
+        capture_output=True, text=True, env=env, cwd=str(tmp_path),
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == ""

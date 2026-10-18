@@ -4,6 +4,17 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 [SemVer](https://semver.org/lang/es/) desde la 1.0.0 (las fases anteriores no se publicaron como versión). El
 detalle de cada fase está en `docs/08`–`docs/14`.
 
+## Sin publicar
+
+### Corregido
+- Arranque con el «Acceso controlado a carpetas» de Windows Defender activado: la app moría al
+  importar `state` con `FileNotFoundError [WinError 2]` al crear `~/Videos/RecStudio`. Ahora
+  `paths.ensure_dir()` nunca lanza, la carpeta por defecto cae a `%LOCALAPPDATA%\RecStudio\videos`
+  (con aviso al arrancar) y la grabación falla con un mensaje claro en vez de un traceback. Detalle
+  en [docs/09](docs/09-f1-motor-grabacion.md) → «Bugs reales encontrados» (7).
+- El guardado con debounce ya no escribe los ajustes después de cerrar: los tests pisaban el
+  `settings.json` real (`Controller.shutdown()` cancela el `Timer` pendiente).
+
 ## [1.0.0] — 2026-10-16
 
 Primera versión completa: F5 (pulido) sobre F0–F4. Detalle en [docs/14](docs/14-f5-pulido.md).

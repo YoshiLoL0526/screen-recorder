@@ -90,6 +90,10 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
   navegación); la geometría de pistas sale de `ui/timeline.tracks()`, no de constantes.
 - `settings.json` se escribe atómico (tmp + `os.replace`); los campos nuevos de `Settings` se
   validan en `normalized()`. `platform.ffmpeg.run` usa `stdin=DEVNULL` (exe sin consola).
+- `~/Videos` puede estar bloqueado por el «Acceso controlado a carpetas» de Defender (devuelve
+  WinError 2 en el `mkdir`): crea carpetas con `paths.ensure_dir()` (nunca lanza) y no resuelvas
+  rutas con efectos de disco al importar módulos (`state.out_dir` arranca vacío). Ver `docs/09` →
+  «Bugs reales encontrados» (7).
 - Tests de UI: construyen la app real sin ventana con `build_app()` + `app.pilot(size=…)`; los
   que capturan pantalla hacen `pytest.skip` si no hay escritorio disponible. Los scripts de
   `tools/` (soak, av_sync, recovery, f2_ui) son pruebas de aceptación manual y algunos necesitan

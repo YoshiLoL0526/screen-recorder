@@ -27,7 +27,7 @@ from typing import Callable
 import numpy as np
 
 from ..core.config import RecordingConfig
-from ..core.errors import CaptureError, FfmpegError, RecStudioError
+from ..core.errors import CaptureError, DiskSpaceError, FfmpegError, RecStudioError
 from ..platform import audio as audio_mod
 from ..platform import capture as capture_mod
 from ..platform import cursor as cursor_mod
@@ -97,11 +97,17 @@ class RecordingSession:
         on_event: EventFn | None = None,
     ) -> None:
         self.config = config.validate()
-        self.out_dir = Path(out_dir) if out_dir is not None else paths.videos_dir()
-        self.out_dir.mkdir(parents=True, exist_ok=True)
+        configured = str(out_dir).strip() if out_dir is not None else ""
+        self.out_dir = Path(configured) if configured else paths.videos_dir()
+        if not paths.ensure_dir(self.out_dir):
+            raise DiskSpaceError(
+                f"no se puede escribir en «{self.out_dir}» (el sistema la bloquea o no hay "
+                "permisos); elige otra carpeta de grabaciones"
+            )
         stamp = time.strftime("%Y-%m-%d_%H-%M-%S")
         self.temp_dir = Path(temp_dir) if temp_dir is not None else paths.temp_root() / f"rec_{stamp}"
-        self.temp_dir.mkdir(parents=True, exist_ok=True)
+        if not paths.ensure_dir(self.temp_dir):
+            raise DiskSpaceError(f"no se puede crear la carpeta temporal «{self.temp_dir}»")
         self.started_at = time.strftime("%Y-%m-%d %H:%M:%S")
         self.base_name = stamp
 

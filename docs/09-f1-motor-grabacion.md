@@ -25,7 +25,7 @@ stop → mux `-c:v copy` + AAC 48 kHz con `-itsoffset`/`atrim` según el offset 
 
 ## Bugs reales encontrados (y corregidos) durante F1
 
-Estos seis habrían costado horas de depuración después; quedan documentados para no repetirlos:
+Estos siete habrían costado horas de depuración después; quedan documentados para no repetirlos:
 
 1. **`Frame.frame_buffer` de WGC ya es un numpy `(h, w, 4)` BGRA contiguo.** `convert_to_bgr()`
    **muta el frame y devuelve el propio objeto `Frame`** (no un array): usarlo con `np.array()`
@@ -45,6 +45,26 @@ Estos seis habrían costado horas de depuración después; quedan documentados p
    y silencio" de las primeras pruebas.
 6. **Firma del callback**: `(in_data, frame_count, time_info, status)` — omitir `time_info`
    lanza `TypeError` que PortAudio propaga de forma confusa.
+7. **Windows Defender puede impedir escribir en `~/Videos`, con un `WinError 2` engañoso.** Con
+   el «Acceso controlado a carpetas» activo (viene activo en Windows 11), Defender niega la
+   escritura a los procesos que no considera de confianza — entre ellos el `python.exe` que instala
+   **uv** (`%APPDATA%\uv\python\…`) y el exe empaquetado sin firmar — y lo hace devolviendo «no se
+   puede encontrar el archivo especificado» en vez de «acceso denegado». Reproducido con
+   `os.mkdir()` en `Videos`, `Documents`, `Music`, `Pictures` y `Favorites` (con el padre existiendo
+   y `FullControl` en la ACL) y confirmado en el registro de Defender (evento 1123,
+   `Microsoft-Windows-Windows Defender/Operational`, con la ruta y el proceso bloqueados).
+   `pathlib` interpreta ese `FileNotFoundError` como «falta el padre» y reintenta el `mkdir` antes de
+   propagar: de ahí la traza con **dos** `os.mkdir`. Como `state.py` resolvía `paths.videos_dir()`
+   **al importar**, el bloqueo tumbaba la app antes de abrir ventana. Arreglado en tres capas:
+   `paths.ensure_dir()` nunca lanza y `videos_dir()` cae a `%LOCALAPPDATA%\RecStudio\videos`
+   (avisando con un toast al arrancar), la grabación avisa con un mensaje claro si la carpeta no se
+   puede escribir, y `state.out_dir` arranca vacío (`Settings.normalized()` resuelve el valor por
+   defecto, que es donde debe leerse la preferencia). En la máquina del usuario se desbloqueó
+   añadiendo el intérprete al «Acceso controlado a carpetas» (Seguridad de Windows → Protección
+   contra virus y amenazas → Protección contra ransomware). Ver `tests/test_revision_riesgos.py` →
+   «Windows bloquea la escritura en ~/Videos (Acceso controlado a carpetas)».
+   *(Un test de UI con `Signal` suscritos y guardado con debounce podía escribir el `settings.json`
+   real después de cerrar: `Controller.shutdown()` cancela ahora el `Timer` pendiente.)*
 
 ## Mediciones de F1
 
