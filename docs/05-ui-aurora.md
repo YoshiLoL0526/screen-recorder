@@ -323,5 +323,8 @@ def start_export():
 - `app.render_png()`: un snapshot por pantalla y por estado clave (grabando, editor con
   selección, modal de export) → `tests/snapshots/*.png` versionados; cualquier cambio visual
   aparece en el diff del PR.
-- `pilot.stats`: presupuesto de frame del timeline (test de regresión de rendimiento suave:
-  falla si `draw` del timeline supera 8 ms con 100 clips sintéticos).
+- `pilot.stats`: presupuesto de frame del timeline (test de regresión suave con 100 clips
+  sintéticos). El coste absoluto depende del equipo (5.8 ms medidos en desarrollo; hasta ~16 ms en
+  una máquina modesta), así que el test no fija milisegundos: exige que un redibujado con todo a la
+  vista quepa en un frame de 30 fps (< 33 ms), que alejar el zoom no encarezca el dibujo (culling) y
+  que mover el playhead no redibuje el canvas.

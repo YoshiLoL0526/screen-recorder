@@ -52,7 +52,7 @@ Los proyectos se guardan en `<carpeta de grabaciones>/Proyectos/<nombre>.rsproj/
 | Previsualizarlos a ≥ 24 fps | ✅ 30 fps medidos con la app real (1080p60 → 960×540, transición incluida) |
 | Todos los drags con undo correcto | ✅ trim izquierdo/derecho y mover: una entrada de undo por gesto, Esc restaura el snapshot, un clic no apila nada |
 | Abrir/cerrar proyecto preserva estado | ✅ igualdad exacta del `Project` tras guardar → cerrar → abrir; `.bak` si el JSON se corrompe |
-| RNF-04 / «sensación» del timeline | ✅ `draw` del timeline < 8 ms con 100 clips (test de regresión); mover el playhead no redibuja el canvas. La sensación con ratón real queda para validar a mano en la ventana. |
+| RNF-04 / «sensación» del timeline | ✅ `draw` del timeline 5.8 ms con 100 clips en desarrollo (test de regresión: frame < 30 fps + culling, sin umbral absoluto — ver docs/05); mover el playhead no redibuja el canvas. La sensación con ratón real queda para validar a mano en la ventana. |
 
 ## Mediciones
 

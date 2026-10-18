@@ -66,6 +66,14 @@ def test_editor_de_region_mueve_y_redimensiona(ui) -> None:
     bounds = state.region_bounds()
     assert display_w > 0 and bounds[0] > 0
 
+    # Región de partida con margen en las dos direcciones: en un monitor pequeño (p. ej.
+    # 1366×768) la región inicial ya toca el borde inferior, `resize_region` la recorta y
+    # el arrastre de la esquina se queda en un no-op (ver docs/05).
+    w = min(800, bounds[0] * 2 // 3)
+    h = min(600, bounds[1] * 2 // 3)
+    state.set_region((bounds[0] // 8, bounds[1] // 8, w, h))
+    pilot.settle()
+
     before = state.region()
     rect = pilot.rect("region-body")
     assert rect is not None

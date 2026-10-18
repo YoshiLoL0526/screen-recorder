@@ -14,6 +14,11 @@ detalle de cada fase está en `docs/08`–`docs/14`.
   en [docs/09](docs/09-f1-motor-grabacion.md) → «Bugs reales encontrados» (7).
 - El guardado con debounce ya no escribe los ajustes después de cerrar: los tests pisaban el
   `settings.json` real (`Controller.shutdown()` cancela el `Timer` pendiente).
+- Dos tests dependían del equipo y fallaban fuera del hardware de desarrollo: el de la región
+  (en un monitor de 1366×768 la región inicial quedaba a ras del borde inferior y el redimensionado
+  era un no-op) y el del `draw` del timeline con 100 clips (umbral absoluto de 8 ms, medido en
+  desarrollo; una máquina modesta ronda los 16 ms). Ahora el primero parte de una región con margen
+  y el segundo exige un frame de 30 fps más el *culling*, sin milisegundos fijos (ver [docs/05](docs/05-ui-aurora.md)).
 
 ## [1.0.0] — 2026-10-16
 
