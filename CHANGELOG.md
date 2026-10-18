@@ -6,6 +6,16 @@ detalle de cada fase está en `docs/08`–`docs/14`.
 
 ## Sin publicar
 
+### Cambiado
+- **aurora-ui alineado a 0.5.0**: la dependencia lleva techo (`>=0.5.0,<0.6.0`) porque Aurora es
+  `0.x` y rompe compatibilidad entre versiones menores. Se re-validó contra el paquete instalado la
+  tabla de «Limitaciones» de [docs/05](docs/05-ui-aurora.md): desde 0.3 ya existen _slider_ nativo,
+  accesibilidad con AccessKit, `wrap` en filas y multi-ventana, y 0.4/0.5 añadieron diálogos
+  nativos, bandeja, menús, notificaciones, `dialog`/`toast`/`progress`/`menu`/`accordion` y más.
+  El resto de límites (ventanas frameless, `on_hover`, `canvas` sin imágenes, cajas que bloquean
+  clics, etc.) siguen vigentes. Las capacidades nuevas que aún no usamos quedan listadas como
+  candidatos en docs/05, sin cambiar código de la app en este paso.
+
 ### Corregido
 - Arranque con el «Acceso controlado a carpetas» de Windows Defender activado: la app moría al
   importar `state` con `FileNotFoundError [WinError 2]` al crear `~/Videos/RecStudio`. Ahora

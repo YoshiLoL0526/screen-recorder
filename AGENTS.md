@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora-ui** 0.3
+Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora-ui** 0.5
 (núcleo Rust Skia/Taffy), captura WGC/DXGI/mss, audio WASAPI (PyAudioWPatch) y encode por
 **FFmpeg** en subprocess. Todo el proyecto —docs, comentarios, UI, tests y commits— está en
 **español**; los commits usan prefijos `feat:` / `docs:`.
@@ -65,10 +65,10 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
   regresión al parar; `aresample=async` **no** la corrige.
 - Preferencias en `%APPDATA%\RecStudio\settings.json`. Los tests aíslan rutas con
   `monkeypatch` sobre `paths.settings_path`; sigue ese patrón para persistencia nueva.
-- Aurora 0.3: `scroll()` añade `grow=1` (pasa `grow=0` en filas); columna que debe encoger:
+- Aurora 0.5: `scroll()` añade `grow=1` (pasa `grow=0` en filas); columna que debe encoger:
   `grow=1, width=0`; los `select` no truncan etiquetas. Más límites y mitigaciones en `docs/05`
-  («Limitaciones actuales de Aurora 0.3»).
-- Aurora 0.3 (F3): cualquier caja encima bloquea los clics aunque no tenga handlers (playhead,
+  («Limitaciones de Aurora 0.5»).
+- Aurora 0.5 (F3): cualquier caja encima bloquea los clics aunque no tenga handlers (playhead,
   toasts); la raíz recibe las teclas aunque haya un campo enfocado (usa `mark_input_key`);
   `KeyEvent.matches("+")` lanza excepción; `on_drag` llega también con un clic (fase `start`,
   x de ventana → `TL_X0`). En Windows, `Condition.wait` va a saltos de ~15.6 ms: para relojes
@@ -78,7 +78,7 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
   revisar los golden de `tests/test_f4_graph.py`. El concat del corte rápido necesita
   `-auto_convert 0` o los keyframes dejan de ser idénticos. Preview y graph comparten las
   curvas de `core/effects.py` (lo exportado = lo visto).
-- Aurora 0.3: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
+- Aurora 0.5: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; los handlers suscritos a `Signal` globales deben ignorar eventos tras `shutdown`
   (los tests crean varias apps por proceso y `subscribe` no se deshace).
 - Editor: el canvas del timeline usa una función de dibujo de módulo (misma identidad ⇒ Aurora

@@ -243,7 +243,7 @@ Los snapshots PNG (`render_png`) sirven además como documentación viva de la U
 
 | Paquete | Versión actual | Por qué | Notas |
 |---|---|---|---|
-| `aurora-ui` | 0.3.0 | Toda la UI. | Ya en `pyproject.toml`. |
+| `aurora-ui` | 0.5.0 | Toda la UI. | Ya en `pyproject.toml`; con techo `<0.6` (0.x rompe compatibilidad entre menores). |
 | `numpy` | 2.5.4 | Frames, waveforms, peaks, conversiones. | Requisito de facto de PyAV/Pillow. |
 | `av` (PyAV) | 19.0.1 | Decode, probe, thumbnails, waveforms. | Wheels con FFmpeg embebido para decodificar. |
 | `pillow` | 12.3.0 | Conversión frame→JPEG para preview; thumbnails. | Variante JPEG elegida en F0 (S4b). |
@@ -264,7 +264,7 @@ Los snapshots PNG (`render_png`) sirven además como documentación viva de la U
 name = "recstudio"
 requires-python = ">=3.12"
 dependencies = [
-    "aurora-ui>=0.3.0",
+    "aurora-ui>=0.5.0,<0.6.0",
     "numpy>=2.0",
     "av>=16",
     "pillow>=11",
@@ -280,7 +280,7 @@ windows = [
 
 [dependency-groups]
 dev = [
-    "aurora-ui[build]>=0.3.0",
+    "aurora-ui[build]>=0.5.0,<0.6.0",
     "pytest>=8",
 ]
 

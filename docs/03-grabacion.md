@@ -93,8 +93,9 @@ Notas de implementación:
 
 ### Selección de región (sin overlay a pantalla completa)
 
-Aurora 0.3 todavía **no tiene multi-ventana ni ventanas transparentes/frameless**, así que no
-se puede hacer el rectángulo semitransparente clásico sobre el escritorio. La UX elegida:
+Aurora 0.5 ya tiene **multi-ventana** (`App.window`) pero todavía **no** ventanas transparentes
+ni frameless, así que no se puede hacer el rectángulo semitransparente clásico sobre el
+escritorio. La UX elegida:
 
 1. Al pulsar "Región", `platform/screens.py` toma una **captura de referencia** del monitor con
    `mss` (rápida, formato PNG en memoria).

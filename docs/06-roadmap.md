@@ -134,7 +134,7 @@ consola; CI en verde (unit + golden + smoke UI); RNF-06/07 medidos.
 | R7 | Comportamiento de `DragEvent` dentro de `scroll` distinto de lo asumido | Media | Medio | S5 primero; toda la interacción del timeline depende de esto | Timeline sin scroll nativo: pan manual con `on_scroll` del contenedor y todo en un canvas (válido también) |
 | R8 | Antivirus/Anti-cheat bloquea hooks o captura | Baja | Medio | v1 sin hooks globales ni DLL-injection; WGC es la API "limpia" (no hookea procesos) | Documentar excepciones recomendadas |
 | R9 | HDR / color incorrecto al grabar pantallas HDR | Media | Bajo | Detectar pantallas HDR y avisar; grabar SDR (tone-map básico con zscale en post si hiciera falta) | Captura SDR del monitor SDR / recomendar desactivar HDR |
-| R10 | Aviso de "app joven" (Aurora 0.3 pre-alfa) | Media | Bajo | Contener los golpes: caps de API por temporada, tests de UI, y usarla como campo de pruebas (los bugs se convierten en issues de Aurora) | — (los límites ya están documentados en 05) |
+| R10 | Aviso de "app joven" (Aurora 0.5 pre-alfa) | Media | Bajo | Contener los golpes: caps de API por temporada (techo `<0.6`), tests de UI, y usarla como campo de pruebas (los bugs se convierten en issues de Aurora) | — (los límites ya están documentados en 05) |
 | R11 | El alcance crece ("ya que estamos, webcam/música/textos") | **Alta** | Alto | Este documento: v1 cerrado; nuevas ideas → backlog | Revisión de alcance al terminar cada fase |
 
 ## Definición de terminado (por feature)

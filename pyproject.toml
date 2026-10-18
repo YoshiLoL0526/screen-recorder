@@ -5,7 +5,7 @@ description = "Rec Studio: grabador de pantalla y editor de video con interfaz a
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "aurora-ui>=0.3.0",
+    "aurora-ui>=0.5.0,<0.6.0",
     "av>=16",
     "dxcam>=0.3.0 ; sys_platform == 'win32'",
     "imageio-ffmpeg>=0.6",
@@ -26,7 +26,7 @@ where = ["src"]
 
 [dependency-groups]
 dev = [
-    "aurora-ui[build]>=0.3.0",
+    "aurora-ui[build]>=0.5.0,<0.6.0",
     "psutil>=7.2.2",
     "pytest>=8",
 ]

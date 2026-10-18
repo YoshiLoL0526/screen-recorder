@@ -2,7 +2,7 @@
 
 Documentación de diseño de una app de escritorio para **grabar la pantalla** y **editar video**
 (recortes y transiciones simples), con toda la interfaz construida sobre
-[**aurora-ui**](https://yoshilol0526.github.io/aurora/) (`aurora-ui>=0.3.0`).
+[**aurora-ui**](https://yoshilol0526.github.io/aurora/) (`aurora-ui>=0.5.0,<0.6.0`).
 
 > Estado: **v1.0.0 implementada** (F0–F5). Los documentos 01–07 son la especificación de
 > diseño; 08–14 recogen lo implementado en cada fase, con mediciones y bugs encontrados.

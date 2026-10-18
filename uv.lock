@@ -557,7 +557,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aurora-ui", specifier = ">=0.3.0" },
+    { name = "aurora-ui", specifier = ">=0.5.0,<0.6.0" },
     { name = "av", specifier = ">=16" },
     { name = "dxcam", marker = "sys_platform == 'win32'", specifier = ">=0.3.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.6" },
@@ -571,7 +571,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aurora-ui", extras = ["build"], specifier = ">=0.3.0" },
+    { name = "aurora-ui", extras = ["build"], specifier = ">=0.5.0,<0.6.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pytest", specifier = ">=8" },
 ]

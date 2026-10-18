@@ -17,8 +17,9 @@ El trabajo pesado (captura, encode) en librerías nativas de Python/Rust y FFmpe
 Electron/Tauri (doble tecnología, WebView); WPF/WinUI (salir de Python).
 
 **Consecuencias.** + Una sola tecnología, dogfooding de Aurora, iteración rápida.
-− Se heredan los límites de Aurora 0.3 (sin multi-ventana, sin accesibilidad); el proyecto los
-documenta y los convierte en issues.
+− Se heredan los límites de Aurora 0.5 (sin ventanas frameless, sin `on_hover`, sin `canvas` de
+imágenes…); el proyecto los documenta y los convierte en issues. En 0.4/0.5 desaparecieron varios
+(slider nativo, accesibilidad, `wrap`, multi-ventana, diálogos, bandeja y menús).
 
 **Revisar.** Si aparecen tres o más bloqueos duros de UI, revisar en conjunto con el roadmap de Aurora.
 
@@ -174,7 +175,7 @@ rango visible) y encima una **capa de cajas `position="absolute"`** por clip vis
 
 **Alternativas.** (a) Elementos por clip: rebuilds masivos con cada zoom/scroll, waveform
 seguiría necesitando canvas, y los drags serían N handlers. (b) Solo canvas: sin cursores por
-zona (Aurora 0.3 no tiene `on_hover`) y sin `bg_hover`.
+zona (Aurora 0.5 sigue sin `on_hover`) y sin `bg_hover`.
 
 **Consecuencias.** + Rendimiento y control total del detalle visual; los patrones nativos de
 Aurora se usan donde aportan. − Dos fuentes de verdad de posiciones (dibujo y cajas) que hay que

@@ -4,8 +4,9 @@
 
 1. **La grabación manda**: iniciar/parar debe estar siempre a un clic o a un `F9`, sin diálogos
    intermedios. Todo lo demás es secundario.
-2. **Una ventana, cuatro zonas**: Grabar · Biblioteca · Editor · Ajustes. Nada de ventanas
-   secundarias (Aurora 0.3 no las tiene): los modales y toasts viven en `layer="overlay"`.
+2. **Una ventana, cuatro zonas**: Grabar · Biblioteca · Editor · Ajustes. Los modales y toasts
+   viven en `layer="overlay"` dentro de la ventana (Aurora 0.5 ya permite varias ventanas — ver
+   «Limitaciones», abajo— pero la app sigue siendo de una sola).
 3. **Cero pantallas en blanco**: cada panel tiene estado vacío con acción ("Importa un video
    para empezar").
 4. **Feedback inmediato**: cualquier acción de más de 300 ms muestra progreso (grabación: stats;
@@ -185,7 +186,7 @@ PyAV, FFmpeg y licencia del binario).
    (cuerpo, `cursor="grab"`) y dos asas de trim (`width=8`, `cursor="col-resize"`, `bg_hover`
    sutil). Se generan **solo para el rango visible** (calculado con `px_offset`, que llega del
    `on_scroll` del contenedor). Así los cursores hover nativos, `bg_hover` y los `on_drag`
-   funcionan elemento a elemento (Aurora 0.3 no tiene `on_hover`, este patrón lo suple).
+   funcionan elemento a elemento (Aurora 0.5 sigue sin `on_hover`, este patrón lo suple).
    ✅ **Validado en F0** (S5/S7): las cajas absolutas dentro del `scroll` se mueven con el
    contenido y reciben clics y cursores correctos (`col-resize` sobre el asa).
 
@@ -297,24 +298,42 @@ def start_export():
     # el progreso llega por export_progress()
 ```
 
-## Limitaciones actuales de Aurora 0.3 y cómo las esquivamos
+## Limitaciones de Aurora 0.5 y cómo las esquivamos
+
+Re-validado contra **aurora-ui 0.5.0** (2026-10-18), comprobando el paquete instalado y no solo el
+changelog de Aurora. Las filas tachadas ya no son ciertas; el resto sigue igual. Donde la mitigación
+lleva ✅ es un patrón que quedó validado en F0/F3.
 
 | Limitación | Impacto | Mitigación elegida |
 |---|---|---|
-| Sin multi-ventana ni ventanas frameless/transparentes | No hay overlay de región sobre el escritorio ni mini-controles fuera de la ventana | Selección de región in-app sobre captura de referencia; controles de grabación en `layer="overlay"` dentro de la ventana |
-| `canvas()` no dibuja imágenes… | Sin filmstrip de thumbnails dentro de los clips | Clips con color+nombre+waveform (v1); filmstrip como capa de `image()` absolutas (post-v1, spike pendiente) |
-| Sin `on_hover` (solo `bg_hover`/`tooltip`) | Cursores por zona | Capa de cajas interactivas sobre el canvas — ✅ validado en F0 (S7): los cursores por elemento funcionan |
+| Sin ventanas frameless/transparentes (0.5 sí añade **multi-ventana**) | No hay overlay de región sobre el escritorio | Selección de región in-app sobre captura de referencia; controles de grabación en `layer="overlay"` dentro de la ventana |
+| `canvas()` no dibuja imágenes (solo formas, trazados y texto) | Sin filmstrip de thumbnails dentro de los clips | Clips con color+nombre+waveform (v1); filmstrip como capa de `image()` absolutas (post-v1, spike pendiente) |
+| Sin `on_hover` (solo `bg_hover`/`tooltip`; `Pilot.hovered` es de tests) | Cursores por zona | Capa de cajas interactivas sobre el canvas — ✅ validado en F0 (S7): los cursores por elemento funcionan |
 | Sin coordenadas de nodo en `on_click`/`DragEvent` (la posición va en coordenadas de ventana; el clic no trae posición) | "Clic en la regla → saltar a ese t" no es directo | ✅ Resuelto en F3: `on_drag` llega también con un clic (fase `start`) y la x de ventana se convierte con el origen fijo del timeline (`TL_X0`) + `scroll`. *Mejora propuesta a Aurora: `rect` del nodo en handlers.* |
 | Cualquier caja encima bloquea los clics (aunque no tenga handlers) | Playhead y toasts tapaban asas y controles | Línea de playhead de 2 px con el asa solo en la regla; toasts en un contenedor de 0 px de alto (F3, docs/12). |
 | La raíz recibe las teclas aunque haya un campo enfocado | `S`/`Espacio` dividían o reproducían al escribir | Los campos marcan sus pulsaciones (`mark_input_key`) y los atajos sin modificador las ignoran. |
-| Sin scroll programático | El zoom no puede mantener el playhead a la vista | «Ajustar» (`0`) y zoom automático al importar. *Mejora propuesta: `scroll_to`.* |
-| `view()` completo por evento | Coste de reconstrucción | `@component` + `key` estables + Signals de grano fino + `virtual_list` |
-| Sin `slider` nativo | Controles continuos | Widget `slider()` propio con `canvas` + `on_drag` (reutilizable) |
-| Sin accesibilidad | — | Foco visible (`focus_color`), atajos completos, tooltips, buen contraste (post-v1: revisar con Aurora) |
+| Sin scroll programático (no hay `scroll_to`) | El zoom no puede mantener el playhead a la vista | «Ajustar» (`0`) y zoom automático al importar. *Mejora propuesta: `scroll_to`.* |
+| `view()` completo por evento | Coste de reconstrucción | `@component` + `key` estables + Signals de grano fino + `virtual_list`. En 0.4 el núcleo añadió caché de layout, reconciliación por `key` e invalidación por fases, así que reconstruir sale mucho más barato. |
+| ✅ ~~Sin `slider` nativo~~ | Controles continuos | Resuelto en 0.4 (`slider` con relleno y pulgar). La app no tenía ningún deslizador propio, así que no hay nada que sustituir. |
+| ✅ ~~Sin accesibilidad~~ | — | Resuelto en 0.5 (AccessKit: rol, nombre, foco y acciones al lector de pantalla; `Pilot.a11y_tree()` en tests). Queda como mejora posible: roles/nombres explícitos en el timeline y las asas. |
+| ✅ ~~Sin `wrap` en filas~~ | Listas de chips de longitud variable | `row(wrap=True)` funciona (verificado con `Pilot.rect`): las filas de chips pueden envolver en vez de unirse con « · ». |
 | `Signal.set` compara con `==` | Dataclasses mutables no dispararían | Todo el estado complejo es `frozen=True` (regla de proyecto) |
 | Un hijo `grow=1` usa su contenido como base del flex | Una imagen alta o una pantalla larga estiraban su contenedor y empujaban controles fuera de la ventana (F5) | `height=0` (columna) / `width=0` (fila) en todo contenedor que crece y cuyo contenido puede no caber; ver docs/14. |
-| Sin API para el tamaño de la ventana | Los divisores no saben cuánto pueden crecer | `on_scroll` también se emite al hacer layout: la navegación es un `scroll` y su alto es `state.view_h` (F5). |
-| Sin `wrap` en filas | Listas de chips de longitud variable | Texto unido con « · ». |
+| Sin API para el tamaño de la ventana **dentro de la vista** | Los divisores no saben cuánto pueden crecer | `on_scroll` también se emite al hacer layout: la navegación es un `scroll` y su alto es `state.view_h` (F5). `Window.size` existe, pero fuera de la vista y sin ser reactivo. |
+
+### Lo que Aurora 0.4/0.5 añadió y aún no usamos (candidatos, no deuda)
+
+| Capacidad nueva | Dónde encaja en Rec Studio |
+|---|---|
+| `aurora.dialogs` (`open_file`, `open_files`, `save_file`, `pick_folder`) — 0.5 | Sustituir `platform/dialogs.py` (ctypes, solo Windows) por los diálogos nativos de Aurora |
+| `app.tray(...)` + bandeja, menús nativos, `on_context_menu`, `app.notify(...)` — 0.5 | Backlog post-v1 nº1 (hotkeys globales + bandeja); `app.notify` para «grabación terminada» |
+| Multi-ventana (`App.window`, `app.main`, `run(keep_alive=True)`) — 0.5 | Overlay de región y mini-controles fuera de la ventana; ventana de preview desacoplada |
+| `dialog`, `toast`, `progress`, `menu`, `accordion`, `field`, `segmented`, `spinner`, `skeleton`, `radio` — 0.4 | Toasts, modal de export, barra de progreso y campos propios → componentes nativos |
+| `table(...)` con ordenación y columnas redimensionables — 0.3 | La Biblioteca usa `virtual_list` a mano |
+| `chart(...)` nativo — 0.3 | El sparkline de fps es un `canvas` con `polyline` |
+| `overflow="hidden"` — 0.4 | Recortes que hoy se hacen con `scroll` de 0 px o canvas |
+| `App(motion=False)` / `AURORA_MOTION=0` — 0.4 | Snapshots y CI deterministas si aparecen animaciones de componentes |
+| `aurora build --upx` (ya no por defecto) y `upx = true` — 0.5 | Bundle actual: 365 MB (build con 0.5.0) |
 
 ## Tests de UI
 
