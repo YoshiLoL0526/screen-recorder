@@ -112,6 +112,9 @@ consola; CI en verde (unit + golden + smoke UI); RNF-06/07 medidos.
 
 ## Post-v1 (backlog ordenado)
 
+> El backlog vivo está en **[15 — Roadmap post-v1](15-post-v1.md)**, con estado, tamaño y criterio de
+> aceptación de cada pieza. Aquí queda el orden original y lo ya hecho.
+
 1. ✅ **Hotkeys globales (pynput) + bandeja + minimizar a bandeja al grabar** — hecho: `platform/hotkeys.py`
    (hook opt-in) y `ui/tray.py` (icono, menú, cierre a la bandeja grabando y aviso al terminar). Ver
    [docs/05](05-ui-aurora.md) y el CHANGELOG.

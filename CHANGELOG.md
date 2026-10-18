@@ -6,6 +6,14 @@ detalle de cada fase está en `docs/08`–`docs/14`.
 
 ## Sin publicar
 
+### Documentación
+- **[docs/15 — Roadmap post-v1](docs/15-post-v1.md)**: fuente de verdad de lo que falta, por bloques
+  (entrega y distribución, editor, captura, compartir, plataforma y adopciones de Aurora), con estado,
+  tamaño y criterio de aceptación de cada pieza, más una priorización recomendada. `docs/06` conserva
+  las fases F0–F5 y apunta al 15 para el backlog.
+- El **CI lleva dos ejecuciones en rojo** (`e3d703b`, `ef0d431`): se corrige la afirmación de docs/14
+  («aún no se ha ejecutado») y el estado real pasa a docs/15 (A1).
+
 ### Añadido
 - **Filmstrip de miniaturas en el timeline** (backlog post-v1 nº2): cada clip muestra una tira de
   miniaturas sobre la pista de video, con su nombre y duración encima. `canvas()` no dibuja imágenes,

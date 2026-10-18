@@ -14,7 +14,7 @@ del filter graph), `core/keyframes.py` (corte sin recodificar), `services/export
 icono, `[tool.aurora.build]` y smoke del exe en `src/recstudio/smoke.py` (ver `docs/14`). Post-v1:
 bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`) y filmstrip de miniaturas
 (`services/media.thumbstrip`, `ui/timeline.filmstrip_slots`); ver `docs/05`. Lo siguiente es el resto
-del backlog de `docs/06`.
+del backlog de `docs/15`.
 
 ## Comandos
 
@@ -119,6 +119,7 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
 - `docs/02-arquitectura.md`: capas, hilos y flujos. `docs/06-roadmap.md`: estado por fases
   (F0–F5). `docs/07-decisiones.md`: ADRs (por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido…).
 - `docs/09`–`14`: resultados de F1, F2, F1.1+F2.1, F3, F4 y F5 (bugs, mediciones, aprendizajes
-  de UI). `CHANGELOG.md` resume cada versión.
+  de UI). **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
+  criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
   `build/`, `dist/`, `.venv`, `__pycache__` y `tools/spikes/out/` están ignorados: no son fuente.

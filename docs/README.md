@@ -25,6 +25,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 12 | [F3: editor](12-f3-editor.md) | Modelo de proyecto, timeline interactivo, undo/autosave, preview a 30 fps, mediciones y bugs de Aurora encontrados. |
 | 13 | [F4: export](13-f4-export.md) | Filter graph (golden), export con progreso/ETA/cancelar, presets, corte rápido byte a byte, efectos y mediciones. |
 | 14 | [F5: pulido y v1.0](14-f5-pulido.md) | Layout adaptable, divisores del editor, Ajustes completos, icono, `aurora build` + smoke del exe y bugs de layout. |
+| 15 | [Roadmap post-v1](15-post-v1.md) | **Lo que falta por implementar**: entrega (CI, instalador, RNF), editor (música, títulos), captura (webcam), compartir, plataforma y adopciones de Aurora. |
 
 ## Orden de lectura sugerido
 

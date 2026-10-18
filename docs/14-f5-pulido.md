@@ -88,8 +88,10 @@ entran en CI: necesitan escritorio y audio reales.
 - **`strings.py`** (textos centralizados): no se extrajo. La app es solo en español y los
   textos viven junto a su componente; extraerlos ahora solo añade una indirección. Se hará si
   llega la internacionalización (backlog).
-- **CI**: configurado en `.github/workflows/ci.yml` (ver abajo), pero el repositorio todavía
-  no tiene remoto en GitHub, así que **aún no se ha ejecutado** en un runner. La prueba en
-  **máquina limpia** del flujo CU-1→CU-5 sigue pendiente (manual).
+- **CI**: configurado en `.github/workflows/ci.yml` (ver abajo). Ya se ha ejecutado en GitHub
+  (`e3d703b` y `ef0d431`) y **las dos veces falló en el paso de tests**, así que el job de build (y su
+  smoke) nunca ha llegado a correr. Los logs necesitan `gh`/token para leerse; el diagnóstico y el
+  seguimiento están en [docs/15](15-post-v1.md) (A1). La prueba en **máquina limpia** del flujo
+  CU-1→CU-5 sigue pendiente (manual).
 - RNF-06/07 con ventana real y grabando (las cifras de arriba son sin ventana).
 - Instalador (Inno Setup) y bundle más ligero (`--exclude-module cv2`): post-v1, como en docs/02.

@@ -50,6 +50,7 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 - [12 — F3: editor](docs/12-f3-editor.md): lo implementado del editor, mediciones y aprendizajes.
 - [13 — F4: export](docs/13-f4-export.md): filter graph, export, presets, corte rápido y efectos.
 - [14 — F5: pulido y v1.0](docs/14-f5-pulido.md): layout adaptable, divisores, Ajustes, build y smoke del exe.
+- [15 — Roadmap post-v1](docs/15-post-v1.md): lo que queda por implementar, por bloques y priorizado.
 
 ## Estructura del repositorio
 
