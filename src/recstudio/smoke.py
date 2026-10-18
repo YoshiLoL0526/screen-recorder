@@ -22,7 +22,7 @@ from typing import Any, Callable
 
 _MODULES = ("numpy", "av", "PIL.Image", "sounddevice", "mss", "imageio_ffmpeg", "aurora",
             "aurora.dialogs")
-_WINDOWS_MODULES = ("windows_capture", "pyaudiowpatch")
+_WINDOWS_MODULES = ("windows_capture", "pyaudiowpatch", "pynput")
 
 
 def _check_imports() -> dict[str, Any]:
@@ -41,6 +41,13 @@ def _check_imports() -> dict[str, Any]:
         if not callable(getattr(file_dialogs, fn, None)):
             raise RuntimeError(f"file_dialogs.{fn} no está disponible en el bundle")
     versions["recstudio.ui.file_dialogs"] = "ok"
+    # El icono de la bandeja viaja en `include = ["assets"]`; si no está, la bandeja del exe no
+    # tendría icono (el fallo se ve solo al pulsar el icono, así que se comprueba aquí).
+    from .ui import tray
+
+    if not Path(tray.icon_path()).is_file():
+        raise RuntimeError(f"falta el icono de la bandeja en el bundle: {tray.icon_path()}")
+    versions["tray_icon"] = "ok"
     return versions
 
 

@@ -248,7 +248,7 @@ Se registran en la raíz (`on_key`) y se delegan por pantalla; `e.matches("mod+s
 
 | Atajo | Acción | Ámbito |
 |---|---|---|
-| `F9` / `F10` | Grabar / pausar | Grabar (global en v1.1 vía pynput) |
+| `F9` / `F10` | Grabar / pausar | Global si «Atajos globales» está activo (`pynput`); si no, con la ventana enfocada |
 | `Space` | Play / pausa | Editor |
 | `←` / `→` | ±1 frame | Editor |
 | `Shift+←/→` | ±1 s | Editor |
@@ -326,8 +326,8 @@ lleva ✅ es un patrón que quedó validado en F0/F3.
 | Capacidad nueva | Dónde encaja en Rec Studio |
 |---|---|
 | ✅ ~~`aurora.dialogs` (`open_file`, `open_files`, `save_file`, `pick_folder`) — 0.5~~ | **Hecho**: `ui/file_dialogs.py` envuelve los diálogos de Aurora (con los filtros de video) y sustituye a `platform/dialogs.py` (ctypes, solo Windows). Se llaman desde el hilo de UI, como documenta Aurora. |
-| `app.tray(...)` + bandeja, menús nativos, `on_context_menu`, `app.notify(...)` — 0.5 | Backlog post-v1 nº1 (hotkeys globales + bandeja); `app.notify` para «grabación terminada» |
-| Multi-ventana (`App.window`, `app.main`, `run(keep_alive=True)`) — 0.5 | Overlay de región y mini-controles fuera de la ventana; ventana de preview desacoplada |
+| ✅ ~~`app.tray(...)` + bandeja, menús nativos, `on_context_menu`, `app.notify(...)` — 0.5~~ | **Hecho**: `ui/tray.py` (icono, menú que sigue al estado, cerrar la ventana grabando deja la grabación en la bandeja, aviso al terminar) + `platform/hotkeys.py` (F9/F10 globales con `pynput`, opt-in). Siguen sin usarse los **menús nativos** (`App(menu=…)`) y `on_context_menu`. |
+| Multi-ventana (`App.window`) — 0.5 | `app.main` y el `keep_alive` de la bandeja ya se usan (`ui/tray.py`). `App.window` (varias ventanas) sigue sin usarse: desbloquearía el overlay de región y una ventana de preview desacoplada |
 | `dialog`, `toast`, `progress`, `menu`, `accordion`, `field`, `segmented`, `spinner`, `skeleton`, `radio` — 0.4 | Toasts, modal de export, barra de progreso y campos propios → componentes nativos |
 | `table(...)` con ordenación y columnas redimensionables — 0.3 | La Biblioteca usa `virtual_list` a mano |
 | `chart(...)` nativo — 0.3 | El sparkline de fps es un `canvas` con `polyline` |

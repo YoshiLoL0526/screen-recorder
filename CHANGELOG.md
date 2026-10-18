@@ -6,6 +6,19 @@ detalle de cada fase está en `docs/08`–`docs/14`.
 
 ## Sin publicar
 
+### Añadido
+- **Bandeja del sistema y atajos globales** (backlog post-v1 nº1):
+  - `ui/tray.py`: icono en la bandeja con un menú que sigue al estado («Grabar/Detener», «Pausar/Reanudar»,
+    «Abrir Rec Studio», «Salir») y aviso del sistema al terminar. Cerrar la ventana **mientras se graba**
+    deja la grabación en marcha (se vuelve desde el icono, su menú o la notificación); sin grabación en
+    curso, la X termina la app.
+  - `platform/hotkeys.py`: F9/F10 globales con `pynput`, **opt-in** (instalan un hook del teclado del
+    sistema). Si el hook no se puede instalar, se revierte el ajuste y se avisa.
+  - Ajustes → «Escritorio»: atajos globales, bandeja y aviso al terminar.
+  - `[tool.aurora.build] include = ["assets"]`, para que el icono de la bandeja viaje en el exe (el smoke
+    del bundle comprueba que está).
+  - 16 tests nuevos en `tests/test_desktop.py` (hook con backend falso, menú, cierre de ventana y avisos).
+
 ### Cambiado
 - **Diálogos nativos de Aurora** en vez de ctypes: `platform/dialogs.py` (Windows: `GetOpenFileNameW`
   y `SHBrowseForFolderW`) desaparece y lo sustituye `ui/file_dialogs.py`, que envuelve

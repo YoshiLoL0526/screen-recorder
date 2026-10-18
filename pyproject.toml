@@ -12,6 +12,7 @@ dependencies = [
     "mss>=10",
     "numpy>=2.0",
     "pillow>=11",
+    "pynput>=1.8 ; sys_platform == 'win32'",
     "pyaudiowpatch>=0.2.12.9 ; sys_platform == 'win32'",
     "sounddevice>=0.5",
     "windows-capture>=2.0.1 ; sys_platform == 'win32'",
@@ -35,5 +36,6 @@ dev = [
 script = "main.py"
 name = "Rec Studio"
 icon = "assets/icon.ico"
+include = ["assets"]  # icon.png para la bandeja y las notificaciones (aurora.resource)
 onefile = false  # onedir: arranca al instante con numpy/PyAV/FFmpeg dentro (docs/02)
 console = false

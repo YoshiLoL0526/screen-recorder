@@ -19,6 +19,7 @@ from ..core.errors import RecStudioError
 from ..core.regions import clamp_region
 from ..platform import audio as audio_mod
 from ..platform import ffmpeg as ffmpeg_mod
+from ..platform import hotkeys as hotkeys_mod
 from ..platform import paths
 from ..platform import screens
 from ..services import library
@@ -73,6 +74,9 @@ class Controller:
         # ignoran; si no, dos pulsaciones durante «Preparando…» creaban dos sesiones.
         self._busy = False
         self.region_drag_start: tuple[int, int, int, int] | None = None  # región al empezar un drag
+        # Escritorio: hook de atajos globales y la ventana principal (solo con ventana real)
+        self._hotkeys = hotkeys_mod.GlobalHotkeys(hotkeys_mod.BINDINGS, self._on_hotkey)
+        self._app: Any = None
         from .editor_controller import EditorController
 
         self.editor = EditorController(settings)
@@ -93,10 +97,13 @@ class Controller:
         threading.Thread(target=self._load_system_info, daemon=True, name="sysinfo").start()
         self.refresh_library()
         self._subscribe_settings()
+        self._subscribe_desktop()
+        self._apply_hotkeys()
         self.editor.boot()
 
     def shutdown(self) -> None:
         self._closing = True
+        self._hotkeys.stop()
         # El guardado con debounce puede dispararse después del cierre (y, en los tests, después
         # de que se restaure `paths.settings_path`: escribía el `settings.json` real).
         if self._save_timer is not None:
@@ -134,6 +141,9 @@ class Controller:
         state.inspector_w.set(s.inspector_w)
         state.inspector_open.set(s.inspector_open)
         state.tl_tracks_extra.set(s.timeline_extra)
+        state.global_hotkeys.set(s.global_hotkeys)
+        state.tray.set(s.tray)
+        state.notify_finished.set(s.notify_finished)
 
     def _warn_blocked_out_dir(self) -> None:
         """Avisa si Windows no dejó crear la carpeta de grabaciones por defecto.
@@ -158,8 +168,15 @@ class Controller:
             state.fps_target, state.preset, state.encoder, state.audio_system,
             state.keepalive, state.mic_index, state.out_dir, state.project_path, state.preview_audio,
             state.inspector_w, state.inspector_open, state.tl_tracks_extra,
+            state.global_hotkeys, state.tray, state.notify_finished,
         ):
             signal.subscribe(lambda _value: self._schedule_save())
+
+    def _subscribe_desktop(self) -> None:
+        """Efectos de los ajustes de escritorio y del estado de grabación (nunca solo guardar)."""
+        state.global_hotkeys.subscribe(lambda _value: self._apply_hotkeys())
+        state.tray.subscribe(lambda _value: self._apply_tray())
+        state.rec_state.subscribe(lambda _value: self._refresh_tray())
 
     def _schedule_save(self) -> None:
         if self._closing:
@@ -190,6 +207,9 @@ class Controller:
         s.inspector_w = float(state.inspector_w())
         s.inspector_open = bool(state.inspector_open())
         s.timeline_extra = float(state.tl_tracks_extra())
+        s.global_hotkeys = bool(state.global_hotkeys())
+        s.tray = bool(state.tray())
+        s.notify_finished = bool(state.notify_finished())
         s.save()
 
     def set_theme(self, name: str) -> None:
@@ -236,6 +256,90 @@ class Controller:
         state.inspector_open.set(defaults.inspector_open)
         state.tl_tracks_extra.set(defaults.timeline_extra)
         state.toast("info", "Disposición del editor restablecida")
+
+    # -- escritorio: bandeja y atajos globales --------------------------------
+
+    def attach_desktop(self, app: Any) -> None:
+        """Engancha la app real: bandeja y cierre a la bandeja.
+
+        Solo se llama desde `app.main()` (con ventana de verdad): en los tests `_app` es `None` y
+        nada de esto se toca.
+        """
+        self._app = app
+        app.main.on_close = self._on_main_close
+        self._apply_tray()
+
+    def _apply_tray(self) -> None:
+        app = self._app
+        if app is None or self._closing:
+            return
+        from . import tray
+
+        if not state.tray():
+            tray.hide(app)
+            return
+        if not tray.setup(app, self):
+            state.tray.set(False)  # revierte el ajuste (y se guarda solo)
+            state.toast("warning", "No se pudo poner Rec Studio en la bandeja del sistema")
+
+    def _refresh_tray(self) -> None:
+        """Reconstruye el menú: las etiquetas («Grabar»/«Detener») siguen al estado real."""
+        if self._app is None or self._closing or not state.tray():
+            return
+        from . import tray
+
+        tray.setup(self._app, self)
+
+    def _on_main_close(self) -> bool:
+        """La X de la ventana: con grabación viva y bandeja, se minimiza y la grabación sigue."""
+        from . import tray
+
+        if state.rec_state() in tray.LIVE_STATES and state.tray():
+            state.toast("info", "Rec Studio sigue en la bandeja: la grabación continúa")
+            return True  # se cierra la ventana; la bandeja mantiene la app viva
+        if self._app is not None:
+            # Sin grabación en curso, la X termina la app. Se aplaza fuera del callback de cierre
+            # (la bandeja mantendría la app viva, así que hay que decirselo al núcleo a propósito).
+            app = self._app
+            threading.Timer(0.0, app.quit).start()
+        return True
+
+    def _apply_hotkeys(self) -> None:
+        """Instala o retira el hook global según el ajuste."""
+        if self._closing:
+            return
+        if state.global_hotkeys():
+            if not self._hotkeys.running and not self._hotkeys.start():
+                state.global_hotkeys.set(False)  # revierte el ajuste (y se guarda solo)
+                state.toast(
+                    "warning",
+                    "No se pudieron activar los atajos globales (permisos, antivirus u otro "
+                    "programa que use F9/F10)",
+                )
+        else:
+            self._hotkeys.stop()
+
+    def _on_hotkey(self, name: str) -> None:
+        """Pulsación del hook global (llega desde el hilo de `pynput`)."""
+        if self._closing:
+            return
+        if name == "record":
+            self.toggle_record()
+        elif name == "pause":
+            self.toggle_pause()
+
+    def _notify_finished(self, result: Any) -> None:
+        """Aviso del sistema al terminar una grabación (útil con la ventana en la bandeja)."""
+        if self._app is None or not state.notify_finished():
+            return
+        from . import tray
+
+        size_mb = result.mp4.stat().st_size / 1e6
+        tray.notify(
+            self._app,
+            "Grabación guardada",
+            f"{result.mp4.name} · {result.duration_s:.1f}s · {size_mb:.1f} MB",
+        )
 
     # -- info del sistema y preview -------------------------------------------
 
@@ -492,6 +596,7 @@ class Controller:
             "success",
             f"Guardado: {result.mp4.name} · {result.duration_s:.1f}s · {result.mp4.stat().st_size / 1e6:.1f} MB",
         )
+        self._notify_finished(result)
         self.refresh_library()
 
     def _engine_event(self, name: str, data: dict[str, Any]) -> None:

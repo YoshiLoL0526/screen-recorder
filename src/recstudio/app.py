@@ -21,6 +21,7 @@ def build_app(*, size: tuple[float, float] = (1280, 800)) -> tuple[App, Controll
 
 def main() -> None:
     app, controller = build_app()
+    controller.attach_desktop(app)  # bandeja + cierre a la bandeja (solo con ventana real)
     try:
         app.run()
     finally:

@@ -81,6 +81,11 @@ mic_index = Signal(-1)  # -1 = sin micrófono
 # Defender) tumbaba la app antes de abrir ventana.
 out_dir = Signal("")
 
+# -- escritorio: bandeja, atajos globales y avisos -----------------------------
+global_hotkeys = Signal(False)  # F9/F10 con la app sin foco (hook de teclado del sistema)
+tray = Signal(True)  # icono en la bandeja del sistema (mantiene la app viva sin ventana)
+notify_finished = Signal(True)  # aviso del sistema al terminar una grabación
+
 # -- datos del sistema (se cargan una vez al arrancar) -------------------------
 monitors = Signal(())
 audio_devices = Signal(())

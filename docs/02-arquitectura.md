@@ -38,6 +38,7 @@
 │   ffmpeg.py (binario, run, progress)      graph.py (filter_complex builder) │
 │   screens.py (monitores, DPI)             store.py (JSON, undo, autosave)   │
 │   paths.py (carpetas, bloqueos)           keyframes.py (snap corte rápido)  │
+│   hotkeys.py (atajos globales, pynput)                                      │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,7 +70,8 @@ screen-recorder/
 │  │  ├─ audio.py             # AudioRecorder (loopback/mic)
 │  │  ├─ ffmpeg.py            # localizar binario, ejecutar, parsear -progress
 │  │  ├─ screens.py           # monitores, DPI, captura de referencia
-│  │  └─ paths.py             # carpetas del usuario, creación a prueba de bloqueos
+│  │  ├─ paths.py             # carpetas del usuario, creación a prueba de bloqueos
+│  │  └─ hotkeys.py           # atajos globales de teclado (pynput, opt-in)
 │  ├─ services/
 │  │  ├─ recording.py         # orquesta captura+audio+encoder, máquina de estados
 │  │  ├─ playback.py          # decode → preview, reloj, audio de preview
@@ -80,6 +82,7 @@ screen-recorder/
 │  └─ ui/
 │     ├─ layout.py            # shell: sidebar + contenido + header
 │     ├─ file_dialogs.py      # diálogos nativos de archivo/carpeta (aurora.dialogs)
+│     ├─ tray.py              # bandeja del sistema: icono, menú y avisos
 │     ├─ screens/
 │     │  ├─ record.py  biblioteca.py  editor.py  settings.py
 │     ├─ widgets/
@@ -255,7 +258,7 @@ Los snapshots PNG (`render_png`) sirven además como documentación viva de la U
 | `PyAudioWPatch` | 0.2.12.9 | WASAPI loopback (audio del sistema) + mic. | Windows. |
 | `sounddevice` | 0.5.6 | Salida de audio del preview; fallback de entrada. | Cross-platform. |
 | `opencv-python` | 5.0.0.93 | **No es dependencia directa**: la arrastra `dxcam`. | Si se puede, evitar usarla en el código (solo el processor de dxcam). |
-| `pynput` | 1.8.2 | Hotkeys globales (post-v1). | `keyboard` está sin mantenimiento desde 2020. |
+| `pynput` | 1.8.2 | Atajos globales F9/F10 sin foco, opt-in (`platform/hotkeys.py`). | Windows; instala un *hook* del teclado (algún antivirus lo bloquea); se desinstala al cerrar. |
 | `psutil` (dev) | 7.2.2 | Medir CPU de procesos en spikes/benchmarks. | Solo desarrollo. |
 
 `pyproject.toml` propuesto (extras por plataforma para que `uv sync` instale solo lo correcto):

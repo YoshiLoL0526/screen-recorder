@@ -109,7 +109,20 @@ def settings_screen():
                     field("Keep-alive", switch(state.keepalive, key="set-keepalive")),
                     _note("El keep-alive reproduce silencio por la salida por defecto para que el audio del "
                           "sistema se siga grabando aunque no suene nada (medido en F0: cobertura "
-                          "14.7 % → 99.96 %). Atajos globales de la ventana: F9 grabar/detener, F10 pausar."),
+                          "14.7 % → 99.96 %)."),
+                ),
+            ],
+
+            card(gap=14, key="set-desktop")[
+                section(
+                    "Escritorio",
+                    field("Atajos globales", switch(state.global_hotkeys, key="set-hk-global")),
+                    field("Bandeja", switch(state.tray, key="set-tray")),
+                    field("Aviso al terminar", switch(state.notify_finished, key="set-notify")),
+                    _note("«Atajos globales» (F9 grabar/detener, F10 pausar) funcionan con la app sin foco: "
+                          "usan un hook del teclado del sistema y algún antivirus puede bloquearlos. Con la "
+                          "bandeja, cerrar la ventana mientras grabas deja la grabación en marcha; se vuelve "
+                          "desde el icono, su menú o el aviso al terminar."),
                 ),
             ],
 

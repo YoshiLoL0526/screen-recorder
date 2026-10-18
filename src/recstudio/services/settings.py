@@ -31,6 +31,10 @@ class Settings:
     last_project: str = ""  # project.json abierto al cerrar (se reabre al arrancar)
     preview_audio: bool = True
     export_preset: str = "rapido"  # preset del último export (core.graph.PRESETS)
+    # Escritorio: bandeja, atajos globales y avisos (post-v1)
+    global_hotkeys: bool = False  # hook del sistema: opt-in (antivirus, permisos)
+    tray: bool = True
+    notify_finished: bool = True
     # Disposición del editor (F5): divisores y paneles
     inspector_w: float = 290.0
     inspector_open: bool = True
@@ -49,6 +53,9 @@ class Settings:
         except (TypeError, ValueError):
             self.inspector_w, self.timeline_extra = 290.0, 0.0
         self.inspector_open = bool(self.inspector_open)
+        self.global_hotkeys = bool(self.global_hotkeys)
+        self.tray = bool(self.tray)
+        self.notify_finished = bool(self.notify_finished)
         return self
 
     @classmethod

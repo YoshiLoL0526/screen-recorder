@@ -11,14 +11,15 @@ Estado: **v1.0.0** — F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1
 `ui/screens/editor.py` (ver `docs/12`). Export: `core/effects.py`, `core/graph.py` (builder puro
 del filter graph), `core/keyframes.py` (corte sin recodificar), `services/export.py`,
 `ui/export_modal.py` (ver `docs/13`). Pulido: layout adaptable, divisores del editor, Ajustes,
-icono, `[tool.aurora.build]` y smoke del exe en `src/recstudio/smoke.py` (ver `docs/14`). Lo
-siguiente es el backlog post-v1 de `docs/06`.
+icono, `[tool.aurora.build]` y smoke del exe en `src/recstudio/smoke.py` (ver `docs/14`). Post-v1:
+bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`, ver `docs/05`);
+lo siguiente es el resto del backlog de `docs/06`.
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 176 tests; la integración usa FFmpeg real
+uv run pytest                                   # 192 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -68,6 +69,11 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
 - Diálogos nativos: `ui/file_dialogs.py` envuelve `aurora.dialogs` y se llama **desde el hilo de
   UI** (la ventana es el padre y el sistema corre su bucle mientras dura); el trabajo lento que
   sigue va a un hilo. En los tests se sustituye el módulo por un doble (`tests/test_file_dialogs.py`).
+- Escritorio (bandeja y atajos globales): se enganchan solo con ventana real
+  (`Controller.attach_desktop(app)`, llamado desde `main()`); en los tests `controller._app` es
+  `None` y todo es no-op. El hook de `pynput` es **opt-in** y se prueba con un backend falso
+  (`tests/test_desktop.py`); si `start()` falla, se revierte el ajuste y se avisa. El icono de la
+  bandeja viaja en el exe por `[tool.aurora.build] include = ["assets"]` y el smoke lo comprueba.
 - Aurora 0.5: `scroll()` añade `grow=1` (pasa `grow=0` en filas); columna que debe encoger:
   `grow=1, width=0`; los `select` no truncan etiquetas. Más límites y mitigaciones en `docs/05`
   («Limitaciones de Aurora 0.5»).
