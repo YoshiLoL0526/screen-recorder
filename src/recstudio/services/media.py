@@ -24,9 +24,12 @@ from ..platform import paths
 
 BUCKETS_PER_S = 100
 _WAVE_RATE = 8000  # Hz de análisis: sobra para picos a 100 buckets/s
+THUMB_H = 72  # alto de cada miniatura del filmstrip (px)
+THUMB_COUNT = 24  # miniaturas por asset, repartidas por toda su duración
 
 _lock = threading.Lock()
 _waveforms: dict[str, np.ndarray] = {}
+_thumbstrips: dict[str, tuple[bytes, ...]] = {}
 
 
 def _cache_key(path: Path) -> str:
@@ -267,3 +270,98 @@ def poster(path: str | Path, *, at_s: float = 1.0, height: int = 180) -> bytes:
     except OSError:
         pass
     return data
+
+
+# -- filmstrip del timeline --------------------------------------------------------
+
+
+def cached_thumbstrip(path: str | Path) -> tuple[bytes, ...] | None:
+    """Miniaturas ya calculadas (memoria o disco) sin decodificar nada; `None` si no hay."""
+    key = str(Path(path))
+    with _lock:
+        thumbs = _thumbstrips.get(key)
+    if thumbs is not None:
+        return thumbs
+    try:
+        folder = _cache_dir("thumbs") / _cache_key(Path(path))
+    except OSError:
+        return None
+    files = [folder / f"{i:02d}.jpg" for i in range(THUMB_COUNT)]
+    if not all(f.is_file() for f in files):
+        return None
+    try:
+        thumbs = tuple(f.read_bytes() for f in files)
+    except OSError:
+        return None
+    with _lock:
+        _thumbstrips[key] = thumbs
+    return thumbs
+
+
+def _frame_at(container, stream, target: float, origin: float):  # noqa: ANN001, ANN202
+    """Primer frame desde la posición actual con `time - origin >= target` (o el último)."""
+    last = None
+    for frame in container.decode(stream):
+        last = frame
+        if frame.time is not None and float(frame.time) - origin >= target:
+            return frame
+    return last
+
+
+def thumbstrip(path: str | Path) -> tuple[bytes, ...]:
+    """`THUMB_COUNT` miniaturas (JPEG) repartidas por toda la duración, cacheadas en disco.
+
+    Es la tira del filmstrip del timeline: se calcula **por asset**, no por clip, así que recortar,
+    mover o reordenar clips reutiliza las mismas miniaturas (cada clip elige las que caen en su
+    tramo de fuente).
+    """
+    import av
+    from PIL import Image
+
+    path = Path(path)
+    cached = cached_thumbstrip(path)
+    if cached is not None:
+        return cached
+    try:
+        folder = _cache_dir("thumbs") / _cache_key(path)
+    except OSError as exc:
+        raise MediaError(f"no se pudo escribir la cache de miniaturas: {exc}") from exc
+    try:
+        container = av.open(str(path))
+    except (av.FFmpegError, OSError) as exc:
+        raise MediaError(f"no se pudo abrir «{path.name}»: {exc}") from exc
+    thumbs: list[bytes] = []
+    try:
+        stream = container.streams.video[0]
+        duration = float(stream.duration * stream.time_base) if stream.duration else 0.0
+        if duration <= 0:
+            duration = (container.duration or 0) / 1_000_000
+        origin = (container.start_time or 0) / 1_000_000
+        folder.mkdir(parents=True, exist_ok=True)
+        for index in range(THUMB_COUNT):
+            target = duration * (index + 0.5) / THUMB_COUNT if duration else 0.0
+            container.seek(int((origin + target) / stream.time_base), stream=stream, backward=True)
+            frame = _frame_at(container, stream, target, origin)
+            if frame is None:
+                break
+            width = max(2, round(frame.width * THUMB_H / frame.height))
+            width -= width % 2
+            rgb = frame.to_ndarray(format="rgb24", width=width, height=THUMB_H)
+            buffer = io.BytesIO()
+            Image.fromarray(rgb).save(buffer, "JPEG", quality=78)
+            data = buffer.getvalue()
+            thumbs.append(data)
+            try:
+                (folder / f"{index:02d}.jpg").write_bytes(data)
+            except OSError:
+                pass
+    except av.FFmpegError as exc:
+        raise MediaError(f"no se pudo leer «{path.name}»: {exc}") from exc
+    finally:
+        container.close()
+    if not thumbs:
+        raise MediaError(f"«{path.name}» no tiene frames para el filmstrip")
+    result = tuple(thumbs)
+    with _lock:
+        _thumbstrips[str(path)] = result
+    return result

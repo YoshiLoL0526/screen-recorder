@@ -147,6 +147,7 @@ inspector_w = Signal(290.0)  # ancho del inspector (divisor preview/inspector, F
 inspector_open = Signal(True)  # inspector visible (I) — oculto, el preview usa todo el ancho
 tl_drag = Signal(None)  # TimelineDrag | None
 waveforms = Signal(0)  # versión: sube cada vez que llega un waveform nuevo
+thumbs = Signal(0)  # versión: sube cada vez que llegan miniaturas del filmstrip
 offline_assets = Signal(frozenset())  # ids de assets cuyo archivo no existe
 importing = Signal(())  # nombres de archivo que se están analizando
 import_open = Signal(False)  # modal «Importar»

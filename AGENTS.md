@@ -12,14 +12,15 @@ Estado: **v1.0.0** — F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1
 del filter graph), `core/keyframes.py` (corte sin recodificar), `services/export.py`,
 `ui/export_modal.py` (ver `docs/13`). Pulido: layout adaptable, divisores del editor, Ajustes,
 icono, `[tool.aurora.build]` y smoke del exe en `src/recstudio/smoke.py` (ver `docs/14`). Post-v1:
-bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`, ver `docs/05`);
-lo siguiente es el resto del backlog de `docs/06`.
+bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`) y filmstrip de miniaturas
+(`services/media.thumbstrip`, `ui/timeline.filmstrip_slots`); ver `docs/05`. Lo siguiente es el resto
+del backlog de `docs/06`.
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 192 tests; la integración usa FFmpeg real
+uv run pytest                                   # 201 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -77,6 +78,11 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
 - Aurora 0.5: `scroll()` añade `grow=1` (pasa `grow=0` en filas); columna que debe encoger:
   `grow=1, width=0`; los `select` no truncan etiquetas. Más límites y mitigaciones en `docs/05`
   («Limitaciones de Aurora 0.5»).
+- Filmstrip del timeline: `canvas()` no dibuja imágenes, así que las miniaturas son una capa de
+  `image()` absolutas **entre el canvas y las cajas de interacción** (arriba del canvas para verse,
+  debajo de las cajas para no comerse clics ni drags). Tira por **asset** (`media.thumbstrip`,
+  cacheada), colocada por `filmstrip_slots` (puro); como tapan el texto del canvas, el nombre y la
+  duración se repintan encima con su propio fondo (`_clip_meta` lo comparten ambos).
 - Aurora 0.5 (F3): cualquier caja encima bloquea los clics aunque no tenga handlers (playhead,
   toasts); la raíz recibe las teclas aunque haya un campo enfocado (usa `mark_input_key`);
   `KeyEvent.matches("+")` lanza excepción; `on_drag` llega también con un clic (fase `start`,

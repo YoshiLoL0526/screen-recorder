@@ -19,6 +19,7 @@ from recstudio.core.project import Project
 from recstudio.platform import ffmpeg as F
 from recstudio.platform import paths
 from recstudio.services import media, playback
+from recstudio.ui import timeline as tlui
 
 
 def _make_video(path: Path, *, seconds: float = 4.0, size: str = "640x360", fps: int = 30) -> Path:
@@ -411,3 +412,28 @@ def test_reubicar_usa_el_dialogo_nativo_y_delega_en_un_hilo(ui, video: Path, mon
     assert _wait(lambda: hecho == [(asset.id, video)]), "no se delegó en relocate_to"
     assert abierto, "no se abrió el diálogo"
     assert asset.name in abierto[0]["title"]  # el diálogo identifica el archivo
+
+
+def test_el_filmstrip_dibuja_miniaturas_y_su_etiqueta(ui, video: Path) -> None:
+    """Las miniaturas llegan en un hilo y se colocan sobre la pista de video (capa de `image`)."""
+    _, controller, pilot = ui
+    editor = controller.editor
+    editor.import_paths([video])
+    assert _wait(lambda: state.project_open())
+    assert _wait(lambda: media.cached_thumbstrip(video) is not None), "no llegaron las miniaturas"
+    _settle(pilot)
+
+    clip = state.editor_project().video.clips[0]
+    drawn = [pilot.rect(f"thumb-{clip.id}-{i}") for i in range(media.THUMB_COUNT)]
+    drawn = [rect for rect in drawn if rect is not None]
+    assert drawn, "no se dibujó ninguna miniatura"
+
+    lay = tlui.tracks()
+    clip_rect = pilot.rect(f"clip-{clip.id}")
+    for x, y, w, h in drawn:
+        assert w > 0 and h > 0
+        assert clip_rect[0] - 1 <= x <= clip_rect[0] + clip_rect[2]  # dentro del clip
+        assert lay.video_h - 2 <= h <= lay.video_h  # ocupa el alto de la pista
+
+    # la etiqueta va encima (las imágenes tapan el texto que pinta el canvas)
+    assert pilot.rect(f"cliplabel-{clip.id}") is not None

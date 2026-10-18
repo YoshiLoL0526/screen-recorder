@@ -115,7 +115,9 @@ consola; CI en verde (unit + golden + smoke UI); RNF-06/07 medidos.
 1. ✅ **Hotkeys globales (pynput) + bandeja + minimizar a bandeja al grabar** — hecho: `platform/hotkeys.py`
    (hook opt-in) y `ui/tray.py` (icono, menú, cierre a la bandeja grabando y aviso al terminar). Ver
    [docs/05](05-ui-aurora.md) y el CHANGELOG.
-2. Filmstrip de thumbnails en los clips (según S5/limitación de canvas).
+2. ✅ **Filmstrip de thumbnails en los clips** — hecho: capa de `image()` sobre el canvas
+   (`ui/timeline.py`), tira por asset cacheada en disco (`services/media.thumbstrip`) y etiqueta del
+   clip encima. Ver [docs/05](05-ui-aurora.md) y el CHANGELOG.
 3. Pista de música (UI y preview: el graph de F4 ya la mezcla) + ducking básico; crossfades de audio (`acrossfade`).
 4. Textos/títulos sobre el video (drawtext o canvas futuro).
 5. Webcam PiP (segunda captura) + grabación de cara separada.

@@ -7,6 +7,18 @@ detalle de cada fase está en `docs/08`–`docs/14`.
 ## Sin publicar
 
 ### Añadido
+- **Filmstrip de miniaturas en el timeline** (backlog post-v1 nº2): cada clip muestra una tira de
+  miniaturas sobre la pista de video, con su nombre y duración encima. `canvas()` no dibuja imágenes,
+  así que es una capa de `image()` absolutas **entre el canvas y las cajas de interacción** (arriba
+  del canvas para verse, debajo de las cajas para no comerse los clics ni los drags).
+  - `services/media.thumbstrip(path)`: 24 miniaturas JPEG repartidas por toda la duración del
+    **asset** (no del clip), con cache en memoria y en disco; recortar, mover o reordenar clips
+    reutiliza la misma tira. Se calcula en un hilo al abrir/importar/reubicar (`_queue_thumbs`).
+  - `ui/timeline.filmstrip_slots` (puro): qué miniaturas caen dentro del clip y de la vista, con el
+    tiempo de fuente y la velocidad; culling por vista, tope de 60 imágenes por frame y ensanchado
+    con solape cuando el zoom deja los huecos muy estrechos.
+  - 8 tests en `tests/test_filmstrip.py` (colocación pura + la tira real con FFmpeg) y uno de UI en
+    `tests/test_f3_editor.py`.
 - **Bandeja del sistema y atajos globales** (backlog post-v1 nº1):
   - `ui/tray.py`: icono en la bandeja con un menú que sigue al estado («Grabar/Detener», «Pausar/Reanudar»,
     «Abrir Rec Studio», «Salir») y aviso del sistema al terminar. Cerrar la ventana **mientras se graba**

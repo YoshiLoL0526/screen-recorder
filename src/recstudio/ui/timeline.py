@@ -21,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from aurora import Canvas, box, canvas, column, component, row, scroll, text
+from aurora import Canvas, box, canvas, column, component, image, row, scroll, text
 
 from .. import state
 from ..core import effects as fx
@@ -51,6 +51,10 @@ EDITOR_CHROME_H = 332.0
 PREVIEW_MIN_H = 160.0
 TAIL_PX = 240  # espacio tras el último clip (para soltar y desplazarse)
 HANDLE_W = 9
+FILMSTRIP_MIN_W = 26.0  # ancho mínimo del hueco de una miniatura para que merezca la pena
+FILMSTRIP_DRAW_MIN_W = 64.0  # ancho mínimo con el que se dibuja (si el hueco es menor, se solapa)
+FILMSTRIP_MIN_H = 34.0  # alto mínimo de la pista de video para el filmstrip
+FILMSTRIP_MAX = 60  # tope de imágenes por frame (además del culling por vista)
 _CHAR_W = 0.56  # ancho medio de carácter / tamaño de fuente (elipsis manual en el canvas)
 
 _TICKS = (0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800)
@@ -169,6 +173,25 @@ def _waveform_points(peaks: np.ndarray, x: float, w: float, top: float, h: float
     return pts.astype(np.float32)
 
 
+def _clip_meta(clip, *, offline: bool) -> str:
+    """Segunda línea de un clip (duración + velocidad + efectos); la comparten canvas y overlay."""
+    meta = tl.format_time(clip.duration)
+    if clip.speed != 1.0:
+        meta = f"{clip.speed:g}× · {meta}"
+    if fx.has_effects(clip):
+        meta = f"fx · {meta}"
+    if offline:
+        meta = "sin archivo · " + meta
+    return meta
+
+
+def _clip_label_x(w: float, x: float) -> float:
+    """x de la etiqueta «pegajosa»: sigue visible aunque el inicio del clip quede fuera de la vista."""
+    if w <= 80:
+        return x + 8
+    return min(max(x + 8, state.tl_scroll() + 8), x + w - 60)
+
+
 def _draw_tracks(c: Canvas) -> None:
     project: Project = state.editor_project()
     zoom = state.tl_zoom()
@@ -211,17 +234,9 @@ def _draw_tracks(c: Canvas) -> None:
         except Exception:
             asset, name = None, "?"
         # Etiqueta «pegajosa»: sigue visible aunque el inicio del clip quede fuera de la vista.
-        label_x = x + 8
-        if w > 80:
-            label_x = min(max(x + 8, state.tl_scroll() + 8), x + w - 60)
+        label_x = _clip_label_x(w, x)
         c.text(label_x, VIDEO_TOP + 10, _ellipsis(name, x + w - label_x - 6, 12), size=12, weight=600)
-        meta = tl.format_time(clip.duration)
-        if clip.speed != 1.0:
-            meta = f"{clip.speed:g}× · {meta}"
-        if fx.has_effects(clip):
-            meta = f"fx · {meta}"
-        if is_offline:
-            meta = "sin archivo · " + meta
+        meta = _clip_meta(clip, offline=is_offline)
         c.text(label_x, VIDEO_TOP + 28, _ellipsis(meta, x + w - label_x - 6, 10.5), size=10.5,
                color="$danger" if is_offline else "$muted", family="Consolas")
 
@@ -282,6 +297,113 @@ def _draw_tracks(c: Canvas) -> None:
         except Exception:
             name = "?"
         c.text(x + 8, VIDEO_TOP + 10, _ellipsis(name, w - 14, 12), size=12, weight=600)
+
+
+# -- filmstrip (miniaturas) ---------------------------------------------------------
+
+
+def filmstrip_slots(
+    clip, asset, count: int, zoom: float, x: float, w: float, x0: float, x1: float
+) -> list[tuple[float, float, int]]:
+    """Miniaturas que caen dentro del clip y de la vista: `(left, ancho, índice)`.
+
+    Las miniaturas se reparten por el **asset completo** (`asset.duration / count` segundos cada
+    una), así que cada clip elige las de su tramo de fuente y recortar o mover no cambia nada.
+    """
+    if count <= 0 or asset.duration <= 0 or zoom <= 0 or clip.speed <= 0:
+        return []
+    step = asset.duration / count  # segundos de fuente por miniatura
+    source0, source1 = clip.in_, clip.in_ + clip.duration * clip.speed
+    first = max(0, int(source0 / step))
+    last = min(count, int(np.ceil(source1 / step)))
+    slots: list[tuple[float, float, int]] = []
+    for index in range(first, last):
+        left = x + (index * step - clip.in_) / clip.speed * zoom
+        slot_w = step / clip.speed * zoom
+        # Con el zoom bajo cada hueco es muy estrecho: se dibuja más ancho y se solapa con el
+        # siguiente (se pintan en orden), que se ve como un filmstrip y no como rendijas. Nunca
+        # se sale del clip (el borde derecho manda).
+        draw_w = min(max(slot_w, FILMSTRIP_DRAW_MIN_W), x + w - 1 - left)
+        visible_left = max(left, x + 1)
+        visible_right = min(left + draw_w, x + w - 1)
+        if visible_right <= x0 or visible_left >= x1:
+            continue
+        if visible_right - visible_left < FILMSTRIP_MIN_W:
+            continue
+        slots.append((visible_left, visible_right - visible_left, index))
+    return slots
+
+
+def _filmstrip_elements(
+    project: Project, geo: Geometry, zoom: float, x0: float, x1: float, lay: Tracks
+) -> tuple[list, list]:
+    """`(miniaturas, etiquetas)` de los clips visibles.
+
+    `canvas()` no dibuja imágenes (docs/05), así que el filmstrip es una capa aparte: va **encima
+    del canvas y debajo de las cajas de interacción** (cualquier caja tapa los clics; las de los
+    clips van después, así que siguen mandando). Como las miniaturas tapan el nombre y la duración
+    que pinta el canvas, encima van las mismas etiquetas sobre un fondo oscuro translúcido.
+    """
+    if lay.video_h < FILMSTRIP_MIN_H:
+        return [], []
+    offline = state.offline_assets()
+    thumbs: list = []
+    labels: list = []
+    for index, clip in enumerate(project.video.clips):
+        if len(thumbs) >= FILMSTRIP_MAX:
+            break
+        start, _ = geo.span(project, index)
+        x, w = start * zoom, max(4.0, clip.duration * zoom)
+        if x > x1 or x + w < x0 or clip.asset_id in offline:
+            continue
+        try:
+            asset = project.asset(clip.asset_id)
+            name = asset.name
+        except Exception:
+            continue
+        available = media.cached_thumbstrip(asset.path)
+        if not available:
+            continue
+        slots = filmstrip_slots(clip, asset, len(available), zoom, x, w, x0, x1)
+        if not slots:
+            continue
+        for left, slot_w, thumb_index in slots:
+            thumbs.append(
+                image(
+                    available[thumb_index],
+                    key=f"thumb-{clip.id}-{thumb_index}",
+                    position="absolute",
+                    left=left,
+                    top=VIDEO_TOP + 1,
+                    width=slot_w,
+                    height=lay.video_h - 2,
+                    fit="cover",
+                    radius=5,
+                )
+            )
+            if len(thumbs) >= FILMSTRIP_MAX:
+                break
+        label_x = _clip_label_x(w, x)
+        room = min(x + w - label_x - 8, 280.0)
+        if room >= 60:
+            labels.append(
+                box(
+                    key=f"cliplabel-{clip.id}",
+                    position="absolute",
+                    left=label_x,
+                    top=VIDEO_TOP + 6,
+                    width=room,
+                    bg="#0B0D14B8",
+                    radius=5,
+                    padding=(3, 7),
+                    gap=1,
+                )[
+                    text(name, size=12, weight=600, max_lines=1, color="#FFFFFF"),
+                    text(_clip_meta(clip, offline=False), size=10.5, max_lines=1,
+                         color="#FFFFFFB0", family="Consolas"),
+                ]
+            )
+    return thumbs, labels
 
 
 # -- capa de interacción ------------------------------------------------------------
@@ -346,11 +468,13 @@ def timeline_layer():
     zoom = state.tl_zoom()
     drag = state.tl_drag()
     selection = state.selection()
+    state.thumbs()  # dependencia: las miniaturas llegan en un hilo y hay que repintarlas
     x0, x1 = _visible_range()
     width = content_width(project, zoom, state.tl_view_w())
     geo = Geometry(project, drag)
     lay = tracks()
     video_h, content_h = lay.video_h, lay.content_h
+    thumbs, labels = _filmstrip_elements(project, geo, zoom, x0, x1, lay)
 
     boxes = []
     for index, clip in enumerate(project.video.clips):
@@ -413,6 +537,8 @@ def timeline_layer():
 
     return box(key="tl-layer", width=width, height=content_h, shrink=0)[
         canvas(_draw_tracks, key="tl-canvas", width=width, height=content_h, on_drag=_canvas_drag),
+        thumbs,
+        labels,
         boxes,
     ]
 

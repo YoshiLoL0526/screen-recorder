@@ -67,6 +67,8 @@ class EditorController:
         self._io_lock = threading.Lock()  # abrir/guardar/importar: de uno en uno
         self._wave_lock = threading.Lock()
         self._wave_pending: set[str] = set()
+        self._thumb_lock = threading.Lock()
+        self._thumb_pending: set[str] = set()
         self.exporter = export_mod.Exporter(self._on_export)
 
     # -- ciclo de vida ---------------------------------------------------------
@@ -842,6 +844,7 @@ class EditorController:
             return False
         self._refresh_offline(self.project)
         self._queue_waveform(probed)
+        self._queue_thumbs(probed)
         state.toast("success", f"Archivo reubicado: {Path(path).name}")
         return True
 
@@ -880,6 +883,7 @@ class EditorController:
         state.tl_zoom.set(tl.fit_zoom(tl.total_duration(project), state.tl_view_w()))
         for asset in project.assets:
             self._queue_waveform(asset)
+            self._queue_thumbs(asset)
         self.settings.last_project = str(path) if path else ""
 
     def _refresh_offline(self, project: Project) -> None:
@@ -973,6 +977,7 @@ class EditorController:
                     self.zoom_fit()
                     for asset in assets:
                         self._queue_waveform(project.asset_for_path(asset.path) or asset)
+                        self._queue_thumbs(project.asset_for_path(asset.path) or asset)
                     state.toast("success", f"{len(assets)} video(s) añadidos al final del timeline")
             self.refresh_recent()
 
@@ -1031,6 +1036,32 @@ class EditorController:
             self.refresh_recent()
 
         threading.Thread(target=worker, daemon=True, name="close-project").start()
+
+    # -- miniaturas del filmstrip -------------------------------------------------
+
+    def _queue_thumbs(self, asset: MediaAsset) -> None:
+        """Calcula las miniaturas del asset (una tira por asset, cacheada en disco)."""
+        if media.is_offline(asset):
+            return
+        if media.cached_thumbstrip(asset.path) is not None:
+            state.thumbs.set(state.thumbs() + 1)
+            return
+        with self._thumb_lock:
+            if asset.path in self._thumb_pending:
+                return
+            self._thumb_pending.add(asset.path)
+
+        def worker() -> None:
+            try:
+                media.thumbstrip(asset.path)
+                state.thumbs.set(state.thumbs() + 1)
+            except RecStudioError:
+                pass
+            finally:
+                with self._thumb_lock:
+                    self._thumb_pending.discard(asset.path)
+
+        threading.Thread(target=worker, daemon=True, name="thumbstrip").start()
 
     # -- waveforms ----------------------------------------------------------------
 
