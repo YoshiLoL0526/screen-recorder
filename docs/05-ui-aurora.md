@@ -325,7 +325,7 @@ lleva ✅ es un patrón que quedó validado en F0/F3.
 
 | Capacidad nueva | Dónde encaja en Rec Studio |
 |---|---|
-| `aurora.dialogs` (`open_file`, `open_files`, `save_file`, `pick_folder`) — 0.5 | Sustituir `platform/dialogs.py` (ctypes, solo Windows) por los diálogos nativos de Aurora |
+| ✅ ~~`aurora.dialogs` (`open_file`, `open_files`, `save_file`, `pick_folder`) — 0.5~~ | **Hecho**: `ui/file_dialogs.py` envuelve los diálogos de Aurora (con los filtros de video) y sustituye a `platform/dialogs.py` (ctypes, solo Windows). Se llaman desde el hilo de UI, como documenta Aurora. |
 | `app.tray(...)` + bandeja, menús nativos, `on_context_menu`, `app.notify(...)` — 0.5 | Backlog post-v1 nº1 (hotkeys globales + bandeja); `app.notify` para «grabación terminada» |
 | Multi-ventana (`App.window`, `app.main`, `run(keep_alive=True)`) — 0.5 | Overlay de región y mini-controles fuera de la ventana; ventana de preview desacoplada |
 | `dialog`, `toast`, `progress`, `menu`, `accordion`, `field`, `segmented`, `spinner`, `skeleton`, `radio` — 0.4 | Toasts, modal de export, barra de progreso y campos propios → componentes nativos |

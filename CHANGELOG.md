@@ -7,6 +7,14 @@ detalle de cada fase está en `docs/08`–`docs/14`.
 ## Sin publicar
 
 ### Cambiado
+- **Diálogos nativos de Aurora** en vez de ctypes: `platform/dialogs.py` (Windows: `GetOpenFileNameW`
+  y `SHBrowseForFolderW`) desaparece y lo sustituye `ui/file_dialogs.py`, que envuelve
+  `aurora.dialogs` (`open_files`, `pick_folder`) con los filtros de video y devuelve `Path`.
+  Los tres usos (`browse_out_dir`, `browse_import`, `relocate_asset`) pasan a llamarlos desde el
+  hilo de UI —la ventana es el padre del diálogo y el sistema corre su propio bucle mientras dura—
+  y el trabajo lento que sigue (probe, importación, refresco de la biblioteca) se queda en sus
+  hilos. Se gana: código multiplataforma, sin `ctypes`, y el diálogo sale modal sobre la ventana.
+  Tests nuevos en `tests/test_file_dialogs.py` y uno de reubicar en `tests/test_f3_editor.py`.
 - **aurora-ui alineado a 0.5.0**: la dependencia lleva techo (`>=0.5.0,<0.6.0`) porque Aurora es
   `0.x` y rompe compatibilidad entre versiones menores. Se re-validó contra el paquete instalado la
   tabla de «Limitaciones» de [docs/05](docs/05-ui-aurora.md): desde 0.3 ya existen _slider_ nativo,

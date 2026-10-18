@@ -385,3 +385,29 @@ def test_dibujo_del_timeline_con_100_clips_es_interactivo(ui, video: Path) -> No
     state.playhead.set(1.0)
     pilot.frame()
     assert pilot.stats["draw"] < 0.5
+
+
+def test_reubicar_usa_el_dialogo_nativo_y_delega_en_un_hilo(ui, video: Path, monkeypatch) -> None:
+    """`relocate_asset` abre el diálogo de Aurora y el `probe` (lento) va a un hilo."""
+    from recstudio.ui import file_dialogs
+
+    _, controller, pilot = ui
+    editor = controller.editor
+    editor.import_paths([video])
+    assert _wait(lambda: state.project_open())
+    asset = state.editor_project().assets[0]
+
+    abierto: list = []
+    monkeypatch.setattr(
+        file_dialogs, "open_videos", lambda *a, **k: abierto.append(k) or [video]
+    )
+    hecho: list = []
+    monkeypatch.setattr(
+        editor, "relocate_to", lambda aid, path: hecho.append((aid, path)) or True
+    )
+
+    editor.relocate_asset(asset.id)
+
+    assert _wait(lambda: hecho == [(asset.id, video)]), "no se delegó en relocate_to"
+    assert abierto, "no se abrió el diálogo"
+    assert asset.name in abierto[0]["title"]  # el diálogo identifica el archivo

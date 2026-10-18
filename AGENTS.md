@@ -18,7 +18,7 @@ siguiente es el backlog post-v1 de `docs/06`.
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 167 tests; la integración usa FFmpeg real
+uv run pytest                                   # 176 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -65,6 +65,9 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
   regresión al parar; `aresample=async` **no** la corrige.
 - Preferencias en `%APPDATA%\RecStudio\settings.json`. Los tests aíslan rutas con
   `monkeypatch` sobre `paths.settings_path`; sigue ese patrón para persistencia nueva.
+- Diálogos nativos: `ui/file_dialogs.py` envuelve `aurora.dialogs` y se llama **desde el hilo de
+  UI** (la ventana es el padre y el sistema corre su bucle mientras dura); el trabajo lento que
+  sigue va a un hilo. En los tests se sustituye el módulo por un doble (`tests/test_file_dialogs.py`).
 - Aurora 0.5: `scroll()` añade `grow=1` (pasa `grow=0` en filas); columna que debe encoger:
   `grow=1, width=0`; los `select` no truncan etiquetas. Más límites y mitigaciones en `docs/05`
   («Limitaciones de Aurora 0.5»).

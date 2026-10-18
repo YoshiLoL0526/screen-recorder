@@ -20,7 +20,8 @@ import traceback
 from pathlib import Path
 from typing import Any, Callable
 
-_MODULES = ("numpy", "av", "PIL.Image", "sounddevice", "mss", "imageio_ffmpeg", "aurora")
+_MODULES = ("numpy", "av", "PIL.Image", "sounddevice", "mss", "imageio_ffmpeg", "aurora",
+            "aurora.dialogs")
 _WINDOWS_MODULES = ("windows_capture", "pyaudiowpatch")
 
 
@@ -32,6 +33,14 @@ def _check_imports() -> dict[str, Any]:
     for name in names:
         module = importlib.import_module(name)
         versions[name] = str(getattr(module, "__version__", "ok"))
+    # El adaptador de diálogos se importa tarde (al pulsar «Examinar»); aquí se comprueba que el
+    # bundle trae `aurora.dialogs` y el módulo del proyecto.
+    from .ui import file_dialogs
+
+    for fn in ("open_videos", "pick_folder"):
+        if not callable(getattr(file_dialogs, fn, None)):
+            raise RuntimeError(f"file_dialogs.{fn} no está disponible en el bundle")
+    versions["recstudio.ui.file_dialogs"] = "ok"
     return versions
 
 

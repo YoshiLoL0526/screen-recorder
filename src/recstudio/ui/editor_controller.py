@@ -804,25 +804,29 @@ class EditorController:
     # -- archivos offline ---------------------------------------------------------
 
     def relocate_asset(self, asset_id: str) -> None:
-        """«Reubicar…»: elige el archivo movido (diálogo en un hilo)."""
+        """«Reubicar…»: elige el archivo movido. El diálogo es modal (hilo de UI); el `probe`
+        del archivo elegido, que sí es lento, va a un hilo."""
         if not self._guard_editable():
             return
 
-        def worker() -> None:
-            from ..platform import dialogs
+        from . import file_dialogs
 
-            try:
-                old = self.project.asset(asset_id)
-                folder = Path(old.path).parent
-                chosen = dialogs.open_videos(folder if folder.exists() else state.recordings_dir(),
-                                             title=f"Reubicar «{old.name}»")
-            except (OSError, ProjectError) as exc:
-                state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
-                return
-            if chosen:
-                self.relocate_to(asset_id, chosen[0])
-
-        threading.Thread(target=worker, daemon=True, name="relocate").start()
+        try:
+            old = self.project.asset(asset_id)
+            folder = Path(old.path).parent
+            chosen = file_dialogs.open_videos(folder if folder.exists() else state.recordings_dir(),
+                                              title=f"Reubicar «{old.name}»")
+        except ProjectError as exc:
+            state.toast("danger", exc.message)
+            return
+        except Exception as exc:  # diálogo nativo: cualquier fallo debe acabar en un toast
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if not chosen:
+            return
+        threading.Thread(
+            target=self.relocate_to, args=(asset_id, chosen[0]), daemon=True, name="relocate"
+        ).start()
 
     def relocate_to(self, asset_id: str, path: Path) -> bool:
         """Sustituye el archivo del asset (bloqueante: llamar desde un hilo). El nuevo debe
@@ -978,20 +982,16 @@ class EditorController:
         state.import_open.set(True)
 
     def browse_import(self) -> None:
-        """Diálogo nativo de Windows (en un hilo: no bloquea la UI)."""
+        """Diálogo nativo de archivos (modal: el sistema corre su bucle mientras dura)."""
+        from . import file_dialogs
 
-        def worker() -> None:
-            from ..platform import dialogs
-
-            try:
-                chosen = dialogs.open_videos(state.recordings_dir())
-            except OSError as exc:
-                state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
-                return
-            if chosen:
-                self.import_paths(chosen)
-
-        threading.Thread(target=worker, daemon=True, name="browse").start()
+        try:
+            chosen = file_dialogs.open_videos(state.recordings_dir())
+        except Exception as exc:  # diálogo nativo: cualquier fallo debe acabar en un toast
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen:
+            self.import_paths(chosen)
 
     def save(self) -> None:
         if not state.project_open():

@@ -37,7 +37,7 @@
 │   audio.py (WASAPI loopback/mic)          timeline.py (tiempo↔píxel, snap)  │
 │   ffmpeg.py (binario, run, progress)      graph.py (filter_complex builder) │
 │   screens.py (monitores, DPI)             store.py (JSON, undo, autosave)   │
-│   dialogs.py (abrir/guardar nativos)      keyframes.py (snap corte rápido)  │
+│   paths.py (carpetas, bloqueos)           keyframes.py (snap corte rápido)  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -69,7 +69,7 @@ screen-recorder/
 │  │  ├─ audio.py             # AudioRecorder (loopback/mic)
 │  │  ├─ ffmpeg.py            # localizar binario, ejecutar, parsear -progress
 │  │  ├─ screens.py           # monitores, DPI, captura de referencia
-│  │  └─ dialogs.py           # diálogos nativos (abrir/guardar/carpeta)
+│  │  └─ paths.py             # carpetas del usuario, creación a prueba de bloqueos
 │  ├─ services/
 │  │  ├─ recording.py         # orquesta captura+audio+encoder, máquina de estados
 │  │  ├─ playback.py          # decode → preview, reloj, audio de preview
@@ -79,6 +79,7 @@ screen-recorder/
 │  │  └─ settings.py          # preferencias (JSON en %APPDATA%)
 │  └─ ui/
 │     ├─ layout.py            # shell: sidebar + contenido + header
+│     ├─ file_dialogs.py      # diálogos nativos de archivo/carpeta (aurora.dialogs)
 │     ├─ screens/
 │     │  ├─ record.py  biblioteca.py  editor.py  settings.py
 │     ├─ widgets/

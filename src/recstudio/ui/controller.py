@@ -197,22 +197,18 @@ class Controller:
         self._schedule_save()
 
     def browse_out_dir(self) -> None:
-        """Selector de carpeta nativo (en un hilo: el diálogo es modal y bloquearía la UI)."""
+        """Selector de carpeta nativo (modal: el sistema corre su bucle mientras dura)."""
+        from . import file_dialogs
 
-        def worker() -> None:
-            from ..platform import dialogs
-
-            try:
-                folder = dialogs.pick_folder(state.out_dir(), title="Carpeta de grabaciones")
-            except OSError as exc:
-                state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
-                return
-            if folder is not None and str(folder) != state.out_dir():
-                state.out_dir.set(str(folder))
-                state.toast("success", f"Las grabaciones se guardarán en «{folder}»")
-                self.refresh_library()
-
-        threading.Thread(target=worker, daemon=True, name="pick-folder").start()
+        try:
+            folder = file_dialogs.pick_folder(state.out_dir(), title="Carpeta de grabaciones")
+        except Exception as exc:  # diálogo nativo: cualquier fallo debe acabar en un toast
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if folder is not None and str(folder) != state.out_dir():
+            state.out_dir.set(str(folder))
+            state.toast("success", f"Las grabaciones se guardarán en «{folder}»")
+            self.refresh_library()
 
     def ask_reset_settings(self) -> None:
         state.confirm.set(state.Confirm(
