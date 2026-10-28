@@ -3,9 +3,11 @@
 > **Estado: v1.0.0** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
 > velocidad, transiciones, undo/redo, autoguardado, preview a 30 fps), **export** (F4: MP4 con
 > FFmpeg, presets GPU/calidad/720p/sin recodificar, progreso y ETA, efectos) y **pulido** (F5:
-> layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test) — ver
-> [docs/12](docs/12-f3-editor.md), [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md)
-> y el [CHANGELOG](CHANGELOG.md).
+> layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test). El
+> **bloque A de entrega** ya tiene CI en verde, RNF medidos, instalador Inno Setup y bundle de
+> 253 MB — ver [docs/16](docs/16-bloque-a-entrega.md); quedan las comprobaciones manuales
+> (máquina limpia, móvil, soak y ratón). Ver también [docs/12](docs/12-f3-editor.md),
+> [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md) y el [CHANGELOG](CHANGELOG.md).
 
 Aplicación de escritorio para **grabar la pantalla** (como Bandicam: monitor, ventana o región,
 con audio del sistema y micrófono) y **editar el resultado sin salir de la app** (cortes,
@@ -51,6 +53,7 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 - [13 — F4: export](docs/13-f4-export.md): filter graph, export, presets, corte rápido y efectos.
 - [14 — F5: pulido y v1.0](docs/14-f5-pulido.md): layout adaptable, divisores, Ajustes, build y smoke del exe.
 - [15 — Roadmap post-v1](docs/15-post-v1.md): lo que queda por implementar, por bloques y priorizado.
+- [16 — Bloque A](docs/16-bloque-a-entrega.md): CI, RNF-06/07, instalador, bundle ligero y verificaciones manuales.
 
 ## Estructura del repositorio
 
@@ -58,6 +61,7 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 ├─ main.py            # punto de entrada de la app (uv run python main.py)
 ├─ docs/              # especificación, resultados y capturas
 ├─ assets/            # icono de la app (generado por tools/make_icon.py)
+├─ installer/         # rec-studio.iss (Inno Setup, instalación por usuario)
 ├─ src/recstudio/     # paquete: core/ · platform/ · services/ · ui/ (F1–F5) + smoke.py
 ├─ tools/
 │  ├─ rec.py          # CLI de grabación (F1): --list, --region, --recover, --duration…
@@ -66,7 +70,10 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 │  ├─ f3_editor_test.py  # aceptación del editor (3 clips, drags+undo, fps del preview) + capturas
 │  ├─ f4_export_test.py  # aceptación del export (sync A/V, NVENC 1 min, corte byte a byte) + capturas
 │  ├─ f5_screenshots.py  # capturas de F5 (layout adaptable, divisores, ajustes)
-│  ├─ check_build.py  # aurora build + smoke test del ejecutable
+│  ├─ build_exe.py    # build ligero (excluye OpenCV) sobre la config de Aurora
+│  ├─ check_build.py  # build ligero + smoke test del ejecutable
+│  ├─ check_installer.py # compila el instalador, instala en limpio, smoke y desinstala
+│  ├─ rnf_measure.py  # RNF-06/07: arranque y RSS con ventana real (reposo y grabando)
 │  ├─ make_icon.py    # genera assets/icon.ico
 │  ├─ av_sync_test.py # prueba automática de sincronía A/V (beep + cursor)
 │  ├─ soak_test.py    # soak con pausa y medición de deriva
@@ -92,8 +99,10 @@ uv run python tools/rec.py --list
 uv run python tools/rec.py --duration 30 -o salida/
 uv run python tools/rec.py --recover      # recupera una grabación interrumpida
 
-uv run aurora build                       # ejecutable onedir en dist/Rec Studio/ ([tool.aurora.build])
-uv run python tools/check_build.py        # build + smoke test del exe (imports, FFmpeg, UI)
+uv run python tools/check_build.py        # build ligero (sin OpenCV) + smoke del exe
+uv run python tools/check_installer.py    # instalador Inno Setup + instalación/desinstalación + smoke
+uv run python tools/rnf_measure.py --exe "dist/Rec Studio/Rec Studio.exe"   # RNF-06/07
+uv run aurora build                       # build completo (incluye OpenCV; para dxcam)
 ```
 
 ## Licencia

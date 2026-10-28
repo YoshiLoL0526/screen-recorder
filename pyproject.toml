@@ -39,3 +39,4 @@ icon = "assets/icon.ico"
 include = ["assets"]  # icon.png para la bandeja y las notificaciones (aurora.resource)
 onefile = false  # onedir: arranca al instante con numpy/PyAV/FFmpeg dentro (docs/02)
 console = false
+upx = false  # A3 midió UPX: 78 MB pero arranque 3.66 s y RSS +107 MB (RNF-06 exige < 2 s)

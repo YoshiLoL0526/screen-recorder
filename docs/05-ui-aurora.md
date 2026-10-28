@@ -333,7 +333,11 @@ lleva ✅ es un patrón que quedó validado en F0/F3.
 | `chart(...)` nativo — 0.3 | El sparkline de fps es un `canvas` con `polyline` |
 | `overflow="hidden"` — 0.4 | Recortes que hoy se hacen con `scroll` de 0 px o canvas |
 | `App(motion=False)` / `AURORA_MOTION=0` — 0.4 | Snapshots y CI deterministas si aparecen animaciones de componentes |
-| `aurora build --upx` (ya no por defecto) y `upx = true` — 0.5 | Bundle actual: 365 MB (build con 0.5.0) |
+| `aurora build --upx` (ya no por defecto) y `upx = true` — 0.5 | Probado en A5: 78 MB pero arranque 3.66 s y RSS +107 MB; se descartó. Bundle actual: **253 MB** sin OpenCV |
+
+> `aurora build` 0.5 no expone `--exclude-module` (solo excluye `tkinter`); `tools/build_exe.py`
+> parchea `aurora.build.pyinstaller_args` para añadir `--exclude-module cv2` y sigue usando el
+> `build()` de Aurora. Es el único punto donde el proyecto se separa de la CLI estándar.
 
 ## Tests de UI
 

@@ -88,10 +88,13 @@ entran en CI: necesitan escritorio y audio reales.
 - **`strings.py`** (textos centralizados): no se extrajo. La app es solo en español y los
   textos viven junto a su componente; extraerlos ahora solo añade una indirección. Se hará si
   llega la internacionalización (backlog).
-- **CI**: configurado en `.github/workflows/ci.yml` (ver abajo). Ya se ha ejecutado en GitHub
-  (`e3d703b` y `ef0d431`) y **las dos veces falló en el paso de tests**, así que el job de build (y su
-  smoke) nunca ha llegado a correr. Los logs necesitan `gh`/token para leerse; el diagnóstico y el
-  seguimiento están en [docs/15](15-post-v1.md) (A1). La prueba en **máquina limpia** del flujo
-  CU-1→CU-5 sigue pendiente (manual).
-- RNF-06/07 con ventana real y grabando (las cifras de arriba son sin ventana).
-- Instalador (Inno Setup) y bundle más ligero (`--exclude-module cv2`): post-v1, como en docs/02.
+- **CI**: configurado en `.github/workflows/ci.yml` (ver abajo). Está **en verde**
+  (`40700123750`): 206 tests, build ligero + smoke del exe y verificación del instalador. El fallo
+  anterior era una carrera en la cache de miniaturas (JPEG de 0 bytes), no el runner; el análisis
+  está en [docs/16](16-bloque-a-entrega.md#a1--ci-en-verde). La prueba en **máquina limpia** del
+  flujo CU-1→CU-5 sigue pendiente (manual), aunque el CI ya instala y hace smoke en un runner limpio.
+- RNF-06/07 con ventana real y grabando: **medidos** en [docs/16](16-bloque-a-entrega.md#a3--rnf-0607-con-ventana-real)
+  (arranque 0.87–1.74 s, RSS 261–414 MB en reposo y 337 MB grabando).
+- Instalador (Inno Setup) y bundle más ligero: **hechos** en el bloque A
+  ([docs/16](16-bloque-a-entrega.md)); el bundle baja de 370 a 253 MB al excluir OpenCV y el
+  instalador resultante pesa 71 MB.

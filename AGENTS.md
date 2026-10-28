@@ -12,15 +12,16 @@ Estado: **v1.0.0** — F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1
 del filter graph), `core/keyframes.py` (corte sin recodificar), `services/export.py`,
 `ui/export_modal.py` (ver `docs/13`). Pulido: layout adaptable, divisores del editor, Ajustes,
 icono, `[tool.aurora.build]` y smoke del exe en `src/recstudio/smoke.py` (ver `docs/14`). Post-v1:
-bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`) y filmstrip de miniaturas
-(`services/media.thumbstrip`, `ui/timeline.filmstrip_slots`); ver `docs/05`. Lo siguiente es el resto
-del backlog de `docs/15`.
+bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`), filmstrip de miniaturas
+(`services/media.thumbstrip`, `ui/timeline.filmstrip_slots`) y **bloque A de entrega** (CI verde,
+RNF-06/07, instalador Inno Setup y bundle sin OpenCV; ver `docs/16`). Lo siguiente es el resto del
+backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque B).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 201 tests; la integración usa FFmpeg real
+uv run pytest                                   # 206 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -29,14 +30,19 @@ uv run python tools/f2_ui_test.py               # e2e de la UI (app real con App
 uv run python tools/f3_editor_test.py           # aceptación del editor (+ capturas en docs/assets/f3)
 uv run python tools/f4_export_test.py           # aceptación del export (NVENC, sync, byte a byte; --skip-long)
 uv run python tools/f5_screenshots.py           # capturas de F5 (docs/assets/f5, contenido sintético)
-uv run python tools/check_build.py              # aurora build + smoke del exe (--skip-build: solo el smoke)
+uv run python tools/check_build.py              # build ligero (sin OpenCV) + smoke (--skip-build: solo el smoke)
+uv run python tools/build_exe.py                # build suelto; `uv run aurora build` incluye cv2 (dxcam)
+uv run python tools/check_installer.py          # Inno Setup + instalación/desinstalación + smoke
+uv run python tools/rnf_measure.py --exe "dist/Rec Studio/Rec Studio.exe"  # RNF-06/07
 uv run python tools/make_icon.py                # regenera assets/icon.ico
 ```
 
 No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run aurora build` usa
-`[tool.aurora.build]` (onedir, sin consola) → `dist/Rec Studio/`. CI: `.github/workflows/ci.yml`
-(windows-latest: `uv sync --locked` + `pytest`, y luego `tools/check_build.py` con el exe como
-artefacto); los tests no pueden depender de monitor, GPU ni audio reales del runner.
+`[tool.aurora.build]` (onedir, sin consola) → `dist/Rec Studio/`; el build de release pasa por
+`tools/build_exe.py`, que añade `--exclude-module cv2` porque Aurora 0.5 no lo expone. CI:
+`.github/workflows/ci.yml` (windows-latest: `uv sync --locked` + `pytest`, `tools/check_build.py`
+con el exe como artefacto y `tools/check_installer.py` con el instalador); los tests no pueden
+depender de monitor, GPU ni audio reales del runner.
 
 ## Arquitectura (reglas duras)
 
@@ -83,6 +89,10 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
   debajo de las cajas para no comerse clics ni drags). Tira por **asset** (`media.thumbstrip`,
   cacheada), colocada por `filmstrip_slots` (puro); como tapan el texto del canvas, el nombre y la
   duración se repintan encima con su propio fondo (`_clip_meta` lo comparten ambos).
+- Cache de miniaturas en disco: escribe cada JPEG con **tmp + `os.replace`** y
+  `cached_thumbstrip` rechaza lo que no empiece por `\xff\xd8`; la UI la lee mientras el hilo
+  genera y un archivo a medio escribir dejaba un JPEG de 0 bytes que tumbaba el render (lo
+  destapó el CI; no volver a `write_bytes` directo).
 - Aurora 0.5 (F3): cualquier caja encima bloquea los clics aunque no tenga handlers (playhead,
   toasts); la raíz recibe las teclas aunque haya un campo enfocado (usa `mark_input_key`);
   `KeyEvent.matches("+")` lanza excepción; `on_drag` llega también con un clic (fase `start`,
@@ -105,6 +115,13 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
   navegación); la geometría de pistas sale de `ui/timeline.tracks()`, no de constantes.
 - `settings.json` se escribe atómico (tmp + `os.replace`); los campos nuevos de `Settings` se
   validan en `normalized()`. `platform.ffmpeg.run` usa `stdin=DEVNULL` (exe sin consola).
+- Build de release: `tools/build_exe.py` excluye `cv2` (OpenCV, 112 MB) porque `windows-capture`
+  solo lo usa en `save_as_image()`; `platform/cv2_shim.py` cubre ese import y `dxcam` falla con
+  un `CaptureError` claro en el exe ligero. `uv run aurora build` sí incluye OpenCV (para `dxcam`).
+  UPX se midió (78 MB) pero rompe RNF-06 (3.66 s de arranque, +107 MB de RSS): `upx = false`.
+- Instalador: `installer/rec-studio.iss` (Inno Setup 6) es **por usuario** (`PrivilegesRequired=lowest`,
+  sin UAC) y `tools/check_installer.py` compila, instala en `%TEMP%`, hace smoke y desinstala.
+  El CI lo repite en un runner limpio; el instalador de 1.0.0 pesa 71 MB.
 - `~/Videos` puede estar bloqueado por el «Acceso controlado a carpetas» de Defender (devuelve
   WinError 2 en el `mkdir`): crea carpetas con `paths.ensure_dir()` (nunca lanza) y no resuelvas
   rutas con efectos de disco al importar módulos (`state.out_dir` arranca vacío). Ver `docs/09` →
@@ -119,7 +136,8 @@ artefacto); los tests no pueden depender de monitor, GPU ni audio reales del run
 - `docs/02-arquitectura.md`: capas, hilos y flujos. `docs/06-roadmap.md`: estado por fases
   (F0–F5). `docs/07-decisiones.md`: ADRs (por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido…).
 - `docs/09`–`14`: resultados de F1, F2, F1.1+F2.1, F3, F4 y F5 (bugs, mediciones, aprendizajes
-  de UI). **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
-  criterio de aceptación. `CHANGELOG.md` resume cada versión.
+  de UI). `docs/16-bloque-a-entrega.md`: CI, RNF-06/07, instalador, bundle ligero y las pruebas
+  manuales pendientes. **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con
+  estado y criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
   `build/`, `dist/`, `.venv`, `__pycache__` y `tools/spikes/out/` están ignorados: no son fuente.

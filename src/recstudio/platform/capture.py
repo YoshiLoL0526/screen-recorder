@@ -23,6 +23,16 @@ from ..core.config import SourceConfig
 from ..core.errors import CaptureError
 
 
+def _windows_capture():
+    """Importa `windows_capture` con el `cv2` que haya (real o el sustituto del bundle A5)."""
+    from . import cv2_shim
+
+    cv2_shim.install()
+    import windows_capture
+
+    return windows_capture
+
+
 class LatestFrame:
     """Slot de un solo frame: el productor sobrescribe, el consumidor se queda con el último.
 
@@ -141,6 +151,14 @@ class DxcamBackend:
         self._cam = None
 
     def start(self, fps: int) -> None:
+        from . import cv2_shim
+
+        cv2_shim.install()
+        if cv2_shim.is_stub():
+            raise CaptureError(
+                "este build no incluye OpenCV: el backend dxcam no está disponible "
+                "(usa WGC, DXGI o mss)"
+            )
         import dxcam
 
         from .screens import list_monitors
@@ -202,10 +220,10 @@ class DxgiPullBackend:
         self._timeout_ms = 8
 
     def start(self, fps: int) -> None:
-        from windows_capture import DxgiDuplicationSession
+        wc = _windows_capture()
 
         try:
-            self._session = DxgiDuplicationSession(monitor_index=self.source.monitor_index)
+            self._session = wc.DxgiDuplicationSession(monitor_index=self.source.monitor_index)
         except Exception as exc:
             raise CaptureError(f"DXGI: {exc}") from exc
         self._timeout_ms = max(2, int(500 / max(fps, 10)))
@@ -250,7 +268,7 @@ class WgcBackend:
         self._control = None
 
     def start(self, fps: int) -> None:
-        from windows_capture import WindowsCapture
+        wc = _windows_capture()
 
         kwargs: dict[str, object] = {
             # El cursor nativo solo si se pide: por defecto lo dibuja la app (software) para
@@ -269,7 +287,7 @@ class WgcBackend:
         else:
             kwargs["monitor_index"] = self.source.monitor_index
 
-        capture = WindowsCapture(**kwargs)  # type: ignore[arg-type]
+        capture = wc.WindowsCapture(**kwargs)  # type: ignore[attr-defined]
         latest = self._latest
 
         @capture.event

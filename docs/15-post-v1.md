@@ -1,9 +1,10 @@
 # 15 — Roadmap post-v1: qué falta
 
-> Estado a **2026-10-18**, tras v1.0.0 y los primeros trabajos post-v1 (bandeja y atajos globales,
-> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.5). Este documento
-> es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases F0–F5, sus
-> criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace referencia.
+> Estado a **2026-10-28**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
+> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.5) y el
+> **bloque A** ([16 — Bloque A](16-bloque-a-entrega.md)). Este documento es la **fuente de verdad
+> de lo que queda**; [06](06-roadmap.md) conserva las fases F0–F5, sus criterios de aceptación y la
+> tabla de riesgos (R1–R11), a los que aquí se hace referencia.
 
 ## Cómo leerlo
 
@@ -25,9 +26,10 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**201 tests** en verde y `tools/check_build.py` OK (bundle de 365 MB con `aurora 0.5.0`, `pynput` y el
-icono de la bandeja dentro). Ojo: «201 en verde» es **en local**; en el CI el paso de tests lleva dos
-ejecuciones en rojo (ver A1). Todo lo que sigue **no está implementado**.
+**206 tests** en verde y `tools/check_build.py` OK (bundle de **253 MB** con `aurora 0.5.0`,
+`pynput` y el icono de la bandeja dentro; sin OpenCV). El CI está **en verde**
+(`40700123750`) y ya valida también el instalador. Todo lo que sigue **no está implementado**,
+salvo lo marcado como hecho en el bloque A.
 
 ---
 
@@ -38,41 +40,33 @@ todo lo demás pierde valor sin ello.
 
 | # | Qué falta | Estado | Tamaño |
 |---|---|---|---|
-| A1 | **Poner el CI en verde** (ha corrido 2 veces y las 2 en rojo) | 🔜 | S–M |
-| A2 | Prueba en **máquina limpia** del flujo CU-1→CU-5 | ⏳ | M |
-| A3 | **RNF-06/07 con ventana real** (arranque < 2 s, RSS < 600 MB en reposo y < 1.2 GB grabando) | ⏳ | S |
-| A4 | **Instalador** (Inno Setup) sobre el bundle onedir | ⏳ | M |
-| A5 | **Bundle más ligero** (`--exclude-module cv2`, `upx = true`) | ⏳ | S |
+| A1 | **Poner el CI en verde** | ✅ `40700123750` | S–M |
+| A2 | Prueba en **máquina limpia** del flujo CU-1→CU-5 | ⏳ (CI cubre instalar + smoke) | M |
+| A3 | **RNF-06/07 con ventana real** (arranque < 2 s, RSS < 600 MB en reposo y < 1.2 GB grabando) | ✅ [medido](16-bloque-a-entrega.md#a3--rnf-0607-con-ventana-real) | S |
+| A4 | **Instalador** (Inno Setup) sobre el bundle onedir | ✅ 71 MB, verificado | M |
+| A5 | **Bundle más ligero** (`--exclude-module cv2`, `upx = true`) | ✅ 370 → 253 MB; UPX descartado | S |
 | A6 | Verificar el export **en un móvil físico** (pendiente de F4) | ⏳ | S |
 | A7 | Soak de **30 min** a 1080p60 con mic+sistema (pendiente de F1) | ⏳ | S |
 | A8 | Validar a mano la «sensación» del timeline con ratón real (pendiente de F3) | ⏳ | S |
 
-**A1 es lo primero de todo, y no es «ejecutarlo una vez»: ya está en rojo.** El CI ha corrido dos
-veces (`e3d703b` y `ef0d431`, ver el historial de Actions) y **las dos ha fallado en el paso de
-tests**; el job de build se salta cuando los tests fallan, así que **el smoke del exe nunca se ha
-ejecutado en un runner**. Los logs no se pueden leer sin `gh` o un token (la API devuelve 403), así
-que el diagnóstico empieza por:
-
-```bash
-gh run list --limit 5                 # ids de las ejecuciones
-gh run view <id> --log-failed         # qué test falló y por qué
-```
-
-Pistas para el diagnóstico: los dos tests que fallaban en local por el equipo (el de la región y el
-del `draw` del timeline) **ya están arreglados**, así que el siguiente push puede ser el primero en
-verde; si sigue en rojo, lo más probable es otro test que depende del entorno del runner (ventana,
-GPU, audio o pantalla), que es justo lo que docs/14 daba por cubierto con `pytest.skip`. Anotar la
-causa en docs/14 cuando se sepa.
+**A1 está hecho.** El último run en rojo (`39171815584`) fallaba en un solo test por una carrera
+real: la cache de miniaturas se leía a medio escribir y quedaba un JPEG de 0 bytes cacheado. Se
+arregló con escritura atómica y validación de la tira
+([detalle y run verde](16-bloque-a-entrega.md#a1--ci-en-verde)). El job de build ya corre en el
+runner (smoke del exe incluido) y se añadió la verificación del instalador.
 
 **A2** es la prueba que más valor aporta por hora invertida: instalar en una máquina sin Python ni
 FFmpeg y completar grabar → biblioteca → editar → exportar → abrir el MP4. Todo lo que falle ahí es
-un bug real que los 201 tests no ven.
+un bug real que los 206 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
+runner limpio; falta el flujo manual ([procedimiento](16-bloque-a-entrega.md#a2--máquina-limpia-pendiente-manual)).
 
-**A4/A5** son de la misma familia: un instalador de verdad y un bundle que no arrastre `opencv`
-(~43 MB) solo porque `dxcam` lo trae. Medir el tamaño antes/después y anotarlo en docs/02.
+**A4/A5 están hechos**: instalador de 71 MB verificado y bundle de 370 → **253 MB** al excluir
+OpenCV (112 MB, no 43: el wheel actual trae `opencv_videoio_ffmpeg500_64.dll`). UPX se midió y se
+descartó porque rompía RNF-06 ([detalle](16-bloque-a-entrega.md#a5--bundle-más-ligero)).
 
 **Criterio de aceptación del bloque**: el flujo CU-1→CU-5 se completa en una máquina limpia sin tocar
-la consola, con el CI en verde y los RNF medidos con ventana.
+la consola, con el CI en verde y los RNF medidos con ventana. CI ✅ y RNF ✅; el flujo en máquina
+limpia sigue pendiente (A2), igual que el móvil, el soak y el ratón (A6–A8).
 
 ---
 
@@ -238,13 +232,13 @@ lock (ver el commit de alineación).
 
 Si hay que elegir un orden (y no simplemente el orden del documento):
 
-1. **A1** — CI en verde. Ya está pagado (solo hay que leer el log y arreglar lo que salga) y sin él
-   no hay red de seguridad para el resto.
-2. **A2** — máquina limpia. Es donde aparecen los bugs que importan.
+1. **A2** — máquina limpia. Es donde aparecen los bugs que importan; el CI ya cubre instalar y el
+   smoke del exe, pero no el flujo CU-1→CU-5 con monitor y audio.
+2. **A6 + A7 + A8** — cerrar las comprobaciones manuales del bloque A (móvil, soak de 30 min y
+   sensación del timeline); los procedimientos están en [docs/16](16-bloque-a-entrega.md).
 3. **B1** — pista de música. Es la función que más gente echa en falta y el motor ya la soporta.
-4. **A3 + A4 + A5** — medir RNF con ventana, instalador y bundle ligero: cierran la entrega.
-5. **C1** — webcam PiP, el siguiente salto de producto.
-6. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de
+4. **C1** — webcam PiP, el siguiente salto de producto.
+5. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de
    Aurora (empezando por `chart` y `overflow`, que son los más baratos).
 
 **Fuera de este roadmap** (para no reabrirlo cada vez): telemetría, multi-ventana por capricho,

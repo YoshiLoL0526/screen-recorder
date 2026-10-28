@@ -291,3 +291,29 @@ textos hardcodeados (deuda inmediata).
 constantes por un lookup). − Los plurales/formatos complejos habrá que resolverlos entonces.
 
 **Revisar.** Con el primer idioma adicional.
+
+---
+
+## ADR-14 — Bundle sin OpenCV y sin UPX (2026-10-28)
+
+**Contexto.** El bundle onedir pesaba 370 MB; `opencv-python` (112 MB en el wheel actual) entraba
+porque `windows-capture` lo importa en su `__init__` y `dxcam` lo usa como procesador. A5 pedía
+probar `--exclude-module cv2` y `upx = true`.
+
+**Decisión.** El build de release (`tools/build_exe.py`, usado por `check_build.py` y el CI)
+excluye `cv2` y deja **253 MB**. `platform/cv2_shim.py` cubre el único uso de OpenCV en
+`windows-capture` (`Frame.save_as_image`, que la app no llama) con `imwrite` sobre Pillow; el
+backend `dxcam` da un `CaptureError` claro en ese build. UPX se probó y se descartó: 78 MB pero
+arranque de 3.66 s y +107 MB de RSS, incumpliendo RNF-06 (< 2 s).
+
+**Alternativas.** Mantener OpenCV (370 MB, sin riesgo para `dxcam`); UPX (más pequeño pero rompe
+el arranque); quitar `dxcam` del proyecto (pierde el backend de altas fps en desarrollo); parchear
+Aurora para que exponga `exclude` (sería lo limpio, pero 0.5 no lo tiene y el techo `<0.6` impide
+subir sin un trabajo aparte).
+
+**Consecuencias.** + −32 % de bundle y RNF-06/07 en verde; el instalador baja a 71 MB.
+− `dxcam` no está disponible en el exe ligero; quien lo necesite puede compilar con
+`uv run aurora build` (incluye OpenCV). − Depende de que `windows-capture` siga usando `cv2` solo
+en `save_as_image`.
+
+**Revisar.** Cuando `windows-capture` deje de importar OpenCV o Aurora exponga `exclude`.

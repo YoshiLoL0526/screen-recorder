@@ -22,12 +22,18 @@ from typing import Any, Callable
 
 _MODULES = ("numpy", "av", "PIL.Image", "sounddevice", "mss", "imageio_ffmpeg", "aurora",
             "aurora.dialogs")
-_WINDOWS_MODULES = ("windows_capture", "pyaudiowpatch", "pynput")
+_WINDOWS_MODULES = ("cv2", "windows_capture", "pyaudiowpatch", "pynput")
 
 
 def _check_imports() -> dict[str, Any]:
     import importlib
 
+    if sys.platform == "win32":
+        # El bundle excluye OpenCV (A5): `windows_capture` solo lo usa en `save_as_image()`,
+        # así que se instala el sustituto antes de importarlo.
+        from .platform import cv2_shim
+
+        cv2_shim.install()
     names = _MODULES + (_WINDOWS_MODULES if sys.platform == "win32" else ())
     versions = {}
     for name in names:

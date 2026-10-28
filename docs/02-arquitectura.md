@@ -253,7 +253,7 @@ Los snapshots PNG (`render_png`) sirven además como documentación viva de la U
 | `pillow` | 12.3.0 | Conversión frame→JPEG para preview; thumbnails. | Variante JPEG elegida en F0 (S4b). |
 | `imageio-ffmpeg` | 0.6.0 | Binario de FFmpeg para encoding/render. | Wheel ~30 MB con FFmpeg 7.1 essentials (GPL, con x264); hook de PyInstaller disponible. |
 | `windows-capture` | 2.0.1 | Captura WGC (monitor/ventana/cursor) — **backend por defecto**. | Windows; Rust; `monitor_index` 1-based; usar `minimum_update_interval=1`. |
-| `dxcam` | 0.3.0 | Captura DXGI (modo altas fps). | Windows; arrastra `opencv-python` (~43 MB); fijar `processor_backend="numpy"`. |
+| `dxcam` | 0.3.0 | Captura DXGI (modo altas fps). | Windows; arrastra `opencv-python` (~112 MB en el wheel actual); fijar `processor_backend="numpy"`. |
 | `mss` | 10.2.0 | Captura de referencia (región) y fallback portátil. | Cross-platform; usar `mss.MSS()` (la API `mss.mss()` está deprecada). |
 | `PyAudioWPatch` | 0.2.12.9 | WASAPI loopback (audio del sistema) + mic. | Windows. |
 | `sounddevice` | 0.5.6 | Salida de audio del preview; fallback de entrada. | Cross-platform. |
@@ -300,13 +300,14 @@ console = false
 ## Empaquetado (`aurora build`)
 
 - `onefile = false` (carpeta) por defecto: con numpy + PyAV + binario de FFmpeg, un onefile
-  tarda en extraerse en cada arranque; onedir arranca al instante. Un instalador (Inno Setup)
-  queda para post-v1.
+  tarda en extraerse en cada arranque; onedir arranca al instante. El instalador (Inno Setup,
+  `installer/rec-studio.iss`) se genera con `tools/check_installer.py` y se instala por usuario.
 - PyInstaller ya trae hooks para **`av`**, **`imageio_ffmpeg`** y **`sounddevice`** en
-  `hook-contrib` (verificado en el entorno y **ejercitado en F0/S6**: build de 25 s, bundle de
-  **345 MB** onedir, exe que importa todo el stack y codifica un MP4 real con el FFmpeg
-  incluido). El grueso del tamaño es numpy + PyAV + **`opencv` (arrastrado por `dxcam`)** +
-  el binario de FFmpeg (~30 MB); post-v1: probar `--exclude-module cv2`.
+  `hook-contrib` (verificado en el entorno y **ejercitado en F0/S6**). El grueso del tamaño era
+  numpy + PyAV + **`opencv`** + el binario de FFmpeg (~30 MB). `tools/build_exe.py` excluye `cv2`
+  (112 MB) porque `windows-capture` solo lo usa en `Frame.save_as_image()`; `platform/cv2_shim.py`
+  cubre ese import y `dxcam` da un error claro si se elige en el bundle ligero. Bundle actual:
+  **253 MB** (antes 370 MB); UPX baja a 78 MB pero rompe RNF-06 (arranque 3.66 s) y se descartó.
 - Licencia: los builds GPL de FFmpeg (con libx264) se distribuyen como **binario separado**
   que la app ejecuta por subprocess — no contamina el código de la app (el wheel de
   `imageio-ffmpeg` es un build *essentials* GPL). Se documentará la fuente del binario y su

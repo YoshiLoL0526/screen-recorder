@@ -55,9 +55,27 @@ jobs:
       - name: Build + smoke (imports, MP4 con el FFmpeg incluido, UI sin ventana)
         run: uv run python tools/check_build.py
 
+      - name: Inno Setup (si el runner no lo trae)
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc) -and -not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Instalador (compilar, instalar en limpio y smoke)
+        run: uv run python tools/check_installer.py
+
       - name: Subir el ejecutable
         uses: actions/upload-artifact@v4
         with:
           name: rec-studio-windows
           path: dist/Rec Studio/
+          retention-days: 14
+
+      - name: Subir el instalador
+        uses: actions/upload-artifact@v4
+        with:
+          name: rec-studio-installer
+          path: dist/installer/*.exe
           retention-days: 14

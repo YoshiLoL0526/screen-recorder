@@ -2,7 +2,7 @@
 
 Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); versiones con
 [SemVer](https://semver.org/lang/es/) desde la 1.0.0 (las fases anteriores no se publicaron como versión). El
-detalle de cada fase está en `docs/08`–`docs/14`.
+detalle de cada fase está en `docs/08`–`docs/16`.
 
 ## Sin publicar
 
@@ -11,10 +11,22 @@ detalle de cada fase está en `docs/08`–`docs/14`.
   (entrega y distribución, editor, captura, compartir, plataforma y adopciones de Aurora), con estado,
   tamaño y criterio de aceptación de cada pieza, más una priorización recomendada. `docs/06` conserva
   las fases F0–F5 y apunta al 15 para el backlog.
-- El **CI lleva dos ejecuciones en rojo** (`e3d703b`, `ef0d431`): se corrige la afirmación de docs/14
-  («aún no se ha ejecutado») y el estado real pasa a docs/15 (A1).
+- **[docs/16 — Bloque A: cierre de la entrega](docs/16-bloque-a-entrega.md)**: resultados de A1–A5
+  (CI en verde, RNF-06/07, instalador, bundle ligero) y procedimiento de las comprobaciones manuales
+  que quedan (A2, A6, A7, A8). `docs/15` actualiza estados y prioridades.
 
 ### Añadido
+- **Bloque A de entrega** (docs/15 → docs/16):
+  - **Instalador Inno Setup** (`installer/rec-studio.iss`): por usuario, sin UAC, en español, con
+    accesos directos y desinstalador. `tools/check_installer.py` compila, instala en `%TEMP%`, hace
+    el smoke del exe instalado y desinstala; el CI lo repite y sube `RecStudio-1.0.0-setup.exe`
+    (71 MB).
+  - **Bundle ligero**: `tools/build_exe.py` envuelve `aurora build` para excluir `cv2` (OpenCV,
+    112 MB) y `platform/cv2_shim.py` cubre el único import de `windows-capture`
+    (`Frame.save_as_image`). El bundle pasa de 370 a **253 MB**; `dxcam` avisa si se elige en el
+    exe ligero. `uv run aurora build` sigue incluyendo OpenCV para desarrollo.
+  - **`tools/rnf_measure.py`**: mide RNF-06/07 con ventana real (arranque, RSS en reposo y RSS
+    grabando 30 s) en el exe empaquetado o en la app sin empaquetar.
 - **Filmstrip de miniaturas en el timeline** (backlog post-v1 nº2): cada clip muestra una tira de
   miniaturas sobre la pista de video, con su nombre y duración encima. `canvas()` no dibuja imágenes,
   así que es una capa de `image()` absolutas **entre el canvas y las cajas de interacción** (arriba
@@ -40,6 +52,10 @@ detalle de cada fase está en `docs/08`–`docs/14`.
   - 16 tests nuevos en `tests/test_desktop.py` (hook con backend falso, menú, cierre de ventana y avisos).
 
 ### Cambiado
+- **CI en verde y más completo** (`40700123750`): 206 tests, build ligero + smoke del exe e
+  instalador (compilación, instalación silenciosa, smoke y desinstalación). El bundle y el
+  instalador se suben como artefactos. `upx = false` documentado: 78 MB pero arranque de 3.66 s
+  y +107 MB de RSS (RNF-06 exige < 2 s).
 - **Diálogos nativos de Aurora** en vez de ctypes: `platform/dialogs.py` (Windows: `GetOpenFileNameW`
   y `SHBrowseForFolderW`) desaparece y lo sustituye `ui/file_dialogs.py`, que envuelve
   `aurora.dialogs` (`open_files`, `pick_folder`) con los filtros de video y devuelve `Path`.
@@ -58,6 +74,9 @@ detalle de cada fase está en `docs/08`–`docs/14`.
   candidatos en docs/05, sin cambiar código de la app en este paso.
 
 ### Corregido
+- **Carrera en la cache de miniaturas** (el test que tumbaba el CI): la UI leía el JPEG mientras
+  el hilo lo escribía y la tira quedaba cacheada con 0 bytes. Ahora se publica con tmp +
+  `os.replace` y `cached_thumbstrip` valida el SOI de JPEG; tiene test de regresión.
 - Arranque con el «Acceso controlado a carpetas» de Windows Defender activado: la app moría al
   importar `state` con `FileNotFoundError [WinError 2]` al crear `~/Videos/RecStudio`. Ahora
   `paths.ensure_dir()` nunca lanza, la carpeta por defecto cae a `%LOCALAPPDATA%\RecStudio\videos`

@@ -100,8 +100,10 @@ de la esperada, audio en sync, reproducible en un móvil y en Windows; export de
 > valores por defecto, editor, sistema, restablecer), layout adaptable (preview vertical,
 > ventana grande, Ajustes con scroll), divisores del editor + inspector ocultable, `Esc`/`Intro`
 > en modales, icono, `[tool.aurora.build]`, smoke del exe (`tools/check_build.py`: ✅ build 27 s,
-> 369 MB, smoke rc=0), 13 tests y CI en `.github/workflows/ci.yml` (sin ejecutar aún: falta el
-> remoto en GitHub). Pendiente: prueba en máquina limpia, RNF-06/07 con ventana real; `strings.py` descartado mientras la app sea solo en español.
+> 369 MB, smoke rc=0), 13 tests y CI en `.github/workflows/ci.yml`. El CI está en verde desde el
+> bloque A ([docs/16](16-bloque-a-entrega.md)); RNF-06/07 ya medidos e instalador hecho. Pendiente:
+> prueba en máquina limpia, móvil físico, soak y ratón (A2/A6/A7/A8); `strings.py` descartado
+> mientras la app sea solo en español.
 
 - Ajustes completos, tema claro/oscuro, toasts/modales pulidos, estados vacíos, textos (strings.py).
 - `aurora build` + icono + smoke test del exe (`tools/check_build.py`).

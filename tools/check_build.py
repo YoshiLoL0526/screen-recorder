@@ -1,7 +1,8 @@
-"""Empaqueta la app con `aurora build` y hace el smoke test del ejecutable (F5).
+"""Empaqueta la app y hace el smoke test del ejecutable (F5/A5).
 
-1. `aurora build --clean` con la configuración de `[tool.aurora.build]` (onedir, sin consola,
-   icono de `assets/icon.ico`; si falta, lo genera `tools/make_icon.py`).
+1. `tools/build_exe.py --clean`: `aurora build` con la configuración de `[tool.aurora.build]`
+   (onedir, sin consola, icono de `assets/icon.ico`; si falta, lo genera `tools/make_icon.py`)
+   más la exclusión de OpenCV que Aurora 0.5 no expone.
 2. Ejecuta `dist/Rec Studio/Rec Studio.exe --smoke <informe>`: importa todo el stack dentro
    del bundle, codifica un MP4 de 2 s con el FFmpeg incluido y construye la UI sin ventana
    (ver `src/recstudio/smoke.py`).
@@ -32,9 +33,9 @@ def build() -> float:
     if not (ROOT / "assets" / "icon.ico").is_file():
         subprocess.run([sys.executable, str(ROOT / "tools" / "make_icon.py")], check=True)
     t0 = time.perf_counter()
-    proc = subprocess.run([sys.executable, "-m", "aurora", "build", "--clean"], cwd=ROOT)
+    proc = subprocess.run([sys.executable, str(ROOT / "tools" / "build_exe.py"), "--clean"], cwd=ROOT)
     if proc.returncode != 0:
-        raise SystemExit(f"❌ aurora build falló (rc={proc.returncode})")
+        raise SystemExit(f"❌ el build falló (rc={proc.returncode})")
     return time.perf_counter() - t0
 
 

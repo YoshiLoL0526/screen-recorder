@@ -4,8 +4,9 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 (recortes y transiciones simples), con toda la interfaz construida sobre
 [**aurora-ui**](https://yoshilol0526.github.io/aurora/) (`aurora-ui>=0.5.0,<0.6.0`).
 
-> Estado: **v1.0.0 implementada** (F0–F5). Los documentos 01–07 son la especificación de
-> diseño; 08–14 recogen lo implementado en cada fase, con mediciones y bugs encontrados.
+> Estado: **v1.0.0 implementada** (F0–F5) y **bloque A de entrega cerrado** (CI, RNF, instalador
+> y bundle ligero; quedan las comprobaciones manuales). Los documentos 01–07 son la especificación
+> de diseño; 08–16 recogen lo implementado en cada fase, con mediciones y bugs encontrados.
 
 ## Índice
 
@@ -26,6 +27,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 13 | [F4: export](13-f4-export.md) | Filter graph (golden), export con progreso/ETA/cancelar, presets, corte rápido byte a byte, efectos y mediciones. |
 | 14 | [F5: pulido y v1.0](14-f5-pulido.md) | Layout adaptable, divisores del editor, Ajustes completos, icono, `aurora build` + smoke del exe y bugs de layout. |
 | 15 | [Roadmap post-v1](15-post-v1.md) | **Lo que falta por implementar**: entrega (CI, instalador, RNF), editor (música, títulos), captura (webcam), compartir, plataforma y adopciones de Aurora. |
+| 16 | [Bloque A: cierre de la entrega](16-bloque-a-entrega.md) | CI en verde, RNF-06/07 con ventana, instalador Inno Setup, bundle sin OpenCV y las comprobaciones manuales que quedan (máquina limpia, móvil, soak y ratón). |
 
 ## Orden de lectura sugerido
 
