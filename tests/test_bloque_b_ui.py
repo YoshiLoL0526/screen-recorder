@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from recstudio import state
+from recstudio.core import timeline as tl
 from recstudio.core.project import Clip, Project, Track
 from recstudio.platform import ffmpeg as F
 from recstudio.platform import paths
@@ -135,6 +136,34 @@ def test_marquesina_selecciona_y_borra_varios_con_un_solo_undo(ui, tmp_path: Pat
     assert state.editor_project().video.clips == ()
     editor.undo()
     assert len(state.editor_project().video.clips) == 3
+
+
+def test_el_snap_engancha_en_un_pico_de_audio_del_vecino(
+    ui, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import numpy as np
+
+    _, controller, pilot = ui
+    editor = controller.editor
+    editor.import_paths([_video(tmp_path / "v.mp4", seconds=4.0)])
+    assert _wait(lambda: state.project_open() and state.editor_project().video.clips)
+    editor.seek(2.0)
+    pilot.press("s")
+    _settle(pilot)
+    first, second = state.editor_project().video.clips
+    asset = state.editor_project().assets[0]
+
+    peaks = np.zeros((400, 2), np.float32)
+    peaks[100] = (1.0, 1.0)  # pico en el segundo 1.0 de la fuente
+    monkeypatch.setattr(media, "cached_waveform", lambda path: peaks if path == asset.path else None)
+
+    zoom = state.tl_zoom()
+    editor.begin_move(second.id)
+    editor.drag_move((1.02 - tl.clip_starts(state.editor_project().video)[1]) * zoom)
+    ghost = state.tl_drag().ghost
+    assert ghost == pytest.approx(1.0, abs=1e-3), "debería enganchar en el pico del clip 1"
+    editor.cancel_drag()
+    assert state.editor_project().video.clips[0].id == first.id
 
 
 def test_reubicar_una_carpeta_resuelve_varios_assets(ui, tmp_path: Path) -> None:

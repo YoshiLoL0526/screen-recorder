@@ -27,7 +27,7 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**226 tests** en verde y `tools/check_build.py` OK (bundle de **255 MB** en local / **252 MB** en el
+**227 tests** en verde y `tools/check_build.py` OK (bundle de **255 MB** en local / **252 MB** en el
 CI con `aurora 0.5.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests +
 build + instalador (`40709049904`). Todo lo que sigue **no está implementado**, salvo lo marcado
 como hecho en los bloques A y B.
@@ -58,7 +58,7 @@ runner (smoke del exe incluido) y se añadió la verificación del instalador.
 
 **A2** es la prueba que más valor aporta por hora invertida: instalar en una máquina sin Python ni
 FFmpeg y completar grabar → biblioteca → editar → exportar → abrir el MP4. Todo lo que falle ahí es
-un bug real que los 226 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
+un bug real que los 227 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
 runner limpio; falta el flujo manual ([procedimiento](16-bloque-a-entrega.md#a2--máquina-limpia-pendiente-manual)).
 
 **A4/A5 están hechos**: instalador de 72 MB verificado y bundle de 370 → **255 MB** al excluir

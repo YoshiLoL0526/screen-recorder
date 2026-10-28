@@ -15,7 +15,7 @@
 | B5 | Proxy automático | ✅ | `services/media.py`, `services/playback.py`, `ui/editor_controller.py` |
 | B6 | Reubicar carpetas | ✅ | `ui/editor_controller.py`, inspector |
 
-**226 tests** en verde (18 nuevos de B). El CI no cambia de forma: `pytest` + build + instalador.
+**227 tests** en verde (19 nuevos de B). El CI no cambia de forma: `pytest` + build + instalador.
 
 ## B1 — Música, ducking y crossfades
 
@@ -115,9 +115,9 @@ Limitación consciente: mover en lote no se implementó; el arrastre mueve el cl
 - `tests/test_bloque_b.py` (14): modelo/JSON, textos, borrado múltiple, snap, probe de audio,
   proxy, graph de música/ducking/texto, `build_audio`, preview de texto y **export real** con
   FFmpeg.
-- `tests/test_bloque_b_ui.py` (4): importar música + pista M, añadir/editar texto, marquesina con
-  undo único y reubicar una carpeta con dos assets.
-- Suite completa: **226 tests** (`uv run pytest`).
+- `tests/test_bloque_b_ui.py` (5): importar música + pista M, añadir/editar texto, marquesina con
+  undo único, snap en un pico de audio y reubicar una carpeta con dos assets.
+- Suite completa: **227 tests** (`uv run pytest`).
 
 ## Pendientes / límites
 

@@ -724,7 +724,11 @@ class EditorController:
             state.toast("info", "No hay archivos offline que reubicar")
             return False
         found: dict[str, Path] = {}
-        files = [p for p in Path(folder).rglob("*") if p.is_file()]
+        try:
+            files = [p for p in Path(folder).rglob("*") if p.is_file()]
+        except OSError as exc:
+            state.toast("danger", f"No se pudo recorrer «{folder}»: {exc}")
+            return False
         for asset in missing:
             wanted = Path(asset.path).name.lower()
             match = next((p for p in files if p.name.lower() == wanted), None)

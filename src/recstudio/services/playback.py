@@ -474,6 +474,7 @@ class AudioPreview:
         self.error: str | None = None
         self.muted = False
         self._control = threading.Lock()  # start/stop pueden llegar desde varios hilos
+        self._render_lock = threading.Lock()  # un solo FFmpeg de mezcla a la vez
 
     def start(self, project: Project, t: float) -> None:
         with self._control:
@@ -534,19 +535,22 @@ class AudioPreview:
         return folder / f"{key}.wav"
 
     def _render_mix(self, project: Project, target: Path) -> None:
-        tmp = target.with_name(target.name + ".tmp.wav")
-        try:
-            args = graph_mod.build_audio(project, tmp, exe=ffmpeg_mod.ffmpeg_exe())
-            result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
-                                    errors="replace", timeout=600)
-            if result.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
-                raise RuntimeError(result.stderr[-400:] or "FFmpeg no generó el audio")
-            os.replace(tmp, target)
-        finally:
+        with self._render_lock:
+            if target.is_file() and target.stat().st_size > 0:
+                return  # otro hilo (o un play anterior) ya la generó
+            tmp = target.with_name(target.name + ".tmp.wav")
             try:
-                tmp.unlink(missing_ok=True)
-            except OSError:
-                pass
+                args = graph_mod.build_audio(project, tmp, exe=ffmpeg_mod.ffmpeg_exe())
+                result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
+                                        errors="replace", timeout=600)
+                if result.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
+                    raise RuntimeError(result.stderr[-400:] or "FFmpeg no generó el audio")
+                os.replace(tmp, target)
+            finally:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
 
     def _feed_mixed(self, project: Project, t: float, cancel: threading.Event) -> None:
         """Preview con música/ducking: mezcla exacta del export en un WAV cacheado (B1)."""

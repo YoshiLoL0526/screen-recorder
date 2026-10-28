@@ -22,7 +22,7 @@ RNF-06/07, instalador Inno Setup y bundle sin OpenCV; ver `docs/16`) y **bloque 
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 226 tests; la integración usa FFmpeg real
+uv run pytest                                   # 227 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
