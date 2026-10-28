@@ -21,7 +21,7 @@ backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque B).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 206 tests; la integración usa FFmpeg real
+uv run pytest                                   # 208 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)

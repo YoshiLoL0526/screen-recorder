@@ -26,10 +26,10 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**206 tests** en verde y `tools/check_build.py` OK (bundle de **253 MB** con `aurora 0.5.0`,
-`pynput` y el icono de la bandeja dentro; sin OpenCV). El CI está **en verde**
-(`40700123750`) y ya valida también el instalador. Todo lo que sigue **no está implementado**,
-salvo lo marcado como hecho en el bloque A.
+**208 tests** en verde y `tools/check_build.py` OK (bundle de **253 MB** en local / **250 MB** en el
+CI con `aurora 0.5.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI está **en
+verde** (`40701857907`) y ya valida también el instalador. Todo lo que sigue **no está
+implementado**, salvo lo marcado como hecho en el bloque A.
 
 ---
 
@@ -40,11 +40,11 @@ todo lo demás pierde valor sin ello.
 
 | # | Qué falta | Estado | Tamaño |
 |---|---|---|---|
-| A1 | **Poner el CI en verde** | ✅ `40700123750` | S–M |
+| A1 | **Poner el CI en verde** | ✅ `40701857907` | S–M |
 | A2 | Prueba en **máquina limpia** del flujo CU-1→CU-5 | ⏳ (CI cubre instalar + smoke) | M |
 | A3 | **RNF-06/07 con ventana real** (arranque < 2 s, RSS < 600 MB en reposo y < 1.2 GB grabando) | ✅ [medido](16-bloque-a-entrega.md#a3--rnf-0607-con-ventana-real) | S |
 | A4 | **Instalador** (Inno Setup) sobre el bundle onedir | ✅ 71 MB, verificado | M |
-| A5 | **Bundle más ligero** (`--exclude-module cv2`, `upx = true`) | ✅ 370 → 253 MB; UPX descartado | S |
+| A5 | **Bundle más ligero** (`--exclude-module cv2`; UPX medido y descartado) | ✅ 370 → 253 MB | S |
 | A6 | Verificar el export **en un móvil físico** (pendiente de F4) | ⏳ | S |
 | A7 | Soak de **30 min** a 1080p60 con mic+sistema (pendiente de F1) | ⏳ | S |
 | A8 | Validar a mano la «sensación» del timeline con ratón real (pendiente de F3) | ⏳ | S |
@@ -57,7 +57,7 @@ runner (smoke del exe incluido) y se añadió la verificación del instalador.
 
 **A2** es la prueba que más valor aporta por hora invertida: instalar en una máquina sin Python ni
 FFmpeg y completar grabar → biblioteca → editar → exportar → abrir el MP4. Todo lo que falle ahí es
-un bug real que los 206 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
+un bug real que los 208 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
 runner limpio; falta el flujo manual ([procedimiento](16-bloque-a-entrega.md#a2--máquina-limpia-pendiente-manual)).
 
 **A4/A5 están hechos**: instalador de 71 MB verificado y bundle de 370 → **253 MB** al excluir

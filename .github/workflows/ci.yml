@@ -1,5 +1,6 @@
-# CI de Rec Studio (docs/14): tests (unit + golden + integración con FFmpeg + UI con Pilot) y
-# build del ejecutable con su smoke test. Solo Windows: la app y su captura/audio lo son.
+# CI de Rec Studio (docs/14 y docs/16): tests (unit + golden + integración con FFmpeg + UI con
+# Pilot), build ligero del ejecutable con su smoke test e instalador Inno Setup con instalación
+# silenciosa y smoke. Solo Windows: la app y su captura/audio lo son.
 #
 # Los tests no graban de verdad (sesiones falsas) y la UI se construye sin ventana, así que el
 # runner no necesita monitor, GPU ni tarjeta de sonido: lo que depende de ellos hace

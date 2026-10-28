@@ -52,7 +52,7 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   - 16 tests nuevos en `tests/test_desktop.py` (hook con backend falso, menú, cierre de ventana y avisos).
 
 ### Cambiado
-- **CI en verde y más completo** (`40700123750`): 206 tests, build ligero + smoke del exe e
+- **CI en verde y más completo** (`40701857907`): 208 tests, build ligero + smoke del exe e
   instalador (compilación, instalación silenciosa, smoke y desinstalación). El bundle y el
   instalador se suben como artefactos. `upx = false` documentado: 78 MB pero arranque de 3.66 s
   y +107 MB de RSS (RNF-06 exige < 2 s).
