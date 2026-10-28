@@ -89,7 +89,7 @@ entran en CI: necesitan escritorio y audio reales.
   textos viven junto a su componente; extraerlos ahora solo añade una indirección. Se hará si
   llega la internacionalización (backlog).
 - **CI**: configurado en `.github/workflows/ci.yml` (ver abajo). Está **en verde**
-  (`40709049904`): 226 tests, build ligero + smoke del exe y verificación del instalador. El fallo
+  (`40710816126`): 227 tests, build ligero + smoke del exe y verificación del instalador. El fallo
   anterior era una carrera en la cache de miniaturas (JPEG de 0 bytes), no el runner; el análisis
   está en [docs/16](16-bloque-a-entrega.md#a1--ci-en-verde). La prueba en **máquina limpia** del
   flujo CU-1→CU-5 sigue pendiente (manual), aunque el CI ya instala y hace smoke en un runner limpio.

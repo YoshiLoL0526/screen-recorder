@@ -29,7 +29,7 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 
 **227 tests** en verde y `tools/check_build.py` OK (bundle de **255 MB** en local / **252 MB** en el
 CI con `aurora 0.5.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests +
-build + instalador (`40709049904`). Todo lo que sigue **no está implementado**, salvo lo marcado
+build + instalador (`40710816126`). Todo lo que sigue **no está implementado**, salvo lo marcado
 como hecho en los bloques A y B.
 
 ---

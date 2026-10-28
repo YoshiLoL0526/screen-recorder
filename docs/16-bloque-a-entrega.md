@@ -43,7 +43,7 @@ timing; el runner, más lento, lo destapó.
 - test de regresión con una cache incompleta (`tests/test_filmstrip.py`).
 
 **Verificación:** run `40701857907` ✅ — 208 tests en 37 s (bundle de 250 MB en el runner). Con el
-bloque B, el run `40709049904` sigue verde: **226 tests**, bundle de 252 MB e instalador de 72 MB.
+bloque B, el run `40710816126` sigue verde: **227 tests**, bundle de 252 MB e instalador de 72 MB.
 El CI hace, en orden: `pytest`,
 `tools/check_build.py` (build ligero + smoke del exe) y `tools/check_installer.py` (instalador,
 instalación silenciosa, smoke y desinstalación). Los dos artefactos (bundle e instalador) se suben
