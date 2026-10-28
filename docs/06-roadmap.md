@@ -123,8 +123,12 @@ consola; CI en verde (unit + golden + smoke UI); RNF-06/07 medidos.
 2. ✅ **Filmstrip de thumbnails en los clips** — hecho: capa de `image()` sobre el canvas
    (`ui/timeline.py`), tira por asset cacheada en disco (`services/media.thumbstrip`) y etiqueta del
    clip encima. Ver [docs/05](05-ui-aurora.md) y el CHANGELOG.
-3. Pista de música (UI y preview: el graph de F4 ya la mezcla) + ducking básico; crossfades de audio (`acrossfade`).
-4. Textos/títulos sobre el video (drawtext o canvas futuro).
+3. ✅ **Pista de música + ducking + crossfades** — hecho: pista M, inspector, `sidechaincompress`
+   y `acrossfade`, preview con la mezcla completa (B1, [docs/17](17-bloque-b-editor.md)).
+4. ✅ **Textos/títulos sobre el video** — hecho: `TextOverlay`, `drawtext` y composición PIL en el
+   preview (B2, [docs/17](17-bloque-b-editor.md)).
+4b. ✅ **Selección múltiple, snap por waveform, proxy 540p y reubicar carpetas** (B3–B6,
+   [docs/17](17-bloque-b-editor.md)).
 5. Webcam PiP (segunda captura) + grabación de cara separada.
 6. Export GIF/WebM optimizado para compartir en un clic.
 7. Port a macOS/Linux con los mismos contratos de `platform/`.

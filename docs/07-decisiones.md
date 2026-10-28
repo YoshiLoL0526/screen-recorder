@@ -317,3 +317,29 @@ subir sin un trabajo aparte).
 en `save_as_image`.
 
 **Revisar.** Cuando `windows-capture` deje de importar OpenCV o Aurora exponga `exclude`.
+
+---
+
+## ADR-15 — Preview de audio/texto fiel al export (2026-10-28)
+
+**Contexto.** B1 necesita que el preview suene como el export (música, crossfades, ducking) y B2 que
+el texto se vea igual. El preview actual decodifica audio en Python y pinta el frame como JPEG; el
+export usa un `filter_complex` de FFmpeg.
+
+**Decisión.** Para audio con pistas extra, el preview pide a FFmpeg la **mezcla completa**
+(`core.graph.build_audio`) a un WAV cacheado por hash del proyecto y lo reproduce con
+`sounddevice`. Los textos se dibujan con PIL sobre el frame RGB, con la misma posición/escala
+relativa que `drawtext`; el export sigue usando FFmpeg (`drawtext`, `sidechaincompress`,
+`acrossfade`). El audio del video solo (sin pistas extra) mantiene el camino Python existente.
+
+**Alternativas.** Mezclar música/ducking a mano en Python (duplicaría la lógica y se desincronizaría
+del graph); esperar a `canvas.image()` de Aurora (no existe en 0.5); renderizar el proyecto entero
+a un MP4 temporal (lento y pesado).
+
+**Consecuencias.** + Una sola fuente de verdad para la mezcla; el preview incluye ducking real.
+− El primer play de un proyecto con música espera a que FFmpeg genere el WAV (~0.2–1 s según
+duración); después sale de cache. − El texto del preview depende de la fuente del sistema (Arial en
+Windows), no de una fuente empaquetada.
+
+**Revisar.** Si Aurora expone `canvas.image()` o un compositor de texto, o si el WAV de preview se
+vuelve caro para proyectos largos (se puede pasar a streaming FFmpeg).

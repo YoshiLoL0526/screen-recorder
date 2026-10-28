@@ -116,10 +116,11 @@ el suelo del propio detector (ventanas de 5 ms y AAC): la fuente sin editar mide
 - **Verificación**: duración ±0.2 s (o ±2 frames por segmento en el corte rápido), video
   presente y audio si se esperaba; hasta entonces el archivo se llama `*.part.mp4`.
 
-## No incluido (post-v1 o F5)
+## No incluido en F4 (resuelto después)
 
-- **Pistas de audio independientes en la UI** (música): el modelo y el graph ya las soportan
-  (`amix` con relleno/recorte a la duración del video, test incluido), pero no hay carriles en el
-  timeline ni audio de esas pistas en el preview. Sigue en el backlog (post-v1 n.º 3).
+- **Pistas de audio independientes en la UI (música)**: implementado en el bloque B
+  ([docs/17](17-bloque-b-editor.md)): pista M, `acrossfade`, `sidechaincompress` para ducking y
+  preview con la mezcla completa.
+- **Textos**: implementados en B2 con `drawtext` y composición PIL en el preview.
 - Zoom con centro elegible en la UI (el modelo guarda `x`/`y`; el inspector fija el centro).
-- Validar en un móvil físico la reproducción de los MP4 exportados.
+- Validar en un móvil físico la reproducción de los MP4 exportados (A6).

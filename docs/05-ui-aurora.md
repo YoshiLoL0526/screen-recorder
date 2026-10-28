@@ -232,6 +232,12 @@ timeline_panel (column)
 - Playhead: `line` vertical de 2 px `$playhead` + triángulo en la regla (arrastrable).
 - Regla: ticks cada 1/2/5/10 s según zoom, etiquetas `mm:ss`; línea vertical tenue por tick
   en las pistas (`$grid`).
+- **Pista M (B1)**: solo si `Project.audio` tiene clips; se dibuja debajo de la pista A con su
+  propia etiqueta, waveform y nombre. Los clips son secuenciales y se seleccionan con clic.
+- **Marquesina (B3)**: modo explícito en la barra; el rectángulo se pinta sobre el canvas y los
+  clips seleccionados se resaltan. `Ctrl+A` selecciona todos; `Supr` borra en lote con un undo.
+- **Textos (B2)** y **snap de audio (B4)**: el inspector edita los textos y los picos de audio
+  son candidatos adicionales del imán; no cambian el dibujo salvo el resaltado de selección.
 
 ### Rendimiento del timeline
 

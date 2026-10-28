@@ -6,8 +6,11 @@
 > layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test). El
 > **bloque A de entrega** ya tiene CI en verde, RNF medidos, instalador Inno Setup y bundle de
 > 253 MB — ver [docs/16](docs/16-bloque-a-entrega.md); quedan las comprobaciones manuales
-> (máquina limpia, móvil, soak y ratón). Ver también [docs/12](docs/12-f3-editor.md),
-> [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md) y el [CHANGELOG](CHANGELOG.md).
+> (máquina limpia, móvil, soak y ratón). El **bloque B del editor** añade música con ducking y
+> crossfades, textos quemados, selección múltiple, snap por waveform, proxy 540p y reubicar
+> carpetas — ver [docs/17](docs/17-bloque-b-editor.md). Ver también
+> [docs/12](docs/12-f3-editor.md), [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md)
+> y el [CHANGELOG](CHANGELOG.md).
 
 Aplicación de escritorio para **grabar la pantalla** (como Bandicam: monitor, ventana o región,
 con audio del sistema y micrófono) y **editar el resultado sin salir de la app** (cortes,
@@ -54,6 +57,7 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 - [14 — F5: pulido y v1.0](docs/14-f5-pulido.md): layout adaptable, divisores, Ajustes, build y smoke del exe.
 - [15 — Roadmap post-v1](docs/15-post-v1.md): lo que queda por implementar, por bloques y priorizado.
 - [16 — Bloque A](docs/16-bloque-a-entrega.md): CI, RNF-06/07, instalador, bundle ligero y verificaciones manuales.
+- [17 — Bloque B](docs/17-bloque-b-editor.md): música/ducking, textos, selección múltiple, snap por waveform, proxy y reubicar carpetas.
 
 ## Estructura del repositorio
 

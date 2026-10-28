@@ -13,15 +13,16 @@ del filter graph), `core/keyframes.py` (corte sin recodificar), `services/export
 `ui/export_modal.py` (ver `docs/13`). Pulido: layout adaptable, divisores del editor, Ajustes,
 icono, `[tool.aurora.build]` y smoke del exe en `src/recstudio/smoke.py` (ver `docs/14`). Post-v1:
 bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`), filmstrip de miniaturas
-(`services/media.thumbstrip`, `ui/timeline.filmstrip_slots`) y **bloque A de entrega** (CI verde,
-RNF-06/07, instalador Inno Setup y bundle sin OpenCV; ver `docs/16`). Lo siguiente es el resto del
-backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque B).
+(`services/media.thumbstrip`, `ui/timeline.filmstrip_slots`), **bloque A de entrega** (CI verde,
+RNF-06/07, instalador Inno Setup y bundle sin OpenCV; ver `docs/16`) y **bloque B del editor**
+(música/ducking, textos, selección múltiple, snap por waveform, proxy y reubicar carpetas; ver
+`docs/17`). Lo siguiente es el resto del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 208 tests; la integración usa FFmpeg real
+uv run pytest                                   # 226 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -109,6 +110,15 @@ depender de monitor, GPU ni audio reales del runner.
 - Editor: el canvas del timeline usa una función de dibujo de módulo (misma identidad ⇒ Aurora
   no redibuja si no cambian sus `Signal`); el playhead va en su propio `@component`. Proyectos en
   `<grabaciones>/Proyectos/*.rsproj/project.json`.
+- Bloque B: `Project.audio` se dibuja en una pista **M** y es secuencial; `Track.ducking` solo
+  tiene sentido en pistas de audio. El preview con música se renderiza a un WAV cacheado con
+  `core.graph.build_audio` (misma mezcla, crossfades y ducking que el export), no se mezcla en
+  Python. Los textos viven en `Project.texts` (no en `Effect`, que solo lleva floats) y se queman
+  con `drawtext` (`expansion=none`, texto escapado) y PIL en el preview. Los proxies 540p solo se
+  usan en preview (el export usa el original) y se cachean con clave ruta+tamaño+mtime.
+- La marquesina (B3) es un modo explícito (`state.marquee_on`): el canvas deja de hacer scrub y
+  selecciona por rango de tiempo. `state.multi_selection` es la fuente de la selección múltiple;
+  `state.selection` sigue siendo la selección primaria que alimenta el inspector.
 - Layout (F5): todo contenedor `grow=1` cuyo contenido puede no caber (imágenes, pantallas
   largas) lleva `height=0` (columna) o `width=0` (fila); si no, crece y empuja controles fuera
   de la ventana. El alto útil de la ventana es `state.view_h` (lo da el `on_scroll` de la
@@ -137,7 +147,8 @@ depender de monitor, GPU ni audio reales del runner.
   (F0–F5). `docs/07-decisiones.md`: ADRs (por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido…).
 - `docs/09`–`14`: resultados de F1, F2, F1.1+F2.1, F3, F4 y F5 (bugs, mediciones, aprendizajes
   de UI). `docs/16-bloque-a-entrega.md`: CI, RNF-06/07, instalador, bundle ligero y las pruebas
-  manuales pendientes. **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con
-  estado y criterio de aceptación. `CHANGELOG.md` resume cada versión.
+  manuales pendientes. `docs/17-bloque-b-editor.md`: música/ducking, textos, selección múltiple,
+  snap por waveform, proxy y reubicar carpetas. **`docs/15-post-v1.md` es el backlog vivo**: qué
+  falta, por bloques, con estado y criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
   `build/`, `dist/`, `.venv`, `__pycache__` y `tools/spikes/out/` están ignorados: no son fuente.

@@ -117,6 +117,16 @@ class TimelineDrag:
 
 
 @dataclass(frozen=True)
+class Marquee:
+    """Rectángulo de selección múltiple (B3), en píxeles del contenido del timeline."""
+
+    x0: float
+    y0: float
+    x1: float
+    y1: float
+
+
+@dataclass(frozen=True)
 class RecentProject:
     path: str  # project.json
     name: str
@@ -137,7 +147,10 @@ playing = Signal(False)
 preview_frame = Signal(b"")  # JPEG del preview del editor
 preview_note = Signal("")  # aviso discreto bajo el preview («transición aproximada», …)
 preview_audio = Signal(True)  # audio del preview (best-effort)
-selection = Signal(None)  # ("clip", id) | ("transition", índice) | None
+selection = Signal(None)  # ("clip", id) | ("transition", índice) | ("music", índice) | ("text", id) | None
+multi_selection = Signal(frozenset())  # ids de clips seleccionados con la marquesina (B3)
+marquee_on = Signal(False)  # herramienta de selección activa (B3)
+marquee = Signal(None)  # state.Marquee | None
 tl_zoom = Signal(60.0)  # px por segundo
 tl_scroll = Signal(0.0)  # desplazamiento horizontal del timeline (px)
 tl_view_w = Signal(1000.0)  # ancho visible del timeline (px)
@@ -168,6 +181,19 @@ insp_brightness = Signal(0.0)
 insp_contrast = Signal(1.0)
 insp_saturation = Signal(1.0)
 insp_track_gain = Signal(1.0)  # volumen del audio original (track de video; 0 = silenciado)
+insp_music_gain = Signal(1.0)  # pista de música (B1)
+insp_music_duck = Signal(0.0)  # 0…1
+insp_music_cross = Signal(0.0)  # segundos de crossfade entre clips de música
+insp_music_clip_gain = Signal(1.0)  # volumen del clip de música seleccionado
+insp_text = Signal("")  # texto seleccionado (B2)
+insp_text_start = Signal("")
+insp_text_end = Signal("")
+insp_text_size = Signal(42)
+insp_text_color = Signal("#FFFFFF")
+insp_text_x = Signal(0.5)
+insp_text_y = Signal(0.82)
+insp_text_bold = Signal(False)
+proxies = Signal(0)  # versión: sube cuando termina un proxy de preview (B5)
 
 export_open = Signal(False)  # modal «Exportar»
 export_name = Signal("")  # nombre del archivo (sin extensión)

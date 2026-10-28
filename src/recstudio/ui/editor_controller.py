@@ -23,7 +23,7 @@ from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
 from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
-from ..core.project import FPS_CHOICES, MediaAsset, Project
+from ..core.project import FPS_CHOICES, Clip, MediaAsset, Project, Track, Transition, new_id
 from ..core.store import ProjectStore
 from ..platform import paths
 from ..services import export as export_mod
@@ -69,6 +69,9 @@ class EditorController:
         self._wave_pending: set[str] = set()
         self._thumb_lock = threading.Lock()
         self._thumb_pending: set[str] = set()
+        self._proxy_lock = threading.Lock()
+        self._proxy_pending: set[str] = set()
+        self._marquee_start: float | None = None
         self.exporter = export_mod.Exporter(self._on_export)
 
     # -- ciclo de vida ---------------------------------------------------------
@@ -92,6 +95,15 @@ class EditorController:
         for signal, kind, name, _neutral, label in EFFECT_FIELDS:
             signal.subscribe(live(lambda value, k=kind, n=name, lb=label: self._on_insp_effect(k, n, lb, value)))
         state.insp_track_gain.subscribe(live(self._on_insp_track_gain))
+        state.insp_music_gain.subscribe(live(self._on_insp_music_gain))
+        state.insp_music_duck.subscribe(live(self._on_insp_music_duck))
+        state.insp_music_cross.subscribe(live(self._on_insp_music_cross))
+        state.insp_music_clip_gain.subscribe(live(self._on_insp_music_clip_gain))
+        state.insp_text_size.subscribe(live(lambda value: self._on_insp_text("size", value)))
+        state.insp_text_color.subscribe(live(lambda value: self._on_insp_text("color", value)))
+        state.insp_text_x.subscribe(live(lambda value: self._on_insp_text("x", value)))
+        state.insp_text_y.subscribe(live(lambda value: self._on_insp_text("y", value)))
+        state.insp_text_bold.subscribe(live(lambda value: self._on_insp_text("bold", value)))
         if self.settings.export_preset in graph_mod.PRESET_IDS:
             state.export_preset.set(self.settings.export_preset)
         self.player.start()
@@ -137,6 +149,13 @@ class EditorController:
             state.selection.set(None)
         elif selection and selection[0] == "transition" and selection[1] >= len(project.video.transitions):
             state.selection.set(None)
+        elif selection and selection[0] == "music" and selection[1] >= len(project.audio):
+            state.selection.set(None)
+        elif selection and selection[0] == "text" and not project.has_text(selection[1]):
+            state.selection.set(None)
+        clip_ids = {c.id for c in project.video.clips}
+        if not state.multi_selection() <= clip_ids:
+            state.multi_selection.set(frozenset(state.multi_selection() & clip_ids))
         total = tl.total_duration(project)
         if state.playhead() > total:
             self.seek(total)
@@ -167,6 +186,24 @@ class EditorController:
             state.insp_transition.set(current.kind if current is not None else "none")
             if current is not None:
                 state.insp_transition_dur.set(current.duration)
+        music = self.selected_music()
+        if music is not None:
+            state.insp_music_gain.set(0.0 if music.muted else music.gain)
+            state.insp_music_duck.set(music.ducking)
+            state.insp_music_cross.set(self._music_crossfade(music))
+            selected_clip = self._selected_music_clip()
+            if selected_clip is not None:
+                state.insp_music_clip_gain.set(fx.gain(selected_clip[2]))
+        overlay = self.selected_text()
+        if overlay is not None:
+            state.insp_text.set(overlay.text)
+            state.insp_text_start.set(tl.format_time(overlay.start))
+            state.insp_text_end.set(tl.format_time(overlay.end))
+            state.insp_text_size.set(overlay.size)
+            state.insp_text_color.set(overlay.color)
+            state.insp_text_x.set(overlay.x)
+            state.insp_text_y.set(overlay.y)
+            state.insp_text_bold.set(overlay.bold)
 
     def _on_insp_speed(self, speed: float) -> None:
         clip = self.selected_clip()
@@ -187,6 +224,38 @@ class EditorController:
         current = 0.0 if video.muted else video.gain
         if state.project_open() and abs(current - float(value)) > 1e-6:
             self.set_track_gain(float(value))
+
+    def _on_insp_music_gain(self, value: float) -> None:
+        track = self.selected_music()
+        if track is None:
+            return
+        current = 0.0 if track.muted else track.gain
+        if abs(current - float(value)) > 1e-6:
+            self.set_music_gain(float(value))
+
+    def _on_insp_music_duck(self, value: float) -> None:
+        track = self.selected_music()
+        if track is not None and abs(track.ducking - float(value)) > 1e-6:
+            self.set_music_ducking(float(value))
+
+    def _on_insp_music_cross(self, value: float) -> None:
+        track = self.selected_music()
+        if track is not None and abs(self._music_crossfade(track) - float(value)) > 1e-6:
+            self.set_music_crossfade(float(value))
+
+    def _on_insp_music_clip_gain(self, value: float) -> None:
+        selected = self._selected_music_clip()
+        if selected is not None and abs(fx.gain(selected[2]) - float(value)) > 1e-6:
+            self.set_music_clip_gain(float(value))
+
+    def _on_insp_text(self, name: str, value) -> None:  # noqa: ANN001
+        overlay = self.selected_text()
+        if overlay is None:
+            return
+        current = getattr(overlay, name)
+        if current == value:
+            return
+        self._update_text(**{name: value})
 
     def _current_transition(self):  # noqa: ANN202
         index = self._transition_index()
@@ -232,6 +301,32 @@ class EditorController:
         project = self.store.project
         return project.clip(selection[1]) if project.has_clip(selection[1]) else None
 
+    def selected_music(self):  # noqa: ANN201
+        selection = state.selection()
+        if not selection or selection[0] != "music":
+            return None
+        index = int(selection[1])
+        return self.project.audio[index] if 0 <= index < len(self.project.audio) else None
+
+    def _selected_music_clip(self):  # noqa: ANN201
+        selection = state.selection()
+        if not selection or selection[0] != "music":
+            return None
+        track_index = int(selection[1])
+        if not 0 <= track_index < len(self.project.audio):
+            return None
+        track = self.project.audio[track_index]
+        clip_index = int(selection[2]) if len(selection) > 2 else 0
+        if not 0 <= clip_index < len(track.clips):
+            return None
+        return track_index, clip_index, track.clips[clip_index]
+
+    def selected_text(self):  # noqa: ANN201
+        selection = state.selection()
+        if not selection or selection[0] != "text":
+            return None
+        return self.project.text(selection[1]) if self.project.has_text(selection[1]) else None
+
     def _guard_editable(self) -> bool:
         if not state.project_open():
             return False
@@ -267,7 +362,20 @@ class EditorController:
 
     def delete_selected(self) -> None:
         selection = state.selection()
-        if not selection or not self._guard_editable():
+        if not self._guard_editable():
+            return
+        multi = state.multi_selection()
+        if multi:
+            count = len(multi & {c.id for c in self.project.video.clips})
+            if count == 0:
+                state.multi_selection.set(frozenset())
+            else:
+                project = tl.ripple_delete_many(self.project, multi)
+                if self._apply(f"eliminar {count} clip{'s' if count != 1 else ''}", project):
+                    state.multi_selection.set(frozenset())
+                    state.selection.set(None)
+            return
+        if not selection:
             return
         if selection[0] == "clip":
             clip_id = selection[1]
@@ -280,6 +388,10 @@ class EditorController:
                 state.selection.set(("clip", clips[min(index, len(clips) - 1)].id) if clips else None)
         elif selection[0] == "transition":
             self.set_transition(None)
+        elif selection[0] == "text":
+            self.delete_text()
+        elif selection[0] == "music":
+            self.remove_music()
 
     def undo(self) -> None:
         self.cancel_drag()
@@ -300,10 +412,36 @@ class EditorController:
         self._sync_meta()
 
     def select_clip(self, clip_id: str | None) -> None:
+        state.multi_selection.set(frozenset())
         state.selection.set(("clip", clip_id) if clip_id else None)
 
     def select_transition(self, index: int) -> None:
+        state.multi_selection.set(frozenset())
         state.selection.set(("transition", index))
+
+    def select_music(self, index: int = 0, clip_index: int = 0) -> None:
+        state.multi_selection.set(frozenset())
+        state.selection.set(("music", int(index), int(clip_index)))
+
+    def select_text(self, text_id: str) -> None:
+        state.multi_selection.set(frozenset())
+        state.selection.set(("text", text_id))
+
+    def select_all(self) -> None:
+        ids = frozenset(c.id for c in self.project.video.clips)
+        if not ids:
+            return
+        state.multi_selection.set(ids)
+        state.selection.set(("clip", self.project.video.clips[0].id))
+
+    def clear_selection(self) -> None:
+        state.multi_selection.set(frozenset())
+        state.selection.set(None)
+
+    def toggle_marquee(self) -> None:
+        state.marquee_on.set(not state.marquee_on())
+        if not state.marquee_on():
+            state.marquee.set(None)
 
     def set_speed(self, speed: float) -> None:
         clip = self.selected_clip()
@@ -328,6 +466,302 @@ class EditorController:
         value = max(0.0, min(fx.GAIN_MAX, value))
         video = replace(self.project.video, muted=value <= 0, gain=value if value > 0 else self.project.video.gain)
         self._apply("volumen del audio original", replace(self.project, video=video))
+
+    # -- música (B1) ---------------------------------------------------------------
+
+    def _music_crossfade(self, track: Track) -> float:
+        for transition in track.transitions:
+            if transition is not None:
+                return transition.duration
+        return 0.0
+
+    def browse_music(self) -> None:
+        """Diálogo de audio (modal, hilo de UI); la importación pesada va a un hilo."""
+        from . import file_dialogs
+
+        try:
+            chosen = file_dialogs.open_audio(state.recordings_dir(), title="Importar música")
+        except Exception as exc:  # diálogo nativo: cualquier fallo debe acabar en un toast
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen:
+            self.import_music(chosen)
+
+    def import_music(self, paths: list[Path]) -> None:
+        """Añade archivos de audio a la primera pista de música (o crea una)."""
+        if not paths:
+            return
+
+        def worker() -> None:
+            with self._io_lock:
+                project = self.project
+                tracks = list(project.audio)
+                track = tracks[0] if tracks else Track("audio")
+                clips = list(track.clips)
+                transitions = list(track.transitions)
+                added: list[MediaAsset] = []
+                for path in paths:
+                    try:
+                        asset = media.probe(path)
+                    except RecStudioError as exc:
+                        state.toast("danger", exc.message)
+                        continue
+                    if not asset.has_audio:
+                        state.toast("warning", f"«{Path(path).name}» no tiene audio")
+                        continue
+                    project, asset = tl.add_asset(project, asset)
+                    if clips:
+                        transitions.append(None)
+                    clips.append(Clip(id=new_id("m"), asset_id=asset.id, in_=0.0, out_=asset.duration))
+                    added.append(asset)
+                if not added:
+                    return
+                track = replace(track, clips=tuple(clips), transitions=tuple(transitions))
+                if tracks:
+                    tracks[0] = track
+                else:
+                    tracks = [track]
+                project = replace(project, audio=tuple(tracks))
+                if self._apply("importar música", project):
+                    index = 0
+                    state.selection.set(("music", index))
+                    for asset in added:
+                        self._queue_waveform(asset)
+                    state.toast(
+                        "success",
+                        f"{len(added)} pista(s) de música añadida(s) · {len(clips)} clip(s) en la pista",
+                    )
+
+        threading.Thread(target=worker, daemon=True, name="import-music").start()
+
+    def set_music_gain(self, value: float) -> None:
+        index = self._selected_music_index()
+        if index is None:
+            return
+        value = max(0.0, min(fx.GAIN_MAX, float(value)))
+        tracks = list(self.project.audio)
+        track = tracks[index]
+        tracks[index] = replace(track, muted=value <= 0, gain=value if value > 0 else track.gain)
+        self._apply("volumen de música", replace(self.project, audio=tuple(tracks)))
+
+    def set_music_clip_gain(self, value: float) -> None:
+        selected = self._selected_music_clip()
+        if selected is None:
+            return
+        track_index, clip_index, clip = selected
+        value = max(0.0, min(fx.GAIN_MAX, float(value)))
+        tracks = list(self.project.audio)
+        track = tracks[track_index]
+        clips = list(track.clips)
+        clips[clip_index] = fx.with_effect(clip, "volume", gain=value)
+        tracks[track_index] = replace(track, clips=tuple(clips))
+        self._apply("volumen del clip de música", replace(self.project, audio=tuple(tracks)))
+
+    def set_music_ducking(self, value: float) -> None:
+        index = self._selected_music_index()
+        if index is None:
+            return
+        value = max(0.0, min(1.0, float(value)))
+        tracks = list(self.project.audio)
+        tracks[index] = replace(tracks[index], ducking=value)
+        self._apply("ducking de música", replace(self.project, audio=tuple(tracks)))
+
+    def set_music_crossfade(self, seconds: float) -> None:
+        index = self._selected_music_index()
+        if index is None:
+            return
+        tracks = list(self.project.audio)
+        track = tracks[index]
+        if len(track.clips) < 2:
+            return
+        limit = min(tl.transition_limit(track, i) for i in range(len(track.clips) - 1))
+        duration = min(max(0.0, float(seconds)), limit)
+        transition = Transition("fade", duration) if duration >= 0.2 else None
+        tracks[index] = replace(track, transitions=tuple(transition for _ in range(len(track.clips) - 1)))
+        self._apply("crossfade de música", replace(self.project, audio=tuple(tracks)))
+
+    def remove_music(self) -> None:
+        index = self._selected_music_index()
+        if index is None:
+            return
+        tracks = tuple(t for i, t in enumerate(self.project.audio) if i != index)
+        if self._apply("quitar pista de música", replace(self.project, audio=tracks)):
+            state.selection.set(None)
+
+    def _selected_music_index(self) -> int | None:
+        selection = state.selection()
+        if not selection or selection[0] != "music":
+            return None
+        index = int(selection[1])
+        return index if 0 <= index < len(self.project.audio) else None
+
+    # -- textos (B2) ---------------------------------------------------------------
+
+    def add_text(self) -> None:
+        if not self.project.video.clips:
+            state.toast("info", "Importa un video antes de añadir texto")
+            return
+        try:
+            project, overlay = tl.add_text(
+                self.project, "Título", state.playhead(), 3.0,
+                x=0.5, y=0.82, size=42, color="#FFFFFF",
+            )
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("añadir texto", project):
+            self.select_text(overlay.id)
+
+    def delete_text(self) -> None:
+        overlay = self.selected_text()
+        if overlay is None:
+            return
+        if self._apply("eliminar texto", tl.remove_text(self.project, overlay.id)):
+            state.selection.set(None)
+
+    def set_text_text(self, value: str) -> None:
+        self._update_text(text=value)
+
+    def set_text_start(self, value: str) -> None:
+        try:
+            start = tl.parse_time(value)
+        except ValueError:
+            state.toast("warning", "Tiempo inválido: usa mm:ss.mmm")
+            self._sync_inspector()
+            return
+        overlay = self.selected_text()
+        if overlay is None:
+            return
+        total = tl.total_duration(self.project)
+        start = max(0.0, min(start, total - 0.1))
+        end = max(start + 0.1, overlay.end)
+        if end > total:
+            end = total
+        self._update_text(start=round(start, 4), end=round(end, 4))
+
+    def set_text_end(self, value: str) -> None:
+        try:
+            end = tl.parse_time(value)
+        except ValueError:
+            state.toast("warning", "Tiempo inválido: usa mm:ss.mmm")
+            self._sync_inspector()
+            return
+        overlay = self.selected_text()
+        if overlay is None:
+            return
+        end = max(overlay.start + 0.1, min(end, tl.total_duration(self.project)))
+        self._update_text(end=round(end, 4))
+
+    def _update_text(self, **changes) -> None:  # noqa: ANN003
+        overlay = self.selected_text()
+        if overlay is None:
+            return
+        try:
+            project = tl.update_text(self.project, overlay.id, **changes)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply("editar texto", project)
+        self._sync_inspector()
+
+    # -- selección múltiple (B3) ---------------------------------------------------
+
+    def begin_marquee(self, window_x: float) -> None:
+        if not self._guard_editable():
+            return
+        self._marquee_start = self.content_x(window_x)
+        state.marquee.set(state.Marquee(self._marquee_start, 0.0, self._marquee_start, 0.0))
+
+    def drag_marquee(self, window_x: float) -> None:
+        start = self._marquee_start
+        if start is None:
+            return
+        current = self.content_x(window_x)
+        x0, x1 = sorted((start, current))
+        t0 = tl.time_at_x(x0, state.tl_zoom())
+        t1 = tl.time_at_x(x1, state.tl_zoom())
+        starts = tl.clip_starts(self.project.video)
+        chosen = {
+            clip.id for clip, start_t in zip(self.project.video.clips, starts)
+            if start_t < t1 and start_t + clip.duration > t0
+        }
+        state.multi_selection.set(frozenset(chosen))
+        state.marquee.set(state.Marquee(x0, 0.0, x1, 0.0))
+
+    def end_marquee(self) -> None:
+        self._marquee_start = None
+        state.marquee.set(None)
+        chosen = state.multi_selection()
+        if chosen:
+            first = next((c.id for c in self.project.video.clips if c.id in chosen), None)
+            state.selection.set(("clip", first) if first else None)
+        else:
+            state.selection.set(None)
+
+    # -- reubicar carpeta (B6) ------------------------------------------------------
+
+    def relocate_folder(self) -> None:
+        if not self._guard_editable():
+            return
+        from . import file_dialogs
+
+        try:
+            folder = file_dialogs.pick_folder(state.recordings_dir(), title="Reubicar archivos del proyecto")
+        except Exception as exc:
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if folder is not None:
+            threading.Thread(
+                target=self.relocate_folder_to, args=(folder,), daemon=True, name="relocate-folder"
+            ).start()
+
+    def relocate_folder_to(self, folder: Path) -> bool:
+        """Busca los assets offline por nombre dentro de `folder` y los reemplaza de una vez."""
+        project = self.project
+        missing = [a for a in project.assets if media.is_offline(a)]
+        if not missing:
+            state.toast("info", "No hay archivos offline que reubicar")
+            return False
+        found: dict[str, Path] = {}
+        files = [p for p in Path(folder).rglob("*") if p.is_file()]
+        for asset in missing:
+            wanted = Path(asset.path).name.lower()
+            match = next((p for p in files if p.name.lower() == wanted), None)
+            if match is not None:
+                found[asset.id] = match
+        if not found:
+            state.toast("warning", f"No encontré ninguno de los {len(missing)} archivo(s) en «{folder.name}»")
+            return False
+        replaced: dict[str, MediaAsset] = {}
+        for asset in missing:
+            path = found.get(asset.id)
+            if path is None:
+                continue
+            try:
+                probed = media.probe(path, asset_id=asset.id)
+                if (asset.width > 0 or asset.height > 0) and (probed.width <= 0 or probed.height <= 0):
+                    state.toast("warning", f"«{path.name}» no tiene pista de video")
+                    continue
+                replaced[asset.id] = probed
+            except RecStudioError as exc:
+                state.toast("warning", exc.message)
+        if not replaced:
+            return False
+        assets = tuple(replaced.get(a.id, a) for a in project.assets)
+        if not self._apply(f"reubicar {len(replaced)} archivo(s)", replace(project, assets=assets)):
+            return False
+        self._refresh_offline(self.project)
+        for asset in replaced.values():
+            self._queue_waveform(asset)
+            self._queue_thumbs(asset)
+            self._queue_proxy(asset)
+            self._queue_proxy(asset)
+        state.toast(
+            "success",
+            f"{len(replaced)} de {len(missing)} archivo(s) reubicado(s) desde «{folder.name}»",
+        )
+        return True
 
     def _transition_index(self) -> int | None:
         selection = state.selection()
@@ -497,6 +931,17 @@ class EditorController:
             return t
         return tl.snap(t, candidates, state.tl_zoom())
 
+    def _source_peaks(self, project: Project) -> dict[str, list[float]]:
+        """Picos de audio por asset para el snap (B4); solo los que ya tienen waveform cacheada."""
+        peaks: dict[str, list[float]] = {}
+        for asset in project.assets:
+            if not asset.has_audio:
+                continue
+            waveform = media.cached_waveform(asset.path)
+            if waveform is not None:
+                peaks[asset.id] = media.waveform_peaks(waveform)
+        return peaks
+
     def begin_move(self, clip_id: str) -> None:
         if not self._guard_editable() or not self.project.has_clip(clip_id):
             return
@@ -505,7 +950,10 @@ class EditorController:
         index = project.video.index_of(clip_id)
         start = tl.clip_starts(project.video)[index]
         self.store.begin("mover clip")
-        self._drag = {"kind": "move", "id": clip_id, "project": project, "start": start, "dx": 0.0}
+        self._drag = {
+            "kind": "move", "id": clip_id, "project": project, "start": start, "dx": 0.0,
+            "audio_peaks": self._source_peaks(project),
+        }
         state.selection.set(("clip", clip_id))
 
     def drag_move(self, dx: float) -> None:
@@ -519,6 +967,7 @@ class EditorController:
         clip = base.clip(drag["id"])
         ghost = drag["start"] + dx / state.tl_zoom()
         cands = tl.snap_candidates(base, playhead=state.playhead(), exclude=clip.id)
+        cands += tl.audio_snap_candidates(base, clip.id, drag.get("audio_peaks", {}))
         snapped_start = self._snap(ghost, cands)
         snapped_end = self._snap(ghost + clip.duration, cands) - clip.duration
         ghost = snapped_start if snapped_start != ghost else snapped_end
@@ -535,7 +984,10 @@ class EditorController:
         index = project.video.index_of(clip_id)
         start = tl.clip_starts(project.video)[index]
         self.store.begin("recortar")
-        self._drag = {"kind": f"trim_{side}", "id": clip_id, "project": project, "index": index, "start": start}
+        self._drag = {
+            "kind": f"trim_{side}", "id": clip_id, "project": project, "index": index, "start": start,
+            "audio_peaks": self._source_peaks(project),
+        }
         state.selection.set(("clip", clip_id))
 
     def drag_trim(self, dx: float) -> None:
@@ -552,6 +1004,7 @@ class EditorController:
         cands = [0.0, state.playhead()]
         for j in range(index):
             cands += [starts[j], starts[j] + base.video.clips[j].duration]
+        cands += tl.audio_snap_candidates(base, clip.id, drag.get("audio_peaks", {}))
         if drag["kind"] == "trim_l":
             edge = self._snap(start + dx / zoom, cands)
             new_in = clip.in_ + (edge - start) * clip.speed
@@ -659,8 +1112,8 @@ class EditorController:
             if state.export_open():
                 self.close_export()
                 return True
-            if state.selection() is not None:
-                state.selection.set(None)
+            if state.multi_selection() or state.selection() is not None:
+                self.clear_selection()
                 return True
             return None
         if e.matches("mod+z"):
@@ -672,6 +1125,13 @@ class EditorController:
         if e.matches("mod+s"):
             self.save()
             return True
+        if e.matches("mod+a"):
+            if from_input:  # seleccionar el texto del campo, no todos los clips
+                return None
+            if state.project_open():
+                self.select_all()
+                return True
+            return None
         if e.matches("mod+i"):
             self.open_import()
             return True
@@ -838,6 +1298,10 @@ class EditorController:
         except RecStudioError as exc:
             state.toast("danger", exc.message)
             return False
+        old = self.project.asset(asset_id)
+        if (old.width > 0 or old.height > 0) and (probed.width <= 0 or probed.height <= 0):
+            state.toast("danger", f"«{path.name}» no tiene pista de video")
+            return False
         project = self.project
         assets = tuple(probed if a.id == asset_id else a for a in project.assets)
         if not self._apply("reubicar archivo", replace(project, assets=assets)):
@@ -845,6 +1309,7 @@ class EditorController:
         self._refresh_offline(self.project)
         self._queue_waveform(probed)
         self._queue_thumbs(probed)
+        self._queue_proxy(probed)
         state.toast("success", f"Archivo reubicado: {Path(path).name}")
         return True
 
@@ -875,6 +1340,8 @@ class EditorController:
         self.store.reset(project, path, saved=saved)
         self.store.read_only = read_only
         state.selection.set(None)
+        state.multi_selection.set(frozenset())
+        state.marquee.set(None)
         state.project_path.set(str(path) if path else "")
         state.project_open.set(True)
         self._sync_meta()
@@ -884,6 +1351,7 @@ class EditorController:
         for asset in project.assets:
             self._queue_waveform(asset)
             self._queue_thumbs(asset)
+            self._queue_proxy(asset)
         self.settings.last_project = str(path) if path else ""
 
     def _refresh_offline(self, project: Project) -> None:
@@ -926,7 +1394,11 @@ class EditorController:
         for path in paths:
             state.importing.set((*state.importing(), path.name))
             try:
-                assets.append(media.probe(path))
+                asset = media.probe(path)
+                if asset.width <= 0 or asset.height <= 0:
+                    state.toast("warning", f"«{path.name}» no tiene pista de video; usa ♪ para música")
+                else:
+                    assets.append(asset)
             except RecStudioError as exc:
                 state.toast("danger", exc.message)
             finally:
@@ -976,8 +1448,10 @@ class EditorController:
                     self._refresh_offline(project)
                     self.zoom_fit()
                     for asset in assets:
-                        self._queue_waveform(project.asset_for_path(asset.path) or asset)
-                        self._queue_thumbs(project.asset_for_path(asset.path) or asset)
+                        effective = project.asset_for_path(asset.path) or asset
+                        self._queue_waveform(effective)
+                        self._queue_thumbs(effective)
+                        self._queue_proxy(effective)
                     state.toast("success", f"{len(assets)} video(s) añadidos al final del timeline")
             self.refresh_recent()
 
@@ -1029,6 +1503,8 @@ class EditorController:
                 state.project_open.set(False)
                 state.project_path.set("")
                 state.selection.set(None)
+                state.multi_selection.set(frozenset())
+                state.marquee.set(None)
                 state.preview_frame.set(b"")
                 state.playhead.set(0.0)
                 self.settings.last_project = ""
@@ -1062,6 +1538,32 @@ class EditorController:
                     self._thumb_pending.discard(asset.path)
 
         threading.Thread(target=worker, daemon=True, name="thumbstrip").start()
+
+    # -- proxy de preview (B5) ----------------------------------------------------
+
+    def _queue_proxy(self, asset: MediaAsset) -> None:
+        """Genera un proxy 540p en un hilo para videos pesados (4K/60+); el export usa el original."""
+        if not media.is_heavy(asset) or media.is_offline(asset):
+            return
+        if media.cached_proxy(asset.path) is not None:
+            state.proxies.set(state.proxies() + 1)
+            return
+        with self._proxy_lock:
+            if asset.path in self._proxy_pending:
+                return
+            self._proxy_pending.add(asset.path)
+
+        def worker() -> None:
+            try:
+                media.proxy(asset.path)
+                state.proxies.set(state.proxies() + 1)
+            except RecStudioError:
+                pass
+            finally:
+                with self._proxy_lock:
+                    self._proxy_pending.discard(asset.path)
+
+        threading.Thread(target=worker, daemon=True, name="proxy").start()
 
     # -- waveforms ----------------------------------------------------------------
 

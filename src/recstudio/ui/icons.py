@@ -57,3 +57,6 @@ MUTE = _svg('<path d="M4.5 9.5h3l4.5-4v13l-4.5-4h-3z"/><path d="M16 9.5l5 5M21 9
 
 # -- pulido (F5) -------------------------------------------------------------------
 PANEL = _svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.5 4.5v15"/>')
+TEXT = _svg('<path d="M5 6.5V5h14v1.5M12 5v14M8.5 19h7"/>')
+MUSIC = _svg('<path d="M9 18V6l9-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>')
+SELECT = _svg('<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/>')

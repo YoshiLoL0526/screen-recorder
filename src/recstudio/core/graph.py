@@ -233,6 +233,144 @@ def _concat(labels: list[str], out: str, *, video: bool) -> str:
     return f"{''.join(f'[{x}]' for x in labels)}concat=n={len(labels)}:v={v}:a={a}[{out}]"
 
 
+def video_has_audio(project: Project) -> bool:
+    """¿El audio propio del video (voz/sistema) suena? Es el sidechain del ducking (B1)."""
+    by_id = {a.id: a for a in project.assets}
+    return not project.video.muted and project.video.gain > 0 and any(
+        by_id[c.asset_id].has_audio for c in project.video.clips if c.asset_id in by_id
+    )
+
+
+def _join_audio_track(chains: list[str], labels: list[str], transitions, prefix: str) -> str:  # noqa: ANN001
+    """Une los clips de una pista de audio con `concat` (corte) o `acrossfade` (transición)."""
+    if len(labels) == 1:
+        return labels[0]
+    current = labels[0]
+    for index in range(1, len(labels)):
+        out = f"{prefix}{index}"
+        transition = transitions[index - 1] if index - 1 < len(transitions) else None
+        if transition is not None:
+            chains.append(
+                f"[{current}][{labels[index]}]acrossfade=d={num(transition.duration)}:c1=tri:c2=tri[{out}]"
+            )
+        else:
+            chains.append(f"[{current}][{labels[index]}]concat=n=2:v=0:a=1[{out}]")
+        current = out
+    return current
+
+
+def _audio_section(
+    project: Project, inputs: list[str], chains: list[str], *, first_extra_input: int,
+    total_frames: int, frames: list[int], overlaps: list[int],
+) -> str:
+    """Añade a `chains` el audio del video y las pistas extra; devuelve la etiqueta de salida.
+
+    `first_extra_input` es el índice de la primera entrada de las pistas de audio; las entradas
+    de video ya están en `inputs` (una por clip) y se numeran desde 0.
+    """
+    track = project.video
+    by_id = {a.id: a for a in project.assets}
+    n = len(track.clips)
+    labels: list[str] = []
+    track_gain = 0.0 if track.muted else track.gain
+    for k, clip in enumerate(track.clips):
+        skip = overlaps[k - 1] / project.fps if k > 0 else 0.0
+        duration = (frames[k] - (overlaps[k - 1] if k > 0 else 0)) / project.fps
+        gain = fx.gain(clip) * track_gain
+        label = f"a{k}"
+        if by_id[clip.asset_id].has_audio and gain > 0:
+            steps = _audio_steps(clip, skip=skip, duration=duration, gain=gain,
+                                 micro_in=k > 0, micro_out=k < n - 1)
+            chains.append(f"[{k}:a]{','.join(steps)}[{label}]")
+        else:
+            chains.append(f"{_silence(duration)}[{label}]")
+        labels.append(label)
+    main = labels[0]
+    if len(labels) > 1:
+        main = "amain"
+        chains.append(_concat(labels, main, video=False))
+
+    mixes = [main]
+    total = total_frames / project.fps
+    next_input = first_extra_input
+    for t_index, extra in enumerate(project.audio):
+        if extra.muted or extra.gain <= 0 or not extra.clips:
+            continue
+        extra_labels: list[str] = []
+        for j, clip in enumerate(extra.clips):
+            asset = by_id[clip.asset_id]
+            label = f"m{t_index}_{j}"
+            if not asset.has_audio:
+                chains.append(f"{_silence(clip.duration)}[{label}]")
+            else:
+                inputs += ["-ss", num(clip.in_), "-t", num(clip.source_duration + _INPUT_SLACK),
+                           "-i", asset.path]
+                transition_in = j > 0 and extra.transitions[j - 1] is not None
+                transition_out = j < len(extra.clips) - 1 and extra.transitions[j] is not None
+                steps = _audio_steps(clip, skip=0.0, duration=clip.duration,
+                                     gain=fx.gain(clip) * extra.gain,
+                                     micro_in=j > 0 and not transition_in,
+                                     micro_out=j < len(extra.clips) - 1 and not transition_out)
+                chains.append(f"[{next_input}:a]{','.join(steps)}[{label}]")
+                next_input += 1
+            extra_labels.append(label)
+        source = _join_audio_track(chains, extra_labels, extra.transitions, f"m{t_index}c")
+        joined = f"m{t_index}"
+        chains.append(f"[{source}]apad=whole_dur={num(total)},atrim=duration={num(total)}[{joined}]")
+        if extra.ducking > 0 and video_has_audio(project):
+            # El audio del video (voz/sistema) es el sidechain; la música baja cuando suena.
+            ratio = 2.0 + 10.0 * extra.ducking
+            ducked = f"m{t_index}d"
+            chains.append(
+                f"[{joined}][{main}]sidechaincompress=threshold=0.05:ratio={num(ratio)}"
+                f":attack=20:release=350[{ducked}]"
+            )
+            joined = ducked
+        mixes.append(joined)
+    if len(mixes) > 1:
+        chains.append(f"{''.join(f'[{m}]' for m in mixes)}amix=inputs={len(mixes)}:normalize=0"
+                      f":duration=first[aout]")
+        return "aout"
+    return main
+
+
+# -- textos (B2) ------------------------------------------------------------------------
+
+#: Fuente por defecto de los textos. Windows es la plataforma objetivo (docs/01); si falta,
+#: FFmpeg devuelve un error explicable al exportar.
+FONT_REGULAR = "C:/Windows/Fonts/arial.ttf"
+FONT_BOLD = "C:/Windows/Fonts/arialbd.ttf"
+
+
+def _escape_text(value: str) -> str:
+    """Escapa el texto para `drawtext=text='…'` (comillas, barras y dos puntos)."""
+    return (value.replace("\\", "\\\\").replace("'", "\\'").replace(":", "\\:")
+            .replace(",", "\\,").replace(";", "\\;").replace("\n", " "))
+
+
+def _escape_path(value: str) -> str:
+    return value.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
+
+
+def text_filters(project: Project, output_height: int) -> list[str]:
+    """Filtros `drawtext` de los textos del proyecto, escalados al alto de salida."""
+    if project.height <= 0:
+        return []
+    filters: list[str] = []
+    for overlay in project.texts:
+        size = max(1, int(round(overlay.size * output_height / project.height)))
+        font = FONT_BOLD if overlay.bold else FONT_REGULAR
+        color = "0x" + overlay.color.lstrip("#")
+        filters.append(
+            f"drawtext=fontfile='{_escape_path(font)}':text='{_escape_text(overlay.text)}':"
+            f"fontsize={size}:fontcolor={color}:expansion=none:"
+            f"x=(w*{num(overlay.x)})-(text_w/2):y=(h*{num(overlay.y)})-(text_h/2):"
+            f"borderw=2:bordercolor=black@0.55:"
+            f"enable='between(t,{num(overlay.start)},{num(overlay.end)})'"
+        )
+    return filters
+
+
 # -- builder ----------------------------------------------------------------------------
 
 
@@ -309,63 +447,19 @@ def build(
         pending, pending_frames = [label], pending_frames + frames[k] - overlap
     video_out = flush()
 
+    # -- textos: se queman sobre el video ya compuesto (tiempo global) --------------------
+    filters = text_filters(project, size[1])
+    if filters:
+        chains.append(f"[{video_out}]{','.join(filters)}[vtext]")
+        video_out = "vtext"
+
     # -- audio --------------------------------------------------------------------------
     audio_out = ""
     if has_audio:
-        labels: list[str] = []
-        track_gain = 0.0 if track.muted else track.gain
-        for k, clip in enumerate(track.clips):
-            skip = overlaps[k - 1] / fps if k > 0 else 0.0
-            duration = (frames[k] - (overlaps[k - 1] if k > 0 else 0)) / fps
-            gain = fx.gain(clip) * track_gain
-            label = f"a{k}"
-            if by_id[clip.asset_id].has_audio and gain > 0:
-                steps = _audio_steps(clip, skip=skip, duration=duration, gain=gain,
-                                     micro_in=k > 0, micro_out=k < n - 1)
-                chains.append(f"[{k}:a]{','.join(steps)}[{label}]")
-            else:
-                chains.append(f"{_silence(duration)}[{label}]")
-            labels.append(label)
-        main = labels[0]
-        if len(labels) > 1:
-            main = "amain"
-            chains.append(_concat(labels, main, video=False))
-
-        mixes = [main]
-        total = total_frames / fps
-        next_input = n
-        for t_index, extra in enumerate(project.audio):
-            if extra.muted or extra.gain <= 0 or not extra.clips:
-                continue
-            extra_labels: list[str] = []
-            for j, clip in enumerate(extra.clips):
-                asset = by_id[clip.asset_id]
-                label = f"m{t_index}_{j}"
-                if not asset.has_audio:
-                    chains.append(f"{_silence(clip.duration)}[{label}]")
-                else:
-                    inputs += ["-ss", num(clip.in_), "-t", num(clip.source_duration + _INPUT_SLACK),
-                               "-i", asset.path]
-                    steps = _audio_steps(clip, skip=0.0, duration=clip.duration,
-                                         gain=fx.gain(clip) * extra.gain, micro_in=j > 0,
-                                         micro_out=j < len(extra.clips) - 1)
-                    chains.append(f"[{next_input}:a]{','.join(steps)}[{label}]")
-                    next_input += 1
-                extra_labels.append(label)
-            joined = f"m{t_index}"
-            if len(extra_labels) > 1:
-                chains.append(_concat(extra_labels, f"{joined}c", video=False))
-                source = f"{joined}c"
-            else:
-                source = extra_labels[0]
-            chains.append(f"[{source}]apad=whole_dur={num(total)},atrim=duration={num(total)}[{joined}]")
-            mixes.append(joined)
-        if len(mixes) > 1:
-            audio_out = "aout"
-            chains.append(f"{''.join(f'[{m}]' for m in mixes)}amix=inputs={len(mixes)}:normalize=0"
-                          f":duration=first[{audio_out}]")
-        else:
-            audio_out = main
+        audio_out = _audio_section(
+            project, inputs, chains, first_extra_input=len(track.clips), total_frames=total_frames,
+            frames=frames, overlaps=overlaps,
+        )
 
     filter_complex = ";".join(chains)
     args: list[str] = [exe, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *inputs,
@@ -392,3 +486,34 @@ def build(
         has_audio=bool(audio_out),
         encoder=encoder,
     )
+
+
+def build_audio(
+    project: Project, out_path: str | Path, *, exe: str = "ffmpeg"
+) -> tuple[str, ...]:
+    """Comando FFmpeg **solo audio** (WAV PCM) para el preview de B1, con la misma mezcla,
+    crossfades y ducking que el export. Devuelve los argumentos completos."""
+    track = project.video
+    if not track.clips:
+        raise ProjectError("el timeline está vacío: no hay audio que previsualizar")
+    project.validate()
+    if not project_has_audio(project):
+        raise ProjectError("el proyecto no tiene audio")
+    frames, overlaps, total_frames = timeline_frames(project)
+    by_id = {a.id: a for a in project.assets}
+    inputs: list[str] = []
+    for clip in track.clips:
+        asset = by_id[clip.asset_id]
+        inputs += ["-ss", num(clip.in_), "-t", num(clip.source_duration + _INPUT_SLACK),
+                   "-i", asset.path]
+    chains: list[str] = []
+    audio_out = _audio_section(
+        project, inputs, chains, first_extra_input=len(track.clips), total_frames=total_frames,
+        frames=frames, overlaps=overlaps,
+    )
+    return tuple([
+        exe, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *inputs,
+        "-filter_complex", ";".join(chains), "-map", f"[{audio_out}]",
+        "-c:a", "pcm_s16le", "-ar", str(AUDIO_RATE), "-ac", "2",
+        "-f", "wav", str(out_path),
+    ])

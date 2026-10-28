@@ -15,13 +15,14 @@ Convenciones:
 
 from __future__ import annotations
 
+import re
 import uuid
 from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from .errors import ProjectError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2  # v2: textos y ducking de pistas de audio (B1/B2)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -29,6 +30,8 @@ TRANSITION_KINDS = (
     "fade", "fadeblack", "fadewhite", "wipeleft", "wiperight", "slideleft", "circleopen", "dissolve",
 )
 EFFECT_KINDS = ("eq", "volume", "fade_in", "fade_out", "speed", "zoom")
+TEXT_SIZE_MIN, TEXT_SIZE_MAX = 8, 200
+_TEXT_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # Holgura al comparar con la duración del asset (los probes redondean a µs).
 _EPS = 1e-6
 
@@ -83,6 +86,37 @@ class Transition:
 
 
 @dataclass(frozen=True)
+class TextOverlay:
+    """Texto quemado sobre el video (B2). `x`/`y` son el **centro** en fracciones del frame."""
+
+    id: str
+    text: str
+    start: float
+    end: float
+    x: float = 0.5
+    y: float = 0.82
+    size: int = 42
+    color: str = "#FFFFFF"
+    bold: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.text.strip():
+            raise ProjectError("el texto no puede estar vacío")
+        if self.start < 0 or not self.end > self.start:
+            raise ProjectError(f"texto {self.id}: intervalo inválido ({self.start}–{self.end})")
+        if not 0.0 <= self.x <= 1.0 or not 0.0 <= self.y <= 1.0:
+            raise ProjectError(f"texto {self.id}: posición fuera del frame ({self.x}, {self.y})")
+        if not TEXT_SIZE_MIN <= int(self.size) <= TEXT_SIZE_MAX:
+            raise ProjectError(f"texto {self.id}: tamaño fuera de [{TEXT_SIZE_MIN}, {TEXT_SIZE_MAX}]")
+        if not _TEXT_COLOR.match(self.color):
+            raise ProjectError(f"texto {self.id}: color inválido ({self.color!r})")
+
+    @property
+    def seconds(self) -> float:
+        return self.end - self.start
+
+
+@dataclass(frozen=True)
 class Clip:
     id: str
     asset_id: str
@@ -116,12 +150,15 @@ class Track:
     transitions: tuple[Transition | None, ...] = ()
     muted: bool = False
     gain: float = 1.0
+    ducking: float = 0.0  # 0…1: cuánto baja la música cuando hay voz (solo pistas de audio)
 
     def __post_init__(self) -> None:
         if len(self.transitions) != max(0, len(self.clips) - 1):
             raise ProjectError(
                 f"pista {self.kind}: {len(self.transitions)} transiciones para {len(self.clips)} clips"
             )
+        if not 0.0 <= self.ducking <= 1.0:
+            raise ProjectError(f"pista {self.kind}: ducking fuera de [0, 1] ({self.ducking})")
 
     def index_of(self, clip_id: str) -> int:
         for index, clip in enumerate(self.clips):
@@ -137,6 +174,7 @@ class Project:
     assets: tuple[MediaAsset, ...] = ()
     video: Track = field(default_factory=lambda: Track("video"))
     audio: tuple[Track, ...] = ()
+    texts: tuple[TextOverlay, ...] = ()
     fps: int = 60
     width: int = 1920
     height: int = 1080
@@ -163,6 +201,15 @@ class Project:
 
     def has_clip(self, clip_id: str) -> bool:
         return any(c.id == clip_id for c in self.video.clips)
+
+    def text(self, text_id: str) -> TextOverlay:
+        for overlay in self.texts:
+            if overlay.id == text_id:
+                return overlay
+        raise ProjectError(f"no existe el texto {text_id}")
+
+    def has_text(self, text_id: str) -> bool:
+        return any(t.id == text_id for t in self.texts)
 
     # -- validación ------------------------------------------------------------
 
@@ -195,6 +242,9 @@ class Project:
                     )
         if len(set(clip_ids)) != len(clip_ids):
             raise ProjectError("ids de clip duplicados")
+        text_ids = [t.id for t in self.texts]
+        if len(set(text_ids)) != len(text_ids):
+            raise ProjectError("ids de texto duplicados")
         return self
 
 
@@ -221,6 +271,7 @@ def to_dict(project: Project) -> dict[str, Any]:
             "transitions": [None if tr is None else {"kind": tr.kind, "duration": tr.duration} for tr in t.transitions],
             "muted": t.muted,
             "gain": t.gain,
+            "ducking": t.ducking,
         }
 
     return {
@@ -239,6 +290,13 @@ def to_dict(project: Project) -> dict[str, Any]:
         ],
         "video": track_dict(project.video),
         "audio": [track_dict(t) for t in project.audio],
+        "texts": [
+            {
+                "id": t.id, "text": t.text, "start": t.start, "end": t.end,
+                "x": t.x, "y": t.y, "size": t.size, "color": t.color, "bold": t.bold,
+            }
+            for t in project.texts
+        ],
     }
 
 
@@ -268,6 +326,7 @@ def from_dict(data: dict[str, Any]) -> Project:
                 ),
                 muted=bool(d.get("muted", False)),
                 gain=float(d.get("gain", 1.0)),
+                ducking=float(d.get("ducking", 0.0)),
             )
 
         assets = tuple(
@@ -284,12 +343,21 @@ def from_dict(data: dict[str, Any]) -> Project:
             )
             for a in data.get("assets", ())
         )
+        texts = tuple(
+            TextOverlay(
+                id=str(t["id"]), text=str(t["text"]), start=float(t["start"]), end=float(t["end"]),
+                x=float(t.get("x", 0.5)), y=float(t.get("y", 0.82)), size=int(t.get("size", 42)),
+                color=str(t.get("color", "#FFFFFF")), bold=bool(t.get("bold", False)),
+            )
+            for t in data.get("texts", ())
+        )
         return Project(
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
             name=str(data.get("name", "Sin título")),
             assets=assets,
             video=track_of(data.get("video", {}), "video"),
             audio=tuple(track_of(t, "audio") for t in data.get("audio", ())),
+            texts=texts,
             fps=int(data.get("fps", 60)),
             width=int(data.get("width", 1920)),
             height=int(data.get("height", 1080)),

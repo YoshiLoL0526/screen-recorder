@@ -2,9 +2,10 @@
 
 > Estado a **2026-10-28**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
 > filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.5) y el
-> **bloque A** ([16 — Bloque A](16-bloque-a-entrega.md)). Este documento es la **fuente de verdad
-> de lo que queda**; [06](06-roadmap.md) conserva las fases F0–F5, sus criterios de aceptación y la
-> tabla de riesgos (R1–R11), a los que aquí se hace referencia.
+> **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md)).
+> Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
+> F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
+> referencia.
 
 ## Cómo leerlo
 
@@ -26,10 +27,10 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**208 tests** en verde y `tools/check_build.py` OK (bundle de **253 MB** en local / **250 MB** en el
-CI con `aurora 0.5.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI está **en
-verde** (`40701857907`) y ya valida también el instalador. Todo lo que sigue **no está
-implementado**, salvo lo marcado como hecho en el bloque A.
+**226 tests** en verde y `tools/check_build.py` OK (bundle de **253 MB** en local / **250 MB** en el
+CI con `aurora 0.5.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests +
+build + instalador. Todo lo que sigue **no está implementado**, salvo lo marcado como hecho en los
+bloques A y B.
 
 ---
 
@@ -70,61 +71,46 @@ limpia sigue pendiente (A2), igual que el móvil, el soak y el ratón (A6–A8).
 
 ---
 
-## Bloque B — Editor: lo que falta del producto
+## Bloque B — Editor: lo hecho
 
-El editor tiene el modelo, el timeline, el preview y el export. Falta lo que la gente espera después
-de cortar y pegar.
+El editor ya tiene todo lo de v1 y ahora también música, textos, selección múltiple, snap de audio,
+proxy y reubicar carpetas. Resultados y decisiones en
+[17 — Bloque B](17-bloque-b-editor.md).
 
-### B1 — Pista de música, ducking y crossfades de audio (🔜 · L)
+### B1 — Pista de música, ducking y crossfades de audio (✅ · L)
 
-- **Por qué**: es el uso más pedido en un grabador de pantalla (poner música de fondo a un tutorial).
-  El `filter_complex` de F4 **ya mezcla** pistas de audio; lo que falta es la UI.
-- **Dónde**: `core/graph.py` (ya preparado), `core/project.py` (`Track("audio")` existe en el modelo),
-  `ui/timeline.py` (pintar la pista de audio ya está resuelto para el waveform), `services/export.py`,
-  inspector.
-- **Qué falta**: importar audio, añadirlo como clip a la pista de audio, volumen por clip y por pista
-  (el `insp_track_gain` ya existe), **ducking** (bajar la música cuando suena la voz del sistema/mic)
-  y `acrossfade` entre clips de música.
-- **Criterio**: un proyecto con video + música exporta con la mezcla audible y el ducking medible
-  (comparar el nivel de la música con y sin voz); el preview suena igual que el export.
+- `Track` gana `ducking` (0…1); `Project.audio` se dibuja en una pista **M** propia.
+- Importar música (`EditorController.import_music`) crea la pista y sus clips; inspector con volumen de pista,
+  volumen del clip, ducking y crossfade.
+- Export: `acrossfade` entre clips de música y `sidechaincompress` usando el audio del video como
+  sidechain; el preview reproduce la **misma mezcla** renderizada a WAV por FFmpeg (cacheada).
 
-### B2 — Textos y títulos sobre el video (⏳ · L)
+### B2 — Textos y títulos sobre el video (✅ · L)
 
-- **Por qué**: títulos de sección y subtítulos quemados opcionales (docs/01).
-- **Dónde**: nuevo `core/effects.py` (`kind="text"`), `core/graph.py` (`drawtext`), preview.
-- **Bloqueado por**: el preview. `canvas()` no dibuja imágenes y el preview es una `image()` con el
-  JPEG del frame; dibujar texto encima exige componer en el render (PIL/PyAV) o esperar a un
-  `canvas.image()` de Aurora. **Decisión previa obligatoria** (ver bloque F).
-- **Criterio**: un texto con fuente/tamaño/posición/color se ve igual en preview y en el export.
+- `TextOverlay` en `Project.texts` (texto, intervalo, posición, tamaño, color, negrita).
+- Export con `drawtext` (una sola cadena, `expansion=none`, texto escapado); preview con PIL sobre
+  el frame, misma posición y escala. `texts` bloquea el corte rápido.
 
-### B3 — Selección múltiple y operaciones en lote (⏳ · M)
+### B3 — Selección múltiple y operaciones en lote (✅ · M)
 
-- **Por qué**: borrar/mover 20 cortes de uno en uno es tedioso.
-- **Dónde**: `ui/timeline.py` (marquee en zona vacía — ya anotado como post-v1 en docs/05),
-  `state.selection`, `ui/editor_controller.py` (`delete`/`move` en lote con un solo paso de undo).
-- **Criterio**: arrastrar un rectángulo selecciona N clips; `Supr` los borra con **un** undo.
+- Herramienta de marquesina en la barra del timeline; `Supr` borra N clips con **un** undo;
+  `Ctrl+A` selecciona todo. La selección se pinta en el canvas.
 
-### B4 — Snap de audio por waveform (⏳ · M)
+### B4 — Snap de audio por waveform (✅ · M)
 
-- **Por qué**: alinear dos clips por el sonido (una palmada) es lo que hace el «snap de audio» de
-  docs/01. Hoy el snap es solo por tiempo.
-- **Dónde**: `core/timeline.py` (snap puro), `services/media.py` (ya hay picos por bucket),
-  `ui/editor_controller.py`.
-- **Criterio**: al mover un clip cerca de un pico del vecino, el snap engancha en el pico.
+- `media.waveform_peaks` elige máximos locales; `tl.audio_snap_candidates` los mapea al timeline.
+  Mover o recortar un clip engancha también a los picos de los vecinos y de la música.
 
-### B5 — Proxy automático para videos pesados (⏳ · M, plan B de R3)
+### B5 — Proxy automático para videos pesados (✅ · M, plan B de R3)
 
-- **Por qué**: R3 (docs/06) — el preview no llega a 24 fps con 4K o códecs exigentes.
-- **Dónde**: `services/media.py` (transcode 540p al importar, cacheado), `services/playback.py`.
-- **Criterio**: un 4K60 de prueba se previsualiza a ≥ 24 fps sin tocar el export (que sigue usando el
-  original).
+- `media.proxy` transcodea 540p sin audio a la cache; `playback` usa el proxy si está listo y el
+  export sigue usando el original. Medido en esta máquina: 4K60 5.9 ms/frame → 540p 1.3 ms/frame
+  (4.6×), con el proxy generado en 0.6 s para 2 s de video.
 
-### B6 — Reubicar carpetas y buscar archivos (⏳ · S)
+### B6 — Reubicar carpetas y buscar archivos (✅ · S)
 
-- **Por qué**: hoy «Reubicar…» es de uno en uno y por nombre; un proyecto con 30 clips movidos es
-  tedioso.
-- **Dónde**: `ui/editor_controller.py` (`relocate_asset`), `ui/screens/editor.py`.
-- **Criterio**: reubicar una carpeta entera resuelve todos los assets que falten de golpe.
+- «Reubicar carpeta…» busca por nombre (sin distinguir mayúsculas) en la carpeta elegida y resuelve
+  todos los assets offline de una vez, con un solo undo.
 
 ---
 
@@ -236,8 +222,8 @@ Si hay que elegir un orden (y no simplemente el orden del documento):
    smoke del exe, pero no el flujo CU-1→CU-5 con monitor y audio.
 2. **A6 + A7 + A8** — cerrar las comprobaciones manuales del bloque A (móvil, soak de 30 min y
    sensación del timeline); los procedimientos están en [docs/16](16-bloque-a-entrega.md).
-3. **B1** — pista de música. Es la función que más gente echa en falta y el motor ya la soporta.
-4. **C1** — webcam PiP, el siguiente salto de producto.
+3. **C1** — webcam PiP, el siguiente salto de producto.
+4. **D1** — GIF/WebM para compartir en un clic.
 5. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de
    Aurora (empezando por `chart` y `overflow`, que son los más baratos).
 

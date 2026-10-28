@@ -12,14 +12,15 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 
 ## Alcance funcional (editor)
 
-| Área | v1 |
+| Área | v1 + bloque B |
 |---|---|
-| Pistas | 1 de video + hasta 2 de audio (clip + música/segunda pista). Sin overlays. |
+| Pistas | 1 de video + hasta 2 de audio (clip + música/segunda pista). La música es secuencial y tiene ducking/crossfades. |
 | Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio, eq (brillo/contraste/saturación), zoom/escala. |
-| Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado. |
-| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap, playhead frame-accurate, waveform de audio. |
-| Preview | Play/pause, scrub, ±1 frame, loop de selección, resolución adaptativa, audio best-effort. |
-| Proyecto | `.rsproj/project.json` versionado, autosave, undo/redo por snapshots. |
+| Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
+| Textos | `TextOverlay` con intervalo, posición, tamaño, color y negrita; `drawtext` en export y PIL en preview. |
+| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio), playhead frame-accurate, waveform, filmstrip y marquesina. |
+| Preview | Play/pause, scrub, ±1 frame, loop de selección, resolución adaptativa, audio (mezcla completa best-effort) y proxy 540p. |
+| Proyecto | `.rsproj/project.json` versionado (schema 2), autosave, undo/redo por snapshots. |
 | Export | MP4 H.264, presets, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)
@@ -76,14 +77,28 @@ class Track:
     transitions: tuple[Transition | None, ...] = ()  # len(clips)-1 huecos
     muted: bool = False
     gain: float = 1.0
+    ducking: float = 0.0                    # 0…1, solo pistas de audio (B1)
+
+@dataclass(frozen=True)
+class TextOverlay:                          # B2
+    id: str
+    text: str
+    start: float
+    end: float
+    x: float = 0.5                          # centro, fracción del frame
+    y: float = 0.82
+    size: int = 42                          # px a la altura del proyecto
+    color: str = "#FFFFFF"
+    bold: bool = False
 
 @dataclass(frozen=True)
 class Project:
-    schema_version: int = 1
+    schema_version: int = 2
     name: str = "Sin título"
     assets: tuple[MediaAsset, ...] = ()
     video: Track = Track("video")
     audio: tuple[Track, ...] = ()           # pistas de audio (música / segunda voz)
+    texts: tuple[TextOverlay, ...] = ()     # textos quemados (B2)
     fps: int = 60                           # fps del proyecto (render)
     width: int = 1920
     height: int = 1080
@@ -93,8 +108,10 @@ Invariantes que valida `core/project.py` al construir (y que los tests cubren):
 
 - `0 ≤ in_ < out_ ≤ asset.duration`; `0.25 ≤ speed ≤ 4`.
 - `len(transitions) == max(0, len(clips) − 1)`; cada transición `0.2 ≤ d ≤ min(dur_a, dur_b) / 2`.
-- Assets referenciados existen (o se marcan offline).
-- IDs únicos.
+- Assets referenciados existen (o se marcan offline); un asset de solo audio tiene `width=height=0`
+  y `fps=0`.
+- `0 ≤ ducking ≤ 1`; textos con `0 ≤ start < end`, posición 0…1, tamaño 8–200 y color `#RRGGBB`.
+- IDs únicos (assets, clips y textos).
 
 ## Matemática del timeline (`core/timeline.py`, puro y testeado)
 

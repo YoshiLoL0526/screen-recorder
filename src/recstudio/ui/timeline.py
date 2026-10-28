@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 from aurora import Canvas, box, canvas, column, component, image, row, scroll, text
@@ -39,6 +39,7 @@ RULER_H = 24
 VIDEO_TOP = RULER_H + 6
 VIDEO_H = 62  # alto por defecto de las pistas (el divisor del editor las agranda o encoge)
 AUDIO_H = 40
+MUSIC_H = 38  # pista de música (B1): solo aparece si el proyecto tiene audio extra
 TRACKS_EXTRA_MIN = -14.0  # lo más que se pueden encoger (en px repartidos entre V y A)
 TRACKS_EXTRA_MAX = 420.0
 SPLIT_W = 12  # grosor de los divisores arrastrables del editor
@@ -66,14 +67,19 @@ class Tracks:
 
     video_h: float
     audio_h: float
+    music_h: float = 0.0
 
     @property
     def audio_top(self) -> float:
         return VIDEO_TOP + self.video_h + 6
 
     @property
+    def music_top(self) -> float:
+        return self.audio_top + self.audio_h + (6 if self.music_h else 0)
+
+    @property
     def content_h(self) -> float:
-        return self.audio_top + self.audio_h + 8
+        return self.music_top + self.music_h + 8
 
 
 def tracks_for(extra: float) -> Tracks:
@@ -83,13 +89,18 @@ def tracks_for(extra: float) -> Tracks:
 
 def max_tracks_extra(view_h: float) -> float:
     """Lo más que pueden crecer las pistas con este alto útil sin bajar el preview de su mínimo."""
-    return max(TRACKS_EXTRA_MIN, min(TRACKS_EXTRA_MAX, view_h - EDITOR_CHROME_H - PREVIEW_MIN_H))
+    music = MUSIC_H + 6 if state.editor_project().audio else 0.0
+    return max(TRACKS_EXTRA_MIN, min(TRACKS_EXTRA_MAX,
+                                     view_h - EDITOR_CHROME_H - PREVIEW_MIN_H - music))
 
 
 def tracks() -> Tracks:
     # El tope se aplica al dibujar (no al guardar): si la ventana encoge, las pistas también, y
     # al volver a agrandarla recuperan el alto elegido.
-    return tracks_for(min(state.tl_tracks_extra(), max_tracks_extra(state.view_h())))
+    base = tracks_for(min(state.tl_tracks_extra(), max_tracks_extra(state.view_h())))
+    if state.editor_project().audio:
+        return replace(base, music_h=MUSIC_H)
+    return base
 
 
 def content_width(project: Project, zoom: float, view_w: float) -> float:
@@ -196,6 +207,7 @@ def _draw_tracks(c: Canvas) -> None:
     project: Project = state.editor_project()
     zoom = state.tl_zoom()
     selection = state.selection()
+    multi = state.multi_selection()
     drag = state.tl_drag()
     offline = state.offline_assets()
     state.waveforms()  # dependencia: redibujar cuando llega un waveform
@@ -218,7 +230,7 @@ def _draw_tracks(c: Canvas) -> None:
             continue
         is_offline = clip.asset_id in offline
         moving = drag is not None and drag.kind == "move" and drag.clip_id == clip.id
-        selected = clip.id == selected_id
+        selected = clip.id == selected_id or clip.id in multi
         if moving:  # el hueco que ocupará al soltar
             c.rect(x + 1, VIDEO_TOP, w - 2, video_h, radius=6, stroke="$primary", stroke_width=1.5, dash=(5, 4))
             continue
@@ -258,6 +270,45 @@ def _draw_tracks(c: Canvas) -> None:
                         c.polygon(pts, fill="$wave")
         elif asset is not None and not asset.has_audio:
             c.text(x + 8, audio_top + 13, _ellipsis("sin audio", w - 12, 10), size=10, color="$muted")
+
+    # Pista de música (B1): clips secuenciales, waveform del asset y nombre.
+    if lay.music_h > 0 and project.audio:
+        track = project.audio[0]
+        starts = tl.clip_starts(track)
+        selected_music = selection is not None and selection[0] == "music"
+        c.rect(0, lay.music_top - 3, c.width, lay.music_h + 6, fill="$track_bg")
+        for index, clip in enumerate(track.clips):
+            start = starts[index]
+            x, w = start * zoom, max(2.0, clip.duration * zoom)
+            if x > x1 or x + w < x0:
+                continue
+            try:
+                asset = project.asset(clip.asset_id)
+            except Exception:
+                continue
+            is_offline = clip.asset_id in offline
+            c.rect(x + 1, lay.music_top, w - 2, lay.music_h, radius=5,
+                   fill="$clip_audio", stroke="$primary" if selected_music else "$clip_edge",
+                   stroke_width=2 if selected_music else 1, dash=(4, 3) if is_offline else None)
+            if asset.has_audio and zoom >= 20 and not is_offline:
+                peaks = media.cached_waveform(asset.path)
+                if peaks is not None and peaks.size:
+                    vx0, vx1 = max(x, x0), min(x + w, x1)
+                    if vx1 - vx0 > 2:
+                        t0 = clip.in_ + (vx0 - x) / zoom * clip.speed
+                        t1 = clip.in_ + (vx1 - x) / zoom * clip.speed
+                        pts = _waveform_points(peaks, vx0, vx1 - vx0, lay.music_top, lay.music_h,
+                                               t0, t1, 1.0)
+                        if pts is not None:
+                            c.polygon(pts, fill="$wave")
+            label_x = _clip_label_x(w, x)
+            c.text(label_x, lay.music_top + 6, _ellipsis(asset.name, x + w - label_x - 6, 11),
+                   size=11, weight=600)
+            if w > 90:
+                c.text(label_x, lay.music_top + 20,
+                       _ellipsis(f"M· {clip.duration:g}s" + (" · ducking" if track.ducking > 0 else ""),
+                                 x + w - label_x - 6, 10), size=10, color="$muted",
+                       family="Consolas")
 
     # Transiciones: zona de solape + rombo en la frontera.
     for index, transition in enumerate(project.video.transitions):
@@ -417,8 +468,24 @@ def _editor():
 
 def _canvas_drag(e) -> None:  # noqa: ANN001
     editor = _editor()
+    if editor is None:
+        return
+    if state.marquee_on():
+        if e.phase == "start":
+            editor.begin_marquee(e.x)
+        elif e.phase == "move":
+            editor.drag_marquee(e.x)
+        else:
+            editor.drag_marquee(e.x)
+            editor.end_marquee()
+        return
+    editor.scrub_to_window_x(e.x)
+
+
+def _select_music(index: int = 0) -> None:
+    editor = _editor()
     if editor is not None:
-        editor.scrub_to_window_x(e.x)
+        editor.select_music(0, index)
 
 
 def _clip_drag(clip_id: str):
@@ -468,6 +535,7 @@ def timeline_layer():
     zoom = state.tl_zoom()
     drag = state.tl_drag()
     selection = state.selection()
+    state.multi_selection()  # dependencia: la marquesina repinta la selección
     state.thumbs()  # dependencia: las miniaturas llegan en un hilo y hay que repintarlas
     x0, x1 = _visible_range()
     width = content_width(project, zoom, state.tl_view_w())
@@ -475,6 +543,13 @@ def timeline_layer():
     lay = tracks()
     video_h, content_h = lay.video_h, lay.content_h
     thumbs, labels = _filmstrip_elements(project, geo, zoom, x0, x1, lay)
+    marquee = state.marquee()
+    marquee_box = (
+        box(key="marquee", position="absolute", left=min(marquee.x0, marquee.x1), top=0,
+            width=max(1.0, abs(marquee.x1 - marquee.x0)), height=content_h,
+            bg="#7C5CFF22", radius=3)
+        if marquee is not None else None
+    )
 
     boxes = []
     for index, clip in enumerate(project.video.clips):
@@ -504,6 +579,19 @@ def timeline_layer():
                     on_drag=_trim_drag(clip.id, "r")),
             ]
         )
+    if lay.music_h > 0 and project.audio:
+        track = project.audio[0]
+        for index, clip in enumerate(track.clips):
+            start = tl.clip_starts(track)[index]
+            x, w = start * zoom, max(4.0, clip.duration * zoom)
+            if x > x1 or x + w < x0:
+                continue
+            boxes.append(
+                box(key=f"music-{clip.id}", position="absolute", left=x, top=lay.music_top,
+                    width=w, height=lay.music_h, radius=5, bg="#00000000",
+                    bg_hover="#FFFFFF0D", cursor="pointer", tooltip="Pista de música",
+                    on_click=lambda i=index: _select_music(i))[box(width=0, height=0)]
+            )
     for index, transition in enumerate(project.video.transitions):
         boundary = (geo.starts[index + 1] + (transition.duration / 2 if transition else 0.0)) * zoom
         if boundary < x0 or boundary > x1:
@@ -539,6 +627,7 @@ def timeline_layer():
         canvas(_draw_tracks, key="tl-canvas", width=width, height=content_h, on_drag=_canvas_drag),
         thumbs,
         labels,
+        marquee_box,
         boxes,
     ]
 
@@ -574,6 +663,7 @@ def track_labels():
     return box(width=LABEL_W, height=lay.content_h, shrink=0)[
         label("V", VIDEO_TOP, lay.video_h),
         label("A", lay.audio_top, lay.audio_h),
+        lay.music_h > 0 and label("M", lay.music_top, lay.music_h),
     ]
 
 

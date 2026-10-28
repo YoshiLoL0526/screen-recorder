@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import io
 import os
+import subprocess
 import threading
 from pathlib import Path
 
@@ -31,6 +32,7 @@ THUMB_COUNT = 24  # miniaturas por asset, repartidas por toda su duración
 _lock = threading.Lock()
 _waveforms: dict[str, np.ndarray] = {}
 _thumbstrips: dict[str, tuple[bytes, ...]] = {}
+_proxy_cache: dict[tuple[str, int], Path | None] = {}
 
 
 def _cache_key(path: Path) -> str:
@@ -50,7 +52,11 @@ def is_offline(asset: MediaAsset) -> bool:
 
 
 def probe(path: str | Path, asset_id: str | None = None) -> MediaAsset:
-    """Sonda un video con PyAV. `MediaError` si no se puede abrir o no tiene video."""
+    """Sonda un video o un audio con PyAV. `MediaError` si no se puede abrir o no tiene streams.
+
+    Un asset solo de audio (música de B1) tiene `width=height=0` y `fps=0`; el editor lo usa en
+    las pistas de audio, nunca en la de video.
+    """
     import av
 
     path = Path(path)
@@ -59,24 +65,26 @@ def probe(path: str | Path, asset_id: str | None = None) -> MediaAsset:
     except (av.FFmpegError, OSError) as exc:
         raise MediaError(f"no se pudo abrir «{path.name}»: {exc}") from exc
     try:
-        if not container.streams.video:
-            raise MediaError(f"«{path.name}» no tiene pista de video")
-        video = container.streams.video[0]
+        video = container.streams.video[0] if container.streams.video else None
+        audio = container.streams.audio
+        if video is None and not audio:
+            raise MediaError(f"«{path.name}» no tiene pista de video ni de audio")
         duration = 0.0
-        if video.duration is not None and video.time_base is not None:
+        if video is not None and video.duration is not None and video.time_base is not None:
             duration = float(video.duration * video.time_base)
+        if duration <= 0 and audio and audio[0].duration is not None and audio[0].time_base is not None:
+            duration = float(audio[0].duration * audio[0].time_base)
         if duration <= 0 and container.duration:
             duration = container.duration / 1_000_000
         if duration <= 0:
             raise MediaError(f"«{path.name}»: duración desconocida")
-        rate = video.average_rate or video.guessed_rate or 0
-        audio = container.streams.audio
+        rate = (video.average_rate or video.guessed_rate or 0) if video is not None else 0
         return MediaAsset(
             id=asset_id or new_id("a"),
             path=str(path.resolve()),
             duration=round(duration, 6),
-            width=int(video.codec_context.width),
-            height=int(video.codec_context.height),
+            width=int(video.codec_context.width) if video is not None else 0,
+            height=int(video.codec_context.height) if video is not None else 0,
             fps=float(rate) if rate else 0.0,
             has_audio=bool(audio),
             audio_channels=int(audio[0].codec_context.channels) if audio else 0,
@@ -186,6 +194,103 @@ def waveform_slice(peaks: np.ndarray, t0: float, t1: float, columns: int) -> np.
     mins = np.minimum.reduceat(part[:, 0], starts)
     maxs = np.maximum.reduceat(part[:, 1], starts)
     return np.stack((mins, maxs), axis=1)
+
+
+def waveform_peaks(
+    peaks: np.ndarray, *, threshold: float = 0.3, max_count: int = 160
+) -> list[float]:
+    """Instantes (s de la fuente) de picos de audio para el snap (B4).
+
+    Se queda con máximos locales por encima de `threshold`; si hay más de `max_count`, toma los
+    más fuertes. Devuelve tiempos ordenados y sin duplicados.
+    """
+    if peaks is None or len(peaks) == 0 or max_count <= 0:
+        return []
+    level = np.max(np.abs(peaks), axis=1)
+    if level.size < 3 or float(level.max()) < threshold:
+        return []
+    local = np.where((level >= threshold) & (level >= np.roll(level, 1)) & (level >= np.roll(level, -1)))[0]
+    if local.size == 0:
+        local = np.array([int(np.argmax(level))])
+    if local.size > max_count:
+        strongest = local[np.argsort(level[local])[-max_count:]]
+        local = np.sort(strongest)
+    return sorted({round(float(i) / BUCKETS_PER_S, 4) for i in local})
+
+
+def audio_peaks(path: str | Path, *, threshold: float = 0.3, max_count: int = 160) -> list[float]:
+    """Picos de audio ya cacheados (o calculados) de un asset."""
+    return waveform_peaks(waveform(path), threshold=threshold, max_count=max_count)
+
+
+# -- proxy de preview (B5) --------------------------------------------------------------
+
+
+def is_heavy(asset: MediaAsset) -> bool:
+    """¿Merece la pena un proxy? 4K o más de 60 fps en el preview."""
+    return asset.height > 1080 or asset.fps > 60.0
+
+
+def _proxy_file(path: Path, height: int) -> Path:
+    return _cache_dir("proxies") / f"{_cache_key(path)}-{height}.mp4"
+
+
+def cached_proxy(path: str | Path, height: int = 540) -> Path | None:
+    """Proxy ya generado para el preview (o `None`). Cachea también los negativos."""
+    key = (str(Path(path)), int(height))
+    if key in _proxy_cache:
+        return _proxy_cache[key]
+    try:
+        file = _proxy_file(Path(path), height)
+    except OSError:
+        _proxy_cache[key] = None
+        return None
+    result = file if file.is_file() and file.stat().st_size > 0 else None
+    _proxy_cache[key] = result
+    return result
+
+
+def preview_path(asset: MediaAsset, height: int = 540) -> str:
+    """Ruta que debe abrir el preview: el proxy si está listo; si no, el original."""
+    proxy = cached_proxy(asset.path, height)
+    return str(proxy) if proxy is not None else asset.path
+
+
+def proxy(path: str | Path, height: int = 540) -> Path:
+    """Genera (si falta) un proxy H.264 540p sin audio para el preview; lo cachea en disco."""
+    path = Path(path)
+    try:
+        target = _proxy_file(path, height)
+    except OSError as exc:
+        raise MediaError(f"no se pudo escribir la cache de proxies: {exc}") from exc
+    if target.is_file() and target.stat().st_size > 0:
+        _proxy_cache[(str(path), int(height))] = target
+        return target
+    from ..platform import ffmpeg as ffmpeg_mod
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".tmp.mp4")
+    command = [
+        ffmpeg_mod.ffmpeg_exe(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
+        "-i", str(path), "-vf", f"scale=-2:{height}:force_original_aspect_ratio=decrease",
+        "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart", str(tmp),
+    ]
+    try:
+        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
+                                errors="replace", timeout=600)
+        if result.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
+            raise MediaError(f"no se pudo crear el proxy de «{path.name}»: {result.stderr[-300:]}")
+        os.replace(tmp, target)
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise MediaError(f"no se pudo crear el proxy de «{path.name}»: {exc}") from exc
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+    _proxy_cache[(str(path), int(height))] = target
+    return target
 
 
 # -- keyframes (corte rápido) ------------------------------------------------------------

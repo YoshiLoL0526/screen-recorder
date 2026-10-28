@@ -15,18 +15,28 @@
 
 from __future__ import annotations
 
+import hashlib
 import io
+import json
+import os
+import subprocess
 import threading
 import time
+import wave
 from collections import OrderedDict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
 from ..core import effects as fx
+from ..core import graph as graph_mod
 from ..core import timeline as tl
-from ..core.project import Clip, MediaAsset, Project
+from ..core.project import Clip, MediaAsset, Project, to_dict
+from ..platform import ffmpeg as ffmpeg_mod
+from ..platform import paths
+from . import media
 
 PREVIEW_HEIGHT = 540
 TICK_HZ = 30.0
@@ -297,6 +307,51 @@ def fade_envelope(t0: float, n: int, rate: float, duration: float, fin: float, f
     return k
 
 
+_FONTS: dict[tuple[bool, int], object] = {}
+
+
+def _font(bold: bool, size: int):
+    from PIL import ImageFont
+
+    key = (bold, max(8, int(size)))
+    cached = _FONTS.get(key)
+    if cached is not None:
+        return cached
+    names = ("arialbd.ttf", "DejaVuSans-Bold.ttf") if bold else ("arial.ttf", "DejaVuSans.ttf")
+    for name in names:
+        try:
+            font = ImageFont.truetype(name, key[1])
+            break
+        except OSError:
+            continue
+    else:
+        font = ImageFont.load_default(key[1])
+    _FONTS[key] = font
+    return font
+
+
+def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
+    """Dibuja los textos activos sobre el frame RGB del preview (misma posición que drawtext)."""
+    active = [overlay for overlay in project.texts if overlay.start <= t < overlay.end]
+    if not active or project.height <= 0:
+        return rgb
+    from PIL import Image, ImageDraw
+
+    image = Image.fromarray(rgb)
+    draw = ImageDraw.Draw(image)
+    scale = image.height / project.height
+    for overlay in active:
+        size = max(8, int(round(overlay.size * scale)))
+        font = _font(overlay.bold, size)
+        cx, cy = overlay.x * image.width, overlay.y * image.height
+        color = overlay.color
+        # Sombra discreta para que el texto se lea sobre fondos claros.
+        draw.text((cx + max(1, size // 24), cy + max(1, size // 24)), overlay.text,
+                  font=font, fill=(0, 0, 0), anchor="mm")
+        draw.text((cx, cy), overlay.text, font=font, fill=color, anchor="mm")
+    return np.asarray(image)
+
+
 class FrameRenderer:
     """Compone el frame del preview para un instante global del proyecto."""
 
@@ -317,7 +372,7 @@ class FrameRenderer:
             asset: MediaAsset = project.asset(clip.asset_id)
         except Exception:
             return canvas
-        source = self.pool.get(asset.path, slot)
+        source = self.pool.get(media.preview_path(asset), slot)
         if source is None:
             return canvas
         fit_w, fit_h = _fit(asset.width or size[0], asset.height or size[1], size[0], size[1])
@@ -361,7 +416,7 @@ class FrameRenderer:
             self.last_transition = tr.transition.kind
         else:
             self.last_transition = None
-        return frame
+        return _draw_texts(project, t, frame)
 
     def prefetch(self, project: Project, index: int) -> None:
         """Abre y posiciona el decoder del clip `index` en su primer frame (otro hilo)."""
@@ -424,13 +479,13 @@ class AudioPreview:
         with self._control:
             self._stop_locked()
             if not self.muted:
-                self._start_locked(project, t)
+                self._start_locked(project, t, mixed=bool(project.audio))
 
     def stop(self) -> None:
         with self._control:
             self._stop_locked()
 
-    def _start_locked(self, project: Project, t: float) -> None:
+    def _start_locked(self, project: Project, t: float, *, mixed: bool = False) -> None:
         try:
             import sounddevice as sd
 
@@ -444,8 +499,9 @@ class AudioPreview:
             self._stream = None
             return
         cancel = self._cancel
+        target = self._feed_mixed if mixed else self._feed
         self._feeder = threading.Thread(
-            target=self._feed, args=(project, t + latency, cancel), daemon=True, name="preview-audio"
+            target=target, args=(project, t + latency, cancel), daemon=True, name="preview-audio"
         )
         self._feeder.start()
         try:
@@ -469,6 +525,56 @@ class AudioPreview:
         with self._lock:
             self._chunks.clear()
             self._buffered = 0
+
+    def _mix_file(self, project: Project) -> Path:
+        payload = json.dumps(to_dict(project), sort_keys=True, ensure_ascii=False)
+        key = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:20]
+        folder = paths.cache_dir() / "preview-audio"
+        folder.mkdir(parents=True, exist_ok=True)
+        return folder / f"{key}.wav"
+
+    def _render_mix(self, project: Project, target: Path) -> None:
+        tmp = target.with_name(target.name + ".tmp.wav")
+        try:
+            args = graph_mod.build_audio(project, tmp, exe=ffmpeg_mod.ffmpeg_exe())
+            result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
+                                    errors="replace", timeout=600)
+            if result.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
+                raise RuntimeError(result.stderr[-400:] or "FFmpeg no generó el audio")
+            os.replace(tmp, target)
+        finally:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def _feed_mixed(self, project: Project, t: float, cancel: threading.Event) -> None:
+        """Preview con música/ducking: mezcla exacta del export en un WAV cacheado (B1)."""
+        try:
+            target = self._mix_file(project)
+            if not target.is_file():
+                self._render_mix(project, target)
+            if cancel.is_set():
+                return
+            with wave.open(str(target), "rb") as wav:
+                rate = wav.getframerate()
+                channels = wav.getnchannels()
+                start = max(0, int(round(t * rate)))
+                wav.setpos(min(wav.getnframes(), start))
+                block = max(1, int(0.1 * rate))
+                while not cancel.is_set():
+                    raw = wav.readframes(block)
+                    if not raw:
+                        break
+                    data = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+                    if channels == 1:
+                        data = np.repeat(data[:, None], 2, axis=1)
+                    else:
+                        data = data.reshape(-1, channels)[:, :2]
+                    if not self._push(np.ascontiguousarray(data, dtype=np.float32), cancel):
+                        return
+        except Exception as exc:  # best-effort: sin audio de preview, la UI sigue
+            self.error = str(exc)
 
     def _callback(self, outdata, frames, time_info, status) -> None:  # noqa: ANN001
         filled = 0

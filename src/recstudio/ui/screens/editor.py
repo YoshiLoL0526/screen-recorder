@@ -91,6 +91,8 @@ def editor_toolbar():
                     tooltip=("Ocultar" if state.inspector_open() else "Mostrar") + " el inspector (I)", size=32,
                     key="ed-panel", bg="$surface_pressed" if state.inspector_open() else "$surface_hover"),
         box(width=8),
+        icon_button(icons.MUSIC, _call("browse_music"), tooltip="Añadir música", size=32, key="ed-music"),
+        icon_button(icons.TEXT, _call("add_text"), tooltip="Añadir texto en el playhead", size=32, key="ed-text"),
         button("Importar", _call("open_import"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-import"),
         button("Exportar…", _call("open_export"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-export"),
         button("Cerrar", _call("close_project"), variant="ghost", padding=(6, 12), font_size=12.5, key="ed-close"),
@@ -238,6 +240,8 @@ def inspector():
                 text("Archivo no encontrado (offline)", size=11.5, color="$danger", grow=1, width=0),
                 button("Reubicar…", _call("relocate_asset", clip.asset_id), variant="soft", padding=(4, 10),
                        font_size=11.5, key="insp-relocate"),
+                button("Carpeta…", _call("relocate_folder"), variant="soft", padding=(4, 10),
+                       font_size=11.5, key="insp-relocate-folder"),
             ],
             _row("Entrada", _time_field(state.insp_in, _submit("submit_in"), "insp-in", _call("mark_in"),
                                         "Entrada = playhead", icons.STEP_BACK)),
@@ -255,6 +259,65 @@ def inspector():
             button("Eliminar", _call("delete_selected"), variant="soft", padding=(6, 12), font_size=12.5,
                    key="insp-delete"),
         ])
+    elif selection and selection[0] == "music" and int(selection[1]) < len(project.audio):
+        track = project.audio[int(selection[1])]
+        children.append(section(
+            "Música",
+            text(f"{len(track.clips)} clip(s) · {tl.format_time(tl.track_duration(track))}", size=12.5,
+                 color="$muted"),
+            _row("Volumen", select(state.insp_music_gain,
+                                   _options([(0.0, "Silenciada"), *_VOLUMES[1:]],
+                                           0.0 if track.muted else track.gain),
+                                   key="insp-music-gain")),
+            _row("Vol. clip", select(state.insp_music_clip_gain,
+                                     _options(_VOLUMES, state.insp_music_clip_gain()),
+                                     key="insp-music-clip-gain")),
+            _row("Ducking", select(state.insp_music_duck,
+                                   [(0.0, "Sin ducking"), (0.25, "Suave"), (0.5, "Medio"),
+                                    (0.75, "Fuerte"), (1.0, "Máximo")], key="insp-music-duck")),
+            len(track.clips) > 1 and _row("Crossfade", select(
+                state.insp_music_cross,
+                _options([(v, "Sin crossfade" if v == 0 else f"{v:g} s")
+                          for v in (0.0, 0.25, 0.5, 1.0, 2.0)], state.insp_music_cross()),
+                key="insp-music-cross")),
+            text("Ducking baja la música cuando suena la voz o el audio del sistema.",
+                 size=11, color="$muted", line_height=1.35),
+            row(gap=8)[
+                button("Quitar música", _call("remove_music"), variant="ghost", padding=(4, 10),
+                       font_size=11.5, key="insp-music-remove"),
+            ],
+            gap=10,
+        ))
+    elif selection and selection[0] == "text" and project.has_text(selection[1]):
+        overlay = project.text(selection[1])
+        children.append(section(
+            "Texto",
+            text_input(state.insp_text, key="insp-text", on_submit=_submit("set_text_text"),
+                       on_key=mark_input_key, grow=1, width=0, padding=(7, 10)),
+            _row("Inicio", text_input(state.insp_text_start, key="insp-text-start",
+                                      on_submit=_submit("set_text_start"), on_key=mark_input_key,
+                                      font_family="Consolas", padding=(7, 10))),
+            _row("Fin", text_input(state.insp_text_end, key="insp-text-end",
+                                   on_submit=_submit("set_text_end"), on_key=mark_input_key,
+                                   font_family="Consolas", padding=(7, 10))),
+            _row("Tamaño", select(state.insp_text_size,
+                                  [(v, f"{v} px") for v in (24, 32, 42, 56, 72, 96, 128)],
+                                  key="insp-text-size")),
+            _row("Color", select(state.insp_text_color,
+                                 [("#FFFFFF", "Blanco"), ("#F5B851", "Ámbar"), ("#FF5470", "Rojo"),
+                                  ("#7C5CFF", "Violeta"), ("#000000", "Negro")], key="insp-text-color")),
+            _row("X", select(state.insp_text_x,
+                             [(v, f"{v:.2f}") for v in (0.0, 0.25, 0.5, 0.75, 1.0)], key="insp-text-x")),
+            _row("Y", select(state.insp_text_y,
+                             [(v, f"{v:.2f}") for v in (0.1, 0.5, 0.82, 0.95)], key="insp-text-y")),
+            _row("Estilo", select(state.insp_text_bold,
+                                  [(False, "Normal"), (True, "Negrita")], key="insp-text-bold")),
+            text("Se quema en el video exportado; en el preview se dibuja con la misma posición.",
+                 size=11, color="$muted", line_height=1.35),
+            button("Eliminar texto", _call("delete_text"), variant="ghost", padding=(4, 10),
+                   font_size=11.5, key="insp-text-delete"),
+            gap=10,
+        ))
     elif selection and selection[0] == "transition" and selection[1] < len(project.video.transitions):
         children.append(_transition_controls(int(selection[1])))
         children.append(text("Las transiciones se previsualizan de forma aproximada; el export usa xfade de FFmpeg.",
@@ -271,9 +334,28 @@ def inspector():
                                  _options([(0.0, "Silenciado"), *_VOLUMES[1:]],
                                           0.0 if project.video.muted else project.video.gain),
                                  key="insp-track-gain")),
+            state.offline_assets() and button("Reubicar carpeta…", _call("relocate_folder"),
+                                              variant="soft", padding=(5, 12), font_size=12,
+                                              key="insp-relocate-all"),
             button("Exportar… (Ctrl+E)", _call("open_export"), padding=(7, 14), font_size=12.5, key="insp-export"),
             gap=10,
         ))
+        if project.texts:
+            children.append(section(
+                "Textos",
+                column(gap=4)[[
+                    row(key=f"text-{t.id}", gap=8, align="center", padding=(5, 7), radius="$md",
+                        bg_hover="$surface_hover", cursor="pointer",
+                        on_click=_call("select_text", t.id))[
+                        image(icons.TEXT, width=14),
+                        text(t.text, size=12, grow=1, max_lines=1),
+                        text(f"{t.start:.1f}–{t.end:.1f}s", size=10.5, color="$muted",
+                             family="Consolas"),
+                    ]
+                    for t in project.texts
+                ]],
+                gap=6,
+            ))
         children.append(section(
             "Atajos",
             text("Espacio reproducir · ←/→ fotograma · Mayús+←/→ 1 s · S dividir · Supr eliminar · "
@@ -311,6 +393,10 @@ def timeline_toolbar():
         icon_button(icons.MAGNET, lambda: state.snap_on.set(not state.snap_on()),
                     tooltip="Imán: " + ("activado" if snap_on else "desactivado"), size=30, key="tl-snap",
                     bg="$primary" if snap_on else "$surface_hover"),
+        icon_button(icons.SELECT, _call("toggle_marquee"),
+                    tooltip="Selección múltiple: arrastra sobre el timeline",
+                    size=30, key="tl-marquee",
+                    bg="$primary" if state.marquee_on() else "$surface_hover"),
         box(width=6),
         icon_button(icons.CUT, _call("split"), tooltip="Dividir en el playhead (S)", size=30, key="tl-split"),
         icon_button(icons.TRASH, _call("delete_selected"), tooltip="Eliminar selección (Supr)", size=30,

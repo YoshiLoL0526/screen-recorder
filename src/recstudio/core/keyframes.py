@@ -70,6 +70,8 @@ def blockers(project: Project) -> list[str]:
         reasons.append("el volumen del audio original no es el 100 %")
     if any(t.clips and not t.muted for t in project.audio):
         reasons.append("tiene pistas de audio adicionales")
+    if project.texts:
+        reasons.append("tiene textos sobre el video")
     by_id = {a.id: a for a in project.assets}
     used = {(by_id[c.asset_id].width, by_id[c.asset_id].height, round(by_id[c.asset_id].fps, 2),
              by_id[c.asset_id].has_audio)

@@ -14,8 +14,22 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 - **[docs/16 — Bloque A: cierre de la entrega](docs/16-bloque-a-entrega.md)**: resultados de A1–A5
   (CI en verde, RNF-06/07, instalador, bundle ligero) y procedimiento de las comprobaciones manuales
   que quedan (A2, A6, A7, A8). `docs/15` actualiza estados y prioridades.
+- **[docs/17 — Bloque B: editor completo](docs/17-bloque-b-editor.md)**: música/ducking, textos,
+  selección múltiple, snap por waveform, proxy y reubicar carpetas, con archivos, tests y límites.
 
 ### Añadido
+- **Bloque B del editor** (docs/15 → docs/17):
+  - **Música**: importar audio, pista M en el timeline, volumen de pista y de clip, **ducking**
+    (`sidechaincompress` con la voz del video) y **crossfades** (`acrossfade`). El preview
+    renderiza la mezcla completa a un WAV cacheado y el export usa el mismo graph.
+  - **Textos**: `TextOverlay` (posición, tamaño, color, negrita, intervalo), `drawtext` en el
+    export y composición con PIL en el preview; bloquean el corte rápido.
+  - **Selección múltiple**: marquesina, `Ctrl+A` y borrado de N clips con un solo undo.
+  - **Snap por waveform**: los picos de audio de los clips vecinos y de la música son candidatos
+    del imán al mover o recortar.
+  - **Proxy 540p** automático para >1080p o >60 fps, cacheado; el preview lo usa y el export sigue
+    usando el original.
+  - **Reubicar carpeta**: resuelve todos los assets offline por nombre en una sola operación.
 - **Bloque A de entrega** (docs/15 → docs/16):
   - **Instalador Inno Setup** (`installer/rec-studio.iss`): por usuario, sin UAC, en español, con
     accesos directos y desinstalador. `tools/check_installer.py` compila, instala en `%TEMP%`, hace
@@ -52,6 +66,8 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   - 16 tests nuevos en `tests/test_desktop.py` (hook con backend falso, menú, cierre de ventana y avisos).
 
 ### Cambiado
+- **Proyecto schema v2**: `Track.ducking` y `Project.texts`; los `.rsproj` v1 se abren y se
+  migran al guardar (los de una versión más nueva siguen abriéndose en solo lectura).
 - **CI en verde y más completo** (`40701857907`): 208 tests, build ligero + smoke del exe e
   instalador (compilación, instalación silenciosa, smoke y desinstalación). El bundle y el
   instalador se suben como artefactos. `upx = false` documentado: 78 MB pero arranque de 3.66 s

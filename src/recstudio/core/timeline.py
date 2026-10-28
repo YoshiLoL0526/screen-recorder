@@ -24,6 +24,7 @@ from .project import (
     Clip,
     MediaAsset,
     Project,
+    TextOverlay,
     Track,
     Transition,
     new_id,
@@ -367,6 +368,22 @@ def ripple_delete(p: Project, clip_id: str) -> Project:
     return _with_track(p, clips, transitions)
 
 
+def ripple_delete_many(p: Project, clip_ids) -> Project:  # noqa: ANN001
+    """Quita varios clips con **un solo** resultado (una entrada de undo, B3).
+
+    Se borran de derecha a izquierda para que los índices no se muevan; los ids que no existen
+    se ignoran. Una selección vacía devuelve el mismo proyecto.
+    """
+    ids = set(clip_ids)
+    if not ids:
+        return p
+    order = [i for i, clip in enumerate(p.video.clips) if clip.id in ids]
+    project = p
+    for index in reversed(order):
+        project = ripple_delete(project, project.video.clips[index].id)
+    return project
+
+
 def set_speed(p: Project, clip_id: str, speed: float) -> Project:
     speed = max(SPEED_MIN, min(SPEED_MAX, float(speed)))
     index = p.video.index_of(clip_id)
@@ -397,7 +414,72 @@ def append_clip(p: Project, asset: MediaAsset, index: int | None = None) -> tupl
     return _with_track(p, clips, transitions), clip
 
 
+# -- textos (B2) -------------------------------------------------------------------
+
+
+def add_text(
+    p: Project, text: str, start: float, duration: float = 3.0, *,
+    x: float = 0.5, y: float = 0.82, size: int = 42, color: str = "#FFFFFF",
+    bold: bool = False,
+) -> tuple[Project, TextOverlay]:
+    """Añade un texto en `start` (acotado al timeline) y devuelve `(proyecto, overlay)`."""
+    total = total_duration(p)
+    if total <= 0:
+        raise ProjectError("el timeline está vacío: no hay dónde poner el texto")
+    min_len = max(0.2, 1.0 / p.fps)
+    duration = max(min_len, float(duration))
+    start = max(0.0, min(float(start), max(0.0, total - min_len)))
+    end = min(total, start + duration)
+    if end - start < min_len - 1e-9:
+        raise ProjectError("el texto no cabe en el timeline")
+    overlay = TextOverlay(
+        id=new_id("t"), text=str(text), start=round(start, 4), end=round(end, 4),
+        x=x, y=y, size=int(size), color=color, bold=bold,
+    )
+    return replace(p, texts=(*p.texts, overlay)), overlay
+
+
+def update_text(p: Project, text_id: str, **changes) -> Project:  # noqa: ANN003
+    """Cambia campos de un texto (valida el resultado)."""
+    current = p.text(text_id)
+    allowed = {"text", "start", "end", "x", "y", "size", "color", "bold"}
+    unknown = set(changes) - allowed
+    if unknown:
+        raise ProjectError(f"campos de texto desconocidos: {', '.join(sorted(unknown))}")
+    overlay = replace(current, **{k: (int(v) if k == "size" else v) for k, v in changes.items()})
+    total = total_duration(p)
+    if overlay.end > total + 1e-6 or overlay.start < 0:
+        raise ProjectError("el texto se sale del timeline")
+    return replace(p, texts=tuple(overlay if t.id == text_id else t for t in p.texts))
+
+
+def remove_text(p: Project, text_id: str) -> Project:
+    p.text(text_id)  # valida que existe
+    return replace(p, texts=tuple(t for t in p.texts if t.id != text_id))
+
+
 # -- snap --------------------------------------------------------------------------
+
+
+def audio_snap_candidates(
+    p: Project, exclude: str | None, source_times: dict[str, list[float]], *, limit: int = 400
+) -> list[float]:
+    """Instantes del timeline donde suena un pico de audio de otro clip (B4).
+
+    `source_times` son tiempos **de la fuente** por asset (los saca `services.media`). Se mapean
+    con el `in_` y la velocidad de cada clip; se incluyen los picos de las pistas de música.
+    """
+    times: list[float] = []
+    for track in (p.video, *p.audio):
+        starts = clip_starts(track)
+        for clip, start in zip(track.clips, starts):
+            if clip.id == exclude or clip.asset_id not in source_times:
+                continue
+            for source_t in source_times[clip.asset_id]:
+                local = (float(source_t) - clip.in_) / clip.speed
+                if 0.0 <= local <= clip.duration:
+                    times.append(start + local)
+    return sorted(set(round(t, 4) for t in times))[:limit]
 
 
 def snap(t: float, candidates: list[float] | tuple[float, ...], zoom: float, threshold_px: float = SNAP_PX) -> float:
