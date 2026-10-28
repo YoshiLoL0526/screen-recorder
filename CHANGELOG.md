@@ -34,10 +34,10 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   - **Instalador Inno Setup** (`installer/rec-studio.iss`): por usuario, sin UAC, en español, con
     accesos directos y desinstalador. `tools/check_installer.py` compila, instala en `%TEMP%`, hace
     el smoke del exe instalado y desinstala; el CI lo repite y sube `RecStudio-1.0.0-setup.exe`
-    (71 MB).
+    (72 MB).
   - **Bundle ligero**: `tools/build_exe.py` envuelve `aurora build` para excluir `cv2` (OpenCV,
     112 MB) y `platform/cv2_shim.py` cubre el único import de `windows-capture`
-    (`Frame.save_as_image`). El bundle pasa de 370 a **253 MB**; `dxcam` avisa si se elige en el
+    (`Frame.save_as_image`). El bundle pasa de 370 a **255 MB**; `dxcam` avisa si se elige en el
     exe ligero. `uv run aurora build` sigue incluyendo OpenCV para desarrollo.
   - **`tools/rnf_measure.py`**: mide RNF-06/07 con ventana real (arranque, RSS en reposo y RSS
     grabando 30 s) en el exe empaquetado o en la app sin empaquetar.

@@ -12,8 +12,8 @@
 | A1 | CI en verde | ✅ | run `40701857907`: 208 tests + build + smoke + instalador |
 | A2 | Máquina limpia (CU-1→CU-5) | ⏳ | El CI ya instala y hace smoke en un runner limpio; falta el flujo manual |
 | A3 | RNF-06/07 con ventana | ✅ | arranque 0.87–1.74 s · RSS 261–414 MB en reposo · 337 MB grabando |
-| A4 | Instalador (Inno Setup) | ✅ | `RecStudio-1.0.0-setup.exe` (71 MB), instalación/desinstalación y smoke OK |
-| A5 | Bundle más ligero | ✅ | 370 → **253 MB** (−117 MB) sin OpenCV; UPX descartado con datos |
+| A4 | Instalador (Inno Setup) | ✅ | `RecStudio-1.0.0-setup.exe` (72 MB), instalación/desinstalación y smoke OK |
+| A5 | Bundle más ligero | ✅ | 370 → **255 MB** (−115 MB) sin OpenCV; UPX descartado con datos |
 | A6 | Export en móvil físico | ⏳ | Procedimiento listo; falta el teléfono |
 | A7 | Soak de 30 min | ⏳ | Comando y criterio listos; no se ejecutó en esta sesión |
 | A8 | «Sensación» del timeline | ⏳ | Drags/undo automatizados OK; falta el ratón real |
@@ -42,8 +42,9 @@ timing; el runner, más lento, lo destapó.
   la tira se regenera;
 - test de regresión con una cache incompleta (`tests/test_filmstrip.py`).
 
-**Verificación:** run `40701857907` ✅ — 208 tests en 37 s (bundle de 250 MB en el runner). El CI
-ahora hace, en orden: `pytest`,
+**Verificación:** run `40701857907` ✅ — 208 tests en 37 s (bundle de 250 MB en el runner). Con el
+bloque B, el run `40709049904` sigue verde: **226 tests**, bundle de 252 MB e instalador de 72 MB.
+El CI hace, en orden: `pytest`,
 `tools/check_build.py` (build ligero + smoke del exe) y `tools/check_installer.py` (instalador,
 instalación silenciosa, smoke y desinstalación). Los dos artefactos (bundle e instalador) se suben
 a Actions.
@@ -112,7 +113,7 @@ llegar unos milisegundos después. La grabación del exe usa un `settings.json` 
 | Script | `installer/rec-studio.iss` (Inno Setup 6.7.3, español, icono, accesos directos, desinstalador) |
 | Instalación | **por usuario** (`PrivilegesRequired=lowest`, `{autopf}` → `%LOCALAPPDATA%\Programs`), sin UAC |
 | Bundle | `dist/Rec Studio/` (onedir) |
-| Salida | `dist/installer/RecStudio-<versión>-setup.exe` · **71 MB** |
+| Salida | `dist/installer/RecStudio-<versión>-setup.exe` · **72 MB** |
 | Verificación | `uv run python tools/check_installer.py` |
 
 El verificador compila con `ISCC`, instala en una carpeta temporal con `/VERYSILENT`, ejecuta
@@ -127,7 +128,7 @@ limpio y sube el instalador como artefacto.
 | Build | Tamaño | Arranque | RSS en reposo | Decisión |
 |---|---:|---:|---:|---|
 | Antes (OpenCV incluido) | 370 MB | — | — | referencia |
-| **Sin `cv2`** | **253 MB** (250 MB en el CI) | 1.0–1.7 s | 261–414 MB | ✅ se queda |
+| **Sin `cv2`** | **255 MB** (252 MB en el CI) | 1.0–1.7 s | 261–414 MB | ✅ se queda |
 | Sin `cv2` + UPX | 78 MB | **3.66 s** | **522 MB** | ❌ rompe RNF-06 |
 
 OpenCV ocupaba **112 MB** (13 archivos; `cv2.pyd` 82 MB + `opencv_videoio_ffmpeg500_64.dll`

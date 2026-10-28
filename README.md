@@ -5,7 +5,7 @@
 > FFmpeg, presets GPU/calidad/720p/sin recodificar, progreso y ETA, efectos) y **pulido** (F5:
 > layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test). El
 > **bloque A de entrega** ya tiene CI en verde, RNF medidos, instalador Inno Setup y bundle de
-> 253 MB — ver [docs/16](docs/16-bloque-a-entrega.md); quedan las comprobaciones manuales
+> 255 MB — ver [docs/16](docs/16-bloque-a-entrega.md); quedan las comprobaciones manuales
 > (máquina limpia, móvil, soak y ratón). El **bloque B del editor** añade música con ducking y
 > crossfades, textos quemados, selección múltiple, snap por waveform, proxy 540p y reubicar
 > carpetas — ver [docs/17](docs/17-bloque-b-editor.md). Ver también

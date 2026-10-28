@@ -131,7 +131,7 @@ depender de monitor, GPU ni audio reales del runner.
   UPX se midió (78 MB) pero rompe RNF-06 (3.66 s de arranque, +107 MB de RSS): `upx = false`.
 - Instalador: `installer/rec-studio.iss` (Inno Setup 6) es **por usuario** (`PrivilegesRequired=lowest`,
   sin UAC) y `tools/check_installer.py` compila, instala en `%TEMP%`, hace smoke y desinstala.
-  El CI lo repite en un runner limpio; el instalador de 1.0.0 pesa 71 MB.
+  El CI lo repite en un runner limpio; el instalador de 1.0.0 pesa 72 MB.
 - `~/Videos` puede estar bloqueado por el «Acceso controlado a carpetas» de Defender (devuelve
   WinError 2 en el `mkdir`): crea carpetas con `paths.ensure_dir()` (nunca lanza) y no resuelvas
   rutas con efectos de disco al importar módulos (`state.out_dir` arranca vacío). Ver `docs/09` →
