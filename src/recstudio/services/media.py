@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import os
 import threading
 from pathlib import Path
 
@@ -275,6 +276,25 @@ def poster(path: str | Path, *, at_s: float = 1.0, height: int = 180) -> bytes:
 # -- filmstrip del timeline --------------------------------------------------------
 
 
+def _write_bytes_atomic(path: Path, data: bytes) -> None:
+    """Escribe `data` y publica el archivo de golpe (tmp + `os.replace`).
+
+    La UI lee la cache de miniaturas mientras el hilo las genera. Un `write_bytes` directo deja
+    el archivo visible a medio escribir; si la última miniatura se leía en ese instante, la tira
+    quedaba cacheada en memoria con un JPEG de 0 bytes y el siguiente frame fallaba al decodificar
+    (lo destapó el CI, que es más lento que esta máquina: `test_drags_de_trim_y_mover_con_undo`).
+    """
+    tmp = path.with_name(f"{path.name}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_bytes(data)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+
 def cached_thumbstrip(path: str | Path) -> tuple[bytes, ...] | None:
     """Miniaturas ya calculadas (memoria o disco) sin decodificar nada; `None` si no hay."""
     key = str(Path(path))
@@ -292,6 +312,9 @@ def cached_thumbstrip(path: str | Path) -> tuple[bytes, ...] | None:
     try:
         thumbs = tuple(f.read_bytes() for f in files)
     except OSError:
+        return None
+    # Una cache vieja o a medio escribir no se usa: se regenera con `thumbstrip`.
+    if any(not data.startswith(b"\xff\xd8") for data in thumbs):
         return None
     with _lock:
         _thumbstrips[key] = thumbs
@@ -350,9 +373,11 @@ def thumbstrip(path: str | Path) -> tuple[bytes, ...]:
             buffer = io.BytesIO()
             Image.fromarray(rgb).save(buffer, "JPEG", quality=78)
             data = buffer.getvalue()
+            if not data:
+                continue
             thumbs.append(data)
             try:
-                (folder / f"{index:02d}.jpg").write_bytes(data)
+                _write_bytes_atomic(folder / f"{index:02d}.jpg", data)
             except OSError:
                 pass
     except av.FFmpegError as exc:

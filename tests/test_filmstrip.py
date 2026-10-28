@@ -126,3 +126,23 @@ def test_sin_cache_no_hay_miniaturas(tmp_path: Path, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(paths, "cache_dir", lambda: tmp_path / "cache")
     media._thumbstrips.clear()
     assert media.cached_thumbstrip(tmp_path / "no-existe.mp4") is None
+
+
+def test_una_cache_a_medias_no_se_usa_y_se_regenera(
+    video: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """El CI destapó un JPEG de 0 bytes cacheado mientras el hilo escribía (A1)."""
+    monkeypatch.setattr(paths, "cache_dir", lambda: tmp_path / "cache")
+    media._thumbstrips.clear()
+    folder = media._cache_dir("thumbs") / media._cache_key(video)
+    folder.mkdir(parents=True)
+    for index in range(media.THUMB_COUNT):
+        (folder / f"{index:02d}.jpg").write_bytes(b"" if index == 7 else b"\xff\xd8\xff\xd9")
+
+    assert media.cached_thumbstrip(video) is None, "una tira incompleta no debe cachearse"
+
+    thumbs = media.thumbstrip(video)
+    assert len(thumbs) == media.THUMB_COUNT
+    assert all(data.startswith(b"\xff\xd8") and len(data) > 4 for data in thumbs)
+    assert media.cached_thumbstrip(video) == thumbs
+    assert not list(folder.glob("*.tmp")), "las escrituras atómicas no dejan temporales"
