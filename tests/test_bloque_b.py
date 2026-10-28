@@ -257,7 +257,8 @@ def test_export_real_con_musica_texto_y_ducking(tmp_path: Path, monkeypatch: pyt
         fps=30, width=640, height=360,
     )
     out = tmp_path / "export.mp4"
-    spec = G.build(project, G.preset_by_id("calidad"), out, encoder="libx264")
+    spec = G.build(project, G.preset_by_id("calidad"), out, encoder="libx264",
+                   exe=F.ffmpeg_exe())
     result = subprocess.run(spec.args, capture_output=True, text=True, encoding="utf-8",
                             errors="replace", timeout=120)
 
