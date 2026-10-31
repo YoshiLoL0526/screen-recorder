@@ -63,6 +63,7 @@
 - **`on_scroll` como sensor de tamaño**: Aurora emite `ScrollEvent` también al hacer layout
   (con `width/height` del viewport). La navegación es un `scroll` sin contenido que desplazar y
   así la app conoce el alto útil de la ventana (`state.view_h`); no hay otra API para eso.
+  > Resuelto en Aurora 0.7 con `on_resize`; `ui/shell` lo usa desde la alineación a 0.9.
 - No hay `wrap` en filas: listas de longitud variable como texto (`" · ".join(...)`).
 - Los divisores siguen el patrón de F0/S5: `on_drag` con deltas acumulados desde la fase
   `start`, guardando el valor inicial al empezar.

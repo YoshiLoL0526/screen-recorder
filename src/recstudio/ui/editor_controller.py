@@ -81,9 +81,9 @@ class EditorController:
         EDITOR = self
         state.preview_audio.set(bool(self.settings.preview_audio))
         self.player.audio.muted = not state.preview_audio()  # type: ignore[union-attr]
-        # Los `Signal` son globales y `subscribe` no se deshace: tras `shutdown` un controlador
-        # viejo (tests con varias apps en el mismo proceso) no debe reaccionar ni pisar el
-        # proyecto del nuevo.
+        # Los `Signal` son globales y aquí no se guardan los desuscribidores de `subscribe`: tras
+        # `shutdown` un controlador viejo (tests con varias apps en el mismo proceso) no debe
+        # reaccionar ni pisar el proyecto del nuevo.
         def live(fn):  # noqa: ANN001, ANN202
             return lambda value: None if self._closing.is_set() else fn(value)
 

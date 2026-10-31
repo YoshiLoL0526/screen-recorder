@@ -169,7 +169,7 @@ def test_preview_del_editor_aprovecha_la_ventana(ui, video: Path) -> None:
     small = pilot.rect("ed-preview")
     pilot.resize(1920, 1080)
     _settle(pilot)
-    assert state.view_h() == 1080 - 52  # lo mide el `on_scroll` de la navegación
+    assert state.view_h() == 1080 - 52  # lo mide el `on_resize` de la navegación
     big = pilot.rect("ed-preview")
     assert big[2] > small[2] + 500 and big[3] > small[3] + 200
     # la imagen ocupa todo el panel (antes se quedaba con su tamaño y pegada a la izquierda)

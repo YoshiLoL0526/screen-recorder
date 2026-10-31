@@ -1,7 +1,7 @@
 # 15 — Roadmap post-v1: qué falta
 
-> Estado a **2026-10-28**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
-> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.5) y el
+> Estado a **2026-10-31**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
+> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.9) y el
 > **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
@@ -21,16 +21,16 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Trabajo | Dónde vive |
 |---|---|
 | Arranque robusto si Windows bloquea la carpeta de grabaciones | `platform/paths.py`, `state.py`, `ui/controller.py` (docs/09) |
-| aurora-ui alineado a 0.5.0, con techo `<0.6` | `pyproject.toml`, `docs/05` |
+| aurora-ui alineado a 0.9.0, con techo `<0.10` | `pyproject.toml`, `docs/05` |
 | Diálogos nativos de Aurora en vez de ctypes | `ui/file_dialogs.py` (borrado `platform/dialogs.py`) |
 | Bandeja, atajos globales F9/F10 y «seguir grabando al cerrar» | `ui/tray.py`, `platform/hotkeys.py` |
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**227 tests** en verde y `tools/check_build.py` OK (bundle de **255 MB** en local / **252 MB** en el
-CI con `aurora 0.5.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests +
-build + instalador (`40710816126`). Todo lo que sigue **no está implementado**, salvo lo marcado
-como hecho en los bloques A y B.
+**227 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
+`aurora 0.9.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests + build +
+instalador (`40710816126` con 0.5.0; la próxima ejecución usará el lock nuevo). Todo lo que sigue
+**no está implementado**, salvo lo marcado como hecho en los bloques A y B.
 
 ---
 
@@ -183,16 +183,19 @@ los textos solo añade una indirección.
 
 ## Bloque F — Aurora: adopciones y propuestas
 
-### F1 — Capacidades de Aurora 0.5 que aún no usamos (⏳ · variable)
+### F1 — Capacidades de Aurora 0.9 que aún no usamos (⏳ · variable)
 
 Ordenadas por relación valor/coste (detalle en la tabla de docs/05):
 
 | Capacidad | Qué desbloquearía | Tamaño |
 |---|---|---|
+| `on_drop` / `on_drop_hover` (0.6) | Importar videos o carpetas arrastrándolos a la Biblioteca/editor | S |
 | `App.window` (varias ventanas) | **Overlay de región sobre el escritorio** (hoy es in-app) y ventana de preview desacoplada | M |
+| `splitter` (0.7) | Sustituir los divisores propios del editor (inspector y preview/timeline) | M |
 | `table(...)` (ordenación, columnas, virtualización) | La Biblioteca, hoy con `virtual_list` a mano | M |
 | `chart(...)` | El sparkline de fps, hoy un `canvas` con `polyline` | S |
 | `dialog`/`toast`/`progress`/`menu`/`accordion`/`field` | Sustituir las capas propias de toasts/modales/progreso | M |
+| `remember="rec-studio"` (0.7) | Recordar tamaño/posición/maximizado de la ventana entre sesiones | S |
 | `on_context_menu` y menús nativos (`App(menu=…)`) | Menú de app y clic derecho (hoy todo en la barra) | S |
 | `overflow="hidden"` | Recortes que hoy se hacen con `scroll` de 0 px o canvas | S |
 | `App(motion=False)` / `AURORA_MOTION=0` | Snapshots y CI deterministas | S |
@@ -205,12 +208,14 @@ no antes: `canvas.image()` (mataría la capa de `image()` absolutas del filmstri
 `on_hover` (cursores por zona sin la capa de cajas), `scroll_to` (mantener el playhead a la vista al
 hacer zoom) y `rect` del nodo en los handlers (hoy hay que deducir la x con `TL_X0` + scroll).
 
-### F3 — Vigilar aurora-ui 0.6 (⏳ · S cada vez)
+### F3 — Vigilar aurora-ui 0.10 (⏳ · S cada vez)
 
-La dependencia tiene techo `<0.6` a propósito (Aurora es `0.x` y rompe entre menores). Subir de
-versión es un trabajo **deliberado**: `uv lock` + suite completa + `tools/check_build.py` + revisar la
-tabla de limitaciones de docs/05. Ya pasó una vez: 0.3 → 0.5 cambió comportamiento sin avisar en el
-lock (ver el commit de alineación).
+La dependencia tiene techo `<0.10` a propósito (Aurora es `0.x` y rompe entre menores). Subir de
+versión es un trabajo **deliberado**: `uv lock` + suite completa + `tools/f3_editor_test.py` +
+`tools/f4_export_test.py --skip-long` + `tools/check_build.py` + revisar la tabla de limitaciones de
+docs/05. Ya pasó una vez: 0.3 → 0.5 cambió comportamiento sin avisar en el lock (ver el commit de
+alineación). **0.5 → 0.9 hecho el 2026-10-31**: sin cambios de API que rompieran la app; se adaptó
+`ui/shell` a `on_resize` y se actualizó docs/05 con lo nuevo de 0.6–0.9.
 
 ---
 

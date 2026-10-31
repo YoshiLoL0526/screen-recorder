@@ -37,7 +37,7 @@ class Confirm:
 
 # -- navegación y aspecto -----------------------------------------------------
 screen = Signal("record")  # record | library | editor | settings
-view_h = Signal(720.0)  # alto útil bajo la cabecera (lo mide el `on_scroll` de la navegación)
+view_h = Signal(720.0)  # alto útil bajo la cabecera (lo mide el `on_resize` de la navegación)
 theme_name = Signal("dark")
 theme = Signal(STUDIO_DARK)
 toasts = Signal(())

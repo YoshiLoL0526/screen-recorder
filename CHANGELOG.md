@@ -88,6 +88,17 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   El resto de límites (ventanas frameless, `on_hover`, `canvas` sin imágenes, cajas que bloquean
   clics, etc.) siguen vigentes. Las capacidades nuevas que aún no usamos quedan listadas como
   candidatos en docs/05, sin cambiar código de la app en este paso.
+- **aurora-ui actualizado a 0.9.0** (`>=0.9.0,<0.10.0`): se revisó el changelog 0.6–0.9 y se
+  revalidó la tabla de límites de docs/05 contra el paquete instalado. Ninguna API usada se eliminó
+  (0.6–0.9 son aditivas salvo detalles internos); el build sigue necesitando el parche de
+  `aurora.build.pyinstaller_args` para excluir `cv2`, porque `[tool.aurora.build]` no expone
+  `--exclude-module`. Se adaptó `ui/shell` para medir `state.view_h` con `on_resize` (0.7), que
+  sustituye el rodeo por el `on_scroll` de la navegación, y `pytest` convierte en error
+  `aurora.AuroraDeprecationWarning` (política de 0.6). Verificado con 227 tests, F3/F4 de
+  aceptación, `tools/check_build.py` y `tools/check_installer.py` (bundle de 256 MB e instalador
+  de 72 MB con `aurora 0.9.0`). Las capacidades
+  nuevas (on_drop, splitter, remember, ventanas sin marco, listas de alto variable…) quedan como
+  candidatos en docs/05 y docs/15.
 
 ### Corregido
 - **Carrera en la cache de miniaturas** (el test que tumbaba el CI): la UI leía el JPEG mientras

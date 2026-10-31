@@ -83,9 +83,8 @@ def nav():
             text(label, size=13.5, weight=600 if active else 500, color="$text" if active else "$muted"),
         ]
 
-    # Es un `scroll` (sin contenido que desplazar) solo por su `on_scroll`: Aurora lo emite
-    # también al cambiar de tamaño, y es la única forma de conocer el alto útil de la ventana
-    # (el editor lo usa para topar los divisores).
+    # `on_resize` (Aurora 0.7+) da el alto útil en el primer layout y en cada cambio de tamaño;
+    # el editor lo usa para topar los divisores.
     return scroll(
         key="nav",
         width=NAV_W,
@@ -96,11 +95,11 @@ def nav():
         border_width=0,
         radius=0,
         shrink=0,
-        on_scroll=_on_nav_scroll,
+        on_resize=_on_nav_resize,
     )[column(gap=4)[[item(value, label, icon) for value, label, icon in _NAV]]]
 
 
-def _on_nav_scroll(e) -> None:  # noqa: ANN001
+def _on_nav_resize(e) -> None:  # noqa: ANN001
     if e.height > 0:
         state.view_h.set(round(e.height))
 

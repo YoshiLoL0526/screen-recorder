@@ -13,14 +13,14 @@ wheels = [
 
 [[package]]
 name = "aurora-ui"
-version = "0.5.0"
+version = "0.9.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2a/9b/56503d0f204cbd27d0fd0df2245e250c49d24e1a8a5de413ff98b1117963/aurora_ui-0.5.0.tar.gz", hash = "sha256:57c7ffdfbb09c7d541853a2bd5f7e5bafad68c6f5688c545dd1f52ad7aea6ae1", size = 255653, upload-time = "2026-10-18T19:35:00.718Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/60/d1/efb1071f3f5c601adddface8cb2f7bf73994be4542e452faa3c6fe678baa/aurora_ui-0.9.0.tar.gz", hash = "sha256:f902b34659b496cfb924ef06b794a5bb47062ab2594292305f2ea78e52ea5584", size = 322787, upload-time = "2026-10-31T18:49:54.187Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/27/eb/3542f982cb2c981b2a874969604e5a05911b4e9d6e2c3e5b23d1e3ad6b12/aurora_ui-0.5.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:16d0476d980cd97b51132aa144718739bc808e63e2a9419d9e15b0ddef39fd54", size = 10143038, upload-time = "2026-10-18T19:34:49.172Z" },
-    { url = "https://files.pythonhosted.org/packages/0f/89/1ef7b0c0dbd72d8742b191b1a91d116180e3798c9cc95157263fffef0cbe/aurora_ui-0.5.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:be491ea5a7199d366584a0f461900756f1d45398b3b2d306fb5aef0fa78aeaa2", size = 9964881, upload-time = "2026-10-18T19:34:52.128Z" },
-    { url = "https://files.pythonhosted.org/packages/c6/1a/d9c5a74afb973081eb8502c42cbc54c93001157a05c676456aa9836e05a8/aurora_ui-0.5.0-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:8b5084de49e46c78347d83bf94df9b724c97b8470a69de2fcedd43a868d067f1", size = 15280145, upload-time = "2026-10-18T19:34:55.095Z" },
-    { url = "https://files.pythonhosted.org/packages/f5/d2/c175251d27d1a78128149a545d4ab329245c32bdf233df4c269c49b832db/aurora_ui-0.5.0-cp311-abi3-win_amd64.whl", hash = "sha256:26e6c9e773972a9c3d942b6de820f6ccaf1ac99b35de4f39f7a45cf8f52cb424", size = 10385295, upload-time = "2026-10-18T19:34:58.317Z" },
+    { url = "https://files.pythonhosted.org/packages/f7/ac/470493906103e67d97574a3b28ba2e01fe5f5a5a813e741f41e5327d0ea0/aurora_ui-0.9.0-cp311-abi3-macosx_10_12_x86_64.whl", hash = "sha256:a348e81b85e236ffafdfe29ec24f6797fc7ac1633dbc2d907d55ad1d09bda338", size = 10266343, upload-time = "2026-10-31T18:49:46.021Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/27/c55a019db6fcfe28b9c2c281b60323be6eefc48e393c09bce078bc86acf0/aurora_ui-0.9.0-cp311-abi3-macosx_11_0_arm64.whl", hash = "sha256:63e17e42812e4a5901e6c0ab491accdc2cc3cff11e9207d27d386ec63958ed8b", size = 10082516, upload-time = "2026-10-31T18:49:48.291Z" },
+    { url = "https://files.pythonhosted.org/packages/ed/21/a83ca4edc7215bdd9023a2178c0fa14d54ddc332898bd4619b69f6b1cd8a/aurora_ui-0.9.0-cp311-abi3-manylinux_2_28_x86_64.whl", hash = "sha256:457cddc6d2e748d9d8776c3d7b46e2621cd2f95ddd387501913b56e84983f429", size = 15442287, upload-time = "2026-10-31T18:49:50.341Z" },
+    { url = "https://files.pythonhosted.org/packages/1b/b5/405537ac111c6c0ff203c9f53024729f1500cfbab1ae0b183abcebdc5c95/aurora_ui-0.9.0-cp311-abi3-win_amd64.whl", hash = "sha256:b0f0fca32871f0dde4fd7f4724e94866a83e0bc9ea12c9d220524cf7d30a3a6e", size = 10528503, upload-time = "2026-10-31T18:49:52.369Z" },
 ]
 
 [package.optional-dependencies]
@@ -590,7 +590,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "aurora-ui", specifier = ">=0.5.0,<0.6.0" },
+    { name = "aurora-ui", specifier = ">=0.9.0,<0.10.0" },
     { name = "av", specifier = ">=16" },
     { name = "dxcam", marker = "sys_platform == 'win32'", specifier = ">=0.3.0" },
     { name = "imageio-ffmpeg", specifier = ">=0.6" },
@@ -605,7 +605,7 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "aurora-ui", extras = ["build"], specifier = ">=0.5.0,<0.6.0" },
+    { name = "aurora-ui", extras = ["build"], specifier = ">=0.9.0,<0.10.0" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pytest", specifier = ">=8" },
 ]
