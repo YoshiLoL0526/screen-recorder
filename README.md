@@ -8,7 +8,10 @@
 > 256 MB (con aurora-ui 0.9) — ver [docs/16](docs/16-bloque-a-entrega.md); quedan las comprobaciones manuales
 > (máquina limpia, móvil, soak y ratón). El **bloque B del editor** añade música con ducking y
 > crossfades, textos quemados, selección múltiple, snap por waveform, proxy 540p y reubicar
-> carpetas — ver [docs/17](docs/17-bloque-b-editor.md). Ver también
+> carpetas — ver [docs/17](docs/17-bloque-b-editor.md). Las **fases 0/1/2 del editor** añaden
+> audio absoluto separable/editable, lienzo configurable, transformación del frame y
+> auto-rotación — ver [docs/19](docs/19-fase-0-1-audio.md) y
+> [docs/20](docs/20-fase-2-frame.md). Ver también
 > [docs/12](docs/12-f3-editor.md), [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md)
 > y el [CHANGELOG](CHANGELOG.md).
 

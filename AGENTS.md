@@ -16,13 +16,16 @@ bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`), fil
 (`services/media.thumbstrip`, `ui/timeline.filmstrip_slots`), **bloque A de entrega** (CI verde,
 RNF-06/07, instalador Inno Setup y bundle sin OpenCV; ver `docs/16`) y **bloque B del editor**
 (música/ducking, textos, selección múltiple, snap por waveform, proxy y reubicar carpetas; ver
-`docs/17`). Lo siguiente es el resto del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
+`docs/17`), **fases 0/1 de audio** (modelo v3, audio absoluto editable) y **fase 2** (modelo v4,
+lienzo configurable, transformación por clip y auto-rotación; ver `docs/19` y `docs/20`). Lo
+siguiente es la fase 3 del editor y el resto del backlog de `docs/15` (A2/A6/A7/A8 manuales y
+bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 227 tests; la integración usa FFmpeg real
+uv run pytest                                   # 288 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)

@@ -231,6 +231,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         return data, True
     if version < 3:
         data = _migrate_v2_v3(data)
+    if version < 4:
+        data = _migrate_v3_v4(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -255,6 +257,30 @@ def _migrate_v2_v3(data: dict[str, Any]) -> dict[str, Any]:
             item.setdefault("start", None)
             item.setdefault("audio_enabled", True)
             item.setdefault("link_id", None)
+            clips.append(item)
+        if clips or "clips" in out:
+            out["clips"] = clips
+        return out
+
+    if "video" in migrated:
+        migrated["video"] = track(migrated["video"])
+    if "audio" in migrated:
+        migrated["audio"] = [track(t) for t in migrated["audio"]]
+    return migrated
+
+
+def _migrate_v3_v4(data: dict[str, Any]) -> dict[str, Any]:
+    """v3 → v4: lienzo configurable. Todo proyecto antiguo equivalía a negro + «fit»."""
+    migrated = {**data}
+    migrated.setdefault("background", "#000000")
+    migrated.setdefault("default_fit", "fit")
+
+    def track(track_data: dict[str, Any]) -> dict[str, Any]:
+        out = {**track_data}
+        clips = []
+        for clip in out.get("clips", ()):
+            item = {**clip}
+            item.setdefault("transform", None)
             clips.append(item)
         if clips or "clips" in out:
             out["clips"] = clips

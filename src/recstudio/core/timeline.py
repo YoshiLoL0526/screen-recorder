@@ -19,6 +19,7 @@ from dataclasses import dataclass, replace
 from .errors import ProjectError
 from .project import (
     AUDIO_VIDEO_TRACK_NAME,
+    FIT_MODES,
     SPEED_MAX,
     SPEED_MIN,
     TRANSITION_MIN,
@@ -27,13 +28,16 @@ from .project import (
     Project,
     TextOverlay,
     Track,
+    Transform,
     Transition,
     new_id,
     transition_limit,
 )
+from .transform import hex_to_rgb
 
 ZOOM_MIN, ZOOM_MAX = 5.0, 600.0  # px por segundo
 SNAP_PX = 8.0
+PROJECT_SIZE_MIN, PROJECT_SIZE_MAX = 16, 7680
 
 
 @dataclass(frozen=True)
@@ -99,6 +103,102 @@ def clip_start(p: Project, track: Track, index: int) -> float:
 def clip_range(p: Project, index: int) -> tuple[float, float]:
     start = clip_starts(p.video)[index]
     return start, start + p.video.clips[index].duration
+
+
+# -- lienzo y transformación (fase 2, docs/20) ---------------------------------------
+
+
+def set_project_size(p: Project, width: int, height: int) -> Project:
+    """Cambia el lienzo sin mover clips ni transiciones.
+
+    Exige un par entero dentro de `[16, 7680]`; las dimensiones impares se redondean hacia
+    abajo a par (yuv420p). El render vuelve a normalizar los clips con el nuevo lienzo.
+    """
+    try:
+        w, h = float(width), float(height)
+    except (TypeError, ValueError) as exc:
+        raise ProjectError(f"tamaño de lienzo inválido ({width!r}×{height!r})") from exc
+    if not (w.is_integer() and h.is_integer()):
+        raise ProjectError("el ancho y el alto del lienzo deben ser enteros")
+    w, h = int(w), int(h)
+    if not (PROJECT_SIZE_MIN <= w <= PROJECT_SIZE_MAX and PROJECT_SIZE_MIN <= h <= PROJECT_SIZE_MAX):
+        raise ProjectError(
+            f"el lienzo debe estar entre {PROJECT_SIZE_MIN} y {PROJECT_SIZE_MAX} px ({w}×{h})"
+        )
+    w -= w % 2
+    h -= h % 2
+    if w < PROJECT_SIZE_MIN or h < PROJECT_SIZE_MIN:
+        raise ProjectError("el lienzo es demasiado pequeño")
+    if (w, h) == (p.width, p.height):
+        return p
+    return replace(p, width=w, height=h)
+
+
+def set_project_fit(p: Project, fit: str) -> Project:
+    """Encaje por defecto de los clips (`fit`/`fill`/`stretch`)."""
+    if fit not in FIT_MODES:
+        raise ProjectError(f"encaje desconocido: {fit!r}")
+    return p if p.default_fit == fit else replace(p, default_fit=fit)
+
+
+def set_project_background(p: Project, color: str) -> Project:
+    """Color del lienzo (`#RRGGBB`); acepta también `RRGGBB` sin almohadilla."""
+    text = str(color).strip().upper()
+    if len(text) == 6 and not text.startswith("#"):
+        text = "#" + text
+    hex_to_rgb(text)
+    return p if p.background == text else replace(p, background=text)
+
+
+def set_transform(p: Project, clip_id: str, **changes) -> Project:  # noqa: ANN003
+    """Fusiona `changes` en la transformación del clip de video `clip_id`.
+
+    Un `Transform` que queda neutro se guarda como `None` (comportamiento histórico), para no
+    bloquear el corte rápido sin motivo. Un solo `store.apply` en la UI ⇒ un solo undo.
+    """
+    allowed = {"fit", "scale", "x", "y", "rotation", "flip_h", "flip_v", "crop"}
+    unknown = set(changes) - allowed
+    if unknown:
+        raise ProjectError(f"campos de transformación desconocidos: {', '.join(sorted(unknown))}")
+    index = p.video.index_of(clip_id)
+    clip = p.video.clips[index]
+    current = clip.transform or Transform()
+    values = dict(changes)
+    try:
+        if "crop" in values:
+            values["crop"] = tuple(float(v) for v in values["crop"])  # type: ignore[union-attr]
+        if "rotation" in values:
+            values["rotation"] = int(round(float(values["rotation"])))
+        if "fit" in values:
+            values["fit"] = str(values["fit"])
+        for key in ("scale", "x", "y"):
+            if key in values:
+                values[key] = float(values[key])
+        for key in ("flip_h", "flip_v"):
+            if key in values:
+                values[key] = bool(values[key])
+        updated = replace(current, **values)  # valida en `Transform.__post_init__`
+    except ProjectError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise ProjectError(f"transformación inválida: {exc}") from exc
+    transform = None if updated == Transform() else updated
+    if transform == clip.transform:
+        return p
+    clips = list(p.video.clips)
+    clips[index] = replace(clip, transform=transform)
+    return replace(p, video=replace(p.video, clips=tuple(clips)))
+
+
+def reset_transform(p: Project, clip_id: str) -> Project:
+    """Quita la transformación propia del clip (vuelve al encaje por defecto del proyecto)."""
+    index = p.video.index_of(clip_id)
+    clip = p.video.clips[index]
+    if clip.transform is None:
+        return p
+    clips = list(p.video.clips)
+    clips[index] = replace(clip, transform=None)
+    return replace(p, video=replace(p.video, clips=tuple(clips)))
 
 
 def _pos(clip: Clip, index: int, t_local: float) -> ClipPos:

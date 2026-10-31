@@ -15,12 +15,12 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 | Área | v1 + bloque B |
 |---|---|
 | Pistas | 1 de video + hasta 6 de audio. Las pistas pueden ser secuenciales (música) o absolutas (audio separado/voz) y tienen mute, solo, bloqueo y volumen. |
-| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala. |
+| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop). |
 | Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
 | Textos | `TextOverlay` con intervalo, posición, tamaño, color y negrita; `drawtext` en export y PIL en preview. |
 | Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio), playhead frame-accurate, waveform, filmstrip, marquesina y drags de audio. |
 | Preview | Play/pause, scrub, ±1 frame, loop de selección, resolución adaptativa, audio (mezcla completa best-effort) y proxy 540p. |
-| Proyecto | `.rsproj/project.json` versionado (schema 3), autosave, undo/redo por snapshots. |
+| Proyecto | `.rsproj/project.json` versionado (schema 4), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables. |
 | Export | MP4 H.264, presets, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)
@@ -36,12 +36,12 @@ class MediaAsset:
     id: str                    # uuid corto
     path: str                  # ruta absoluta (o relativa al proyecto si se copió)
     duration: float            # segundos (probe)
-    width: int
+    width: int                 # dimensiones de VISUALIZACIÓN (rotadas si hace falta)
     height: int
     fps: float
     has_audio: bool
     audio_channels: int = 2
-    rotation: int = 0
+    rotation: int = 0          # 0/90/180/270; lo lee `media.probe` de PyAV
 
 @dataclass(frozen=True)
 class Effect:
@@ -60,6 +60,17 @@ class Transition:
     # convención: transición SALIENTE del clip k (transitions[k] une k con k+1)
 
 @dataclass(frozen=True)
+class Transform:                             # fase 2, docs/20
+    fit: Literal["inherit", "fit", "fill", "stretch"] = "inherit"
+    scale: float = 1.0                       # 0.25…4, relativa al encaje
+    x: float = 0.5                           # centro, fracción del lienzo
+    y: float = 0.5
+    rotation: int = 0                        # 0/90/180/270 (horario)
+    flip_h: bool = False
+    flip_v: bool = False
+    crop: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)  # l, t, r, b
+
+@dataclass(frozen=True)
 class Clip:
     id: str
     asset_id: str
@@ -70,6 +81,7 @@ class Clip:
     start: float | None = None  # solo pistas `absolute` (docs/19)
     audio_enabled: bool = True  # solo pista de video
     link_id: str | None = None  # audio separado → clip de video
+    transform: Transform | None = None  # None = sin transformación propia (docs/20)
 
     @property
     def duration(self) -> float:            # duración en el timeline
@@ -102,15 +114,17 @@ class TextOverlay:                          # B2
 
 @dataclass(frozen=True)
 class Project:
-    schema_version: int = 3
+    schema_version: int = 4
     name: str = "Sin título"
     assets: tuple[MediaAsset, ...] = ()
     video: Track = Track("video")
     audio: tuple[Track, ...] = ()           # pistas de audio (música / audio separado)
     texts: tuple[TextOverlay, ...] = ()     # textos quemados (B2)
     fps: int = 60                           # fps del proyecto (render)
-    width: int = 1920
+    width: int = 1920                       # lienzo de salida
     height: int = 1080
+    background: str = "#000000"             # color del lienzo (#RRGGBB)
+    default_fit: Literal["fit", "fill", "stretch"] = "fit"
 ```
 
 Invariantes que valida `core/project.py` al construir (y que los tests cubren):
@@ -120,10 +134,12 @@ Invariantes que valida `core/project.py` al construir (y que los tests cubren):
 - Assets referenciados existen (o se marcan offline); un asset de solo audio tiene `width=height=0`
   y `fps=0`.
 - `0 ≤ ducking ≤ 1`; textos con `0 ≤ start < end`, posición 0…1, tamaño 8–200 y color `#RRGGBB`.
+- `Project.background` es `#RRGGBB` y `default_fit` es `fit`/`fill`/`stretch`; `Transform` valida
+  escala 0.25–4, posición 0…1, rotación 0/90/180/270 y crop `0 ≤ l < r ≤ 1`, `0 ≤ t < b ≤ 1`.
 - IDs únicos (assets, clips y textos).
 - `Track.mode="absolute"`: `Clip.start ≥ 0`, sin solapes en la pista, sin transiciones; `link_id`
-  existe y es único (solo audio, apuntando a un clip de video). `audio_enabled` solo se usa en
-  la pista de video. Detalle en [19](19-fase-0-1-audio.md).
+  existe y apunta a un clip de video (varios trozos de un audio dividido pueden compartirlo) y
+  `audio_enabled` solo se usa en la pista de video. Detalle en [19](19-fase-0-1-audio.md).
 
 ## Matemática del timeline (`core/timeline.py`, puro y testeado)
 
@@ -163,6 +179,13 @@ def trim(p: Project, clip_id: str, new_in: float, new_out: float) -> Project: ..
 def move(p: Project, clip_id: str, to_index: int) -> Project: ...
 def ripple_delete(p: Project, clip_id: str) -> Project: ...
 def snap(t: float, candidates: list[float], zoom: float, threshold_px: float = 8) -> float: ...
+
+# fase 2 (docs/20)
+def set_project_size(p: Project, width: int, height: int) -> Project: ...
+def set_project_fit(p: Project, fit: str) -> Project: ...
+def set_project_background(p: Project, color: str) -> Project: ...
+def set_transform(p: Project, clip_id: str, **changes) -> Project: ...
+def reset_transform(p: Project, clip_id: str) -> Project: ...
 ```
 
 Reglas finas:
@@ -204,16 +227,20 @@ Reglas finas:
 
 ### Composición del preview
 
-1. Frame de video del clip activo (fuente).
+1. Frame de video del clip activo (fuente). Si el asset trae rotación 90/270, PyAV entrega la
+   orientación codificada y el preview la gira explícitamente (FFmpeg sí auto-rota en el export;
+   ver [20](20-fase-2-frame.md)).
 2. Si `t` cae dentro de una transición: se decodifica también el clip vecino y se **aproxima el
    efecto** (los 4 fundidos y los 4 wipes con mezcla alfa/cortina en numpy). El render final
    siempre es el de FFmpeg; el preview avisa "aproximado" en transiciones no lineales.
-3. Escalado con **`Image.reduce(k)`** (filtro de caja por decimación entera; para 1080p→540p es
+3. Transformación del clip (rotación/flip → crop → fit/fill/stretch + escala → posición sobre el
+   lienzo con `Project.background`), con la misma geometría de `core/transform.py` que el graph.
+4. Escalado con **`Image.reduce(k)`** (filtro de caja por decimación entera; para 1080p→540p es
    un solo `reduce(2)`) + ajuste final pequeño si el factor no es exacto, y compresión a **JPEG
    q80 4:2:0** → `bytes`. Medido en F0 (S4/S4c): **8.5 ms por frame** (p95 9.9) ⇒ >100 fps
    posibles a 960×540; el bilinear genérico de PIL tardaba 13 ms y `cv2` 8–9 ms, así que `reduce`
    gana y evita depender de `opencv` en la app.
-4. `preview_frame.set(bytes)`; la vista pinta `image(preview_frame(), fit="contain")`.
+5. `preview_frame.set(bytes)`; la vista pinta `image(preview_frame(), fit="contain")`.
 
 Presupuesto y adaptación:
 
@@ -272,7 +299,8 @@ pura sobre el modelo: genera el comando completo y es 100 % testeable (golden st
 > en vez de `trim=start:end`, y **duraciones en frames enteros** (`tpad` + `trim=end_frame`, y
 > el audio a esa misma duración) para que ni los offsets ni el audio deriven.
 
-Cadena canónica **por clip de video** (el orden importa):
+Cadena canónica **por clip de video** (el orden importa). La rama histórica (sin transformación,
+`default_fit="fit"`, fondo negro y sin auto-rotación) se conserva byte a byte:
 
 ```
 -ss IN -t LEN -i archivo                     # seek preciso de entrada (una entrada por clip)
@@ -283,6 +311,25 @@ scale=W:H:force_original_aspect_ratio=decrease,pad=W:H:-1:-1:color=black   # nor
 fps=FPS,tpad=stop_mode=clone:stop=FPS,trim=end_frame=N    # N = round(duración·FPS) frames exactos
 fade=t=in|out (si hay) ,format=yuv420p,setsar=1           # fundidos, formato y SAR para xfade
 ```
+
+Con lo de la fase 2 (transformación, fit/fill/stretch, fondo de color o auto-rotación) la rama
+nueva es:
+
+```
+transpose/hflip/vflip (rotación del clip; la del asset la aplica FFmpeg al abrir)
+crop=w=CW:h=CH:x=CX:y=CCY                    # crop normalizado (si no es el clip entero)
+crop=…                                       # zoom heredado (si hay)
+scale=OUT_W:OUT_H
+pad=PW:PH:PX:PY:color=0xRRGGBB               # lienzo + posición
+crop=W:H:OX:OY                               # recorte contra el lienzo (si se sale)
+eq=…                                         # después de la composición
+fps/tpad/trim/fade/format/setsar             # igual que la rama histórica
+```
+
+`core/transform.py` decide `CW/CH/CX/CCY/OUT_W/OUT_H/PX/PY/…`; el preview usa los mismos valores.
+La auto-rotación se apoya en la que FFmpeg hace por defecto al leer la display matrix (sin
+`-noautorotate`, para no copiar la matriz al MP4 y girar dos veces). Detalle en
+[20](20-fase-2-frame.md).
 
 Cadena **por clip de audio** (tramo audible: el entrante de una transición empieza tras el solape):
 
@@ -366,9 +413,10 @@ avisa si movió el corte (típico ≤ 1 s, el precio de cortar sin recodificar).
 
 ```json
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "name": "Demo del dashboard",
   "fps": 60, "width": 1920, "height": 1080,
+  "background": "#000000", "default_fit": "fit",
   "assets": [
     { "id": "a1", "path": "C:/Users/Raid/Videos/RecStudio/2026-10-16 10-30 demo.mp4",
       "duration": 42.3, "width": 1920, "height": 1080, "fps": 60.0, "has_audio": true }
@@ -377,9 +425,13 @@ avisa si movió el corte (típico ≤ 1 s, el precio de cortar sin recodificar).
     "kind": "video",
     "clips": [
       { "id": "c1", "asset_id": "a1", "in_": 2.0, "out_": 14.2, "speed": 1.0,
-        "effects": [{ "kind": "eq", "params": [["brightness", 0.03]] }] },
+        "effects": [{ "kind": "eq", "params": [["brightness", 0.03]] }],
+        "transform": null },
       { "id": "c2", "asset_id": "a1", "in_": 20.0, "out_": 30.0, "speed": 1.5,
-        "effects": [] }
+        "effects": [],
+        "transform": { "fit": "inherit", "scale": 1.0, "x": 0.5, "y": 0.5,
+                       "rotation": 0, "flip_h": false, "flip_v": false,
+                       "crop": [0.0, 0.0, 1.0, 1.0] } }
     ],
     "transitions": [ { "kind": "fade", "duration": 0.5 } ]
   },

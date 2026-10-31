@@ -173,6 +173,25 @@ insp_transition = Signal("none")
 insp_transition_dur = Signal(0.5)
 insp_fps = Signal(60)
 
+# -- lienzo y transformación del frame (fase 2, docs/20) -----------------------
+proj_canvas = Signal("1920x1080")  # clave del preset o "custom"
+proj_width = Signal("1920")  # ancho/alto del lienzo (texto editable)
+proj_height = Signal("1080")
+proj_fit = Signal("fit")  # fit | fill | stretch
+proj_background = Signal("#000000")  # color del lienzo
+proj_bg_hex = Signal("#000000")  # campo hex (sincronizado con `proj_background`)
+insp_fit = Signal("inherit")  # transformación del clip: inherit | fit | fill | stretch
+insp_scale = Signal(1.0)
+insp_pos_x = Signal(0.5)
+insp_pos_y = Signal(0.5)
+insp_rotation = Signal(0)  # 0 | 90 | 180 | 270 (horario)
+insp_flip_h = Signal(False)
+insp_flip_v = Signal(False)
+insp_crop_l = Signal("0.00")  # recorte normalizado (texto editable)
+insp_crop_t = Signal("0.00")
+insp_crop_r = Signal("1.00")
+insp_crop_b = Signal("1.00")
+
 # -- efectos y export (F4) ---------------------------------------------------------
 insp_volume = Signal(1.0)  # efecto `volume` del clip seleccionado
 insp_fade_in = Signal(0.0)

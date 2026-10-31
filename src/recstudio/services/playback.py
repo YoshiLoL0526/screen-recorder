@@ -33,6 +33,7 @@ import numpy as np
 from ..core import effects as fx
 from ..core import graph as graph_mod
 from ..core import timeline as tl
+from ..core import transform as tx
 from ..core.project import Clip, MediaAsset, Project, to_dict, video_audio_gain
 from ..platform import ffmpeg as ffmpeg_mod
 from ..platform import paths
@@ -45,8 +46,8 @@ JPEG_QUALITY = 80
 
 def preview_size(project: Project, max_height: int = PREVIEW_HEIGHT) -> tuple[int, int]:
     """Tamaño del preview con el aspecto del proyecto (pares, como pide el JPEG 4:2:0)."""
-    height = min(max_height, project.height)
-    width = round(height * project.width / project.height)
+    height = max(2, min(max_height, project.height))
+    width = max(2, round(height * project.width / project.height))
     return width - width % 2, height - height % 2
 
 
@@ -55,6 +56,17 @@ def _fit(src_w: int, src_h: int, box_w: int, box_h: int) -> tuple[int, int]:
     w = max(2, int(round(src_w * scale)))
     h = max(2, int(round(src_h * scale)))
     return w - w % 2, h - h % 2
+
+
+def rotate_rgb(rgb: np.ndarray, rotation: int, *, clockwise: bool) -> np.ndarray:
+    """Gira un frame RGB con la misma convención que los filtros `transpose` del graph."""
+    rotation = tx.normalize_rotation(rotation)
+    if rotation == 180:
+        return np.rot90(rgb, 2)
+    if rotation == 0:
+        return rgb
+    turn = 1 if (rotation == 90) != clockwise else -1
+    return np.rot90(rgb, turn)
 
 
 def encode_jpeg(rgb: np.ndarray, quality: int = JPEG_QUALITY) -> bytes:
@@ -367,31 +379,94 @@ class FrameRenderer:
         self, project: Project, clip: Clip, t_source: float, size: tuple[int, int], slot: int,
         t_local: float | None = None,
     ) -> np.ndarray:
-        canvas = np.zeros((size[1], size[0], 3), np.uint8)
+        asset: MediaAsset | None
         try:
-            asset: MediaAsset = project.asset(clip.asset_id)
+            asset = project.asset(clip.asset_id)
         except Exception:
+            asset = None
+        canvas = np.zeros((size[1], size[0], 3), np.uint8)
+        if asset is None:
             return canvas
         source = self.pool.get(media.preview_path(asset), slot)
         if source is None:
             return canvas
-        fit_w, fit_h = _fit(asset.width or size[0], asset.height or size[1], size[0], size[1])
+
+        if not tx.needs_custom_render(project, clip):
+            # Camino histórico de F3/F4 (sin copias adicionales): fit + negro.
+            fit_w, fit_h = _fit(asset.width or size[0], asset.height or size[1], size[0], size[1])
+            try:
+                rgb = source.frame_at(t_source, (fit_w, fit_h))
+            except Exception:
+                return canvas
+            if rgb is None:
+                return canvas
+            # mismo orden que el graph: zoom (crop) → eq → letterbox → fundido
+            factor, cx, cy = fx.zoom(clip)
+            if factor > 1.0 + 1e-6:
+                rgb = apply_zoom(rgb, factor, cx, cy)
+            eq = fx.eq(clip)
+            if eq is not None:
+                rgb = apply_eq(rgb, eq)
+            x = (size[0] - rgb.shape[1]) // 2
+            y = (size[1] - rgb.shape[0]) // 2
+            canvas[y : y + rgb.shape[0], x : x + rgb.shape[1]] = rgb
+            if t_local is not None:
+                fin, fout = fx.fades(clip, clip.duration)
+                k = fx.fade_gain(t_local, clip.duration, fin, fout)
+                if k < 1.0:
+                    canvas = (canvas * k).astype(np.uint8)
+            return canvas
+
+        lay = tx.layout(project, clip, size)
+        canvas = np.empty((size[1], size[0], 3), np.uint8)
+        canvas[:] = tx.hex_to_rgb(project.background)
+        left, top, right, bottom = lay.crop
+        # Decodificar justo lo necesario para que el recorte llene `out_width × out_height`
+        # (sin superar la resolución nativa del asset).
+        want_w = max(2, int(round(lay.out_width / max(1e-6, right - left))))
+        want_h = max(2, int(round(lay.out_height / max(1e-6, bottom - top))))
+        shrink = min(1.0, lay.source_width / want_w, lay.source_height / want_h)
+        dec_w = max(2, int(round(want_w * shrink)))
+        dec_h = max(2, int(round(want_h * shrink)))
+        raw_w, raw_h = (dec_h, dec_w) if lay.asset_rotation in (90, 270) else (dec_w, dec_h)
         try:
-            rgb = source.frame_at(t_source, (fit_w, fit_h))
+            rgb = source.frame_at(t_source, (raw_w, raw_h))
         except Exception:
             rgb = None
         if rgb is None:
             return canvas
-        # mismo orden que el graph: zoom (crop) → eq → letterbox → fundido
+        rgb = rotate_rgb(rgb, lay.asset_rotation, clockwise=False)
+        rgb = rotate_rgb(rgb, lay.rotation, clockwise=True)
+        if lay.flip_h:
+            rgb = np.flip(rgb, axis=1)
+        if lay.flip_v:
+            rgb = np.flip(rgb, axis=0)
+        height, width = rgb.shape[:2]
+        x0 = min(width - 1, max(0, int(round(width * left))))
+        y0 = min(height - 1, max(0, int(round(height * top))))
+        x1 = min(width, max(x0 + 1, int(round(width * right))))
+        y1 = min(height, max(y0 + 1, int(round(height * bottom))))
+        rgb = rgb[y0:y1, x0:x1]
         factor, cx, cy = fx.zoom(clip)
         if factor > 1.0 + 1e-6:
             rgb = apply_zoom(rgb, factor, cx, cy)
+        if rgb.shape[1] != lay.out_width or rgb.shape[0] != lay.out_height:
+            from PIL import Image
+
+            image = Image.fromarray(np.ascontiguousarray(rgb))
+            rgb = np.asarray(image.resize((lay.out_width, lay.out_height), Image.BILINEAR))
+        # Composición con recorte contra los bordes del lienzo (offsets negativos incluidos).
+        dst_x, dst_y = max(0, lay.x), max(0, lay.y)
+        src_x, src_y = max(0, -lay.x), max(0, -lay.y)
+        copy_w = min(lay.out_width - src_x, size[0] - dst_x)
+        copy_h = min(lay.out_height - src_y, size[1] - dst_y)
+        if copy_w > 0 and copy_h > 0:
+            canvas[dst_y : dst_y + copy_h, dst_x : dst_x + copy_w] = rgb[
+                src_y : src_y + copy_h, src_x : src_x + copy_w
+            ]
         eq = fx.eq(clip)
         if eq is not None:
-            rgb = apply_eq(rgb, eq)
-        x = (size[0] - rgb.shape[1]) // 2
-        y = (size[1] - rgb.shape[0]) // 2
-        canvas[y : y + rgb.shape[0], x : x + rgb.shape[1]] = rgb
+            canvas = apply_eq(canvas, eq)
         if t_local is not None:
             fin, fout = fx.fades(clip, clip.duration)
             k = fx.fade_gain(t_local, clip.duration, fin, fout)

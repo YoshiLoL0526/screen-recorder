@@ -6,9 +6,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 
 > Estado: **v1.0.0 implementada** (F0–F5), **bloque A de entrega cerrado** (CI, RNF, instalador
 > y bundle ligero), **bloque B del editor** (música/ducking, textos, selección múltiple, snap por
-> waveform, proxy y reubicar carpetas) y **fases 0/1 de audio** (modelo v3, audio separable y
-> editable). Quedan las comprobaciones manuales de A y las fases 2+. Los documentos 01–07 son la
-> especificación de diseño; 08–19 recogen lo implementado, con mediciones y bugs.
+> waveform, proxy y reubicar carpetas) y **fases 0/1/2 del editor** (audio absoluto editable,
+> lienzo configurable y transformación del frame). Quedan las comprobaciones manuales de A y las
+> fases 3+. Los documentos 01–07 son la especificación de diseño; 08–20 recogen lo implementado,
+> con mediciones y bugs.
 
 ## Índice
 
@@ -33,6 +34,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 17 | [Bloque B: editor completo](17-bloque-b-editor.md) | Música con ducking/crossfades, textos en preview/export, selección múltiple, snap por waveform, proxy 540p y reubicar carpetas. |
 | 18 | [Herramientas que faltan en el editor](18-herramientas-editor.md) | Análisis y hoja de ruta post-bloque B: audio libre, lienzo/transformación, flujo, composición y export. |
 | 19 | [Fase 0 y 1: audio editable](19-fase-0-1-audio.md) | Modelo v3, pistas absolutas, separar/adjuntar/dividir/editar audio, pistas múltiples, fundidos, export/preview y límites. |
+| 20 | [Fase 2: lienzo y frame](20-fase-2-frame.md) | Modelo v4, presets de lienzo, fit/fill/stretch, transformación por clip, auto-rotación, paridad preview/export, UI, tests y límites. |
 
 ## Orden de lectura sugerido
 

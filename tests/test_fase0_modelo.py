@@ -1,4 +1,7 @@
-"""Fase 0 (docs/18/docs/19): modelo v3, pistas absolutas, validación y migración v1/v2."""
+"""Fase 0 (docs/18/docs/19): modelo v3, pistas absolutas, validación y migración v1/v2.
+
+La fase 2 sube el esquema a v4; este archivo comprueba que la base de la fase 0 sigue intacta.
+"""
 
 from __future__ import annotations
 
@@ -38,12 +41,13 @@ def base_project() -> Project:
 # -- modelo -----------------------------------------------------------------------
 
 
-def test_esquema_v3_y_defaults_retrocompatibles() -> None:
-    assert SCHEMA_VERSION == 3
+def test_esquema_v4_y_defaults_retrocompatibles() -> None:
+    assert SCHEMA_VERSION == 4
     clip = Clip("c", "a", 0, 1)
-    assert (clip.start, clip.audio_enabled, clip.link_id) == (None, True, None)
+    assert (clip.start, clip.audio_enabled, clip.link_id, clip.transform) == (None, True, None, None)
     track = Track("audio")
     assert (track.mode, track.name, track.solo, track.locked) == ("sequence", "", False, False)
+    assert Project().background == "#000000" and Project().default_fit == "fit"
 
 
 def test_pista_absoluta_con_huecos_en_clip_starts_y_duracion() -> None:
@@ -188,16 +192,18 @@ def v2_json() -> dict:
 def test_migracion_v1_v2_rellena_la_fase_0_sin_cambiar_lo_visible() -> None:
     for raw in (v1_json(), v2_json()):
         migrated, read_only = store_mod.migrate(raw)
-        assert not read_only and migrated["schema_version"] == 3
+        assert not read_only and migrated["schema_version"] == 4
+        assert migrated["background"] == "#000000" and migrated["default_fit"] == "fit"
         assert migrated["video"]["mode"] == "sequence"
         assert migrated["video"]["clips"][0]["start"] is None
         assert migrated["video"]["clips"][0]["audio_enabled"] is True
         assert migrated["video"]["clips"][0]["link_id"] is None
+        assert migrated["video"]["clips"][0]["transform"] is None
         for track in migrated.get("audio", ()):
             assert track["mode"] == "sequence"
             assert track["name"] == "" and track["solo"] is False and track["locked"] is False
         project = from_dict(migrated)
-        assert project.schema_version == 3
+        assert project.schema_version == 4
         assert project.video.clips[0].audio_enabled is True
         assert project.video.mode == "sequence"
         if "audio" in raw:
@@ -212,7 +218,8 @@ def test_load_project_con_json_v2(tmp_path: Path) -> None:
     path.write_text(json.dumps(v2_json()), encoding="utf-8")
     result = store_mod.load_project(path)
     assert not result.read_only and not result.from_backup
-    assert result.project.schema_version == 3
+    assert result.project.schema_version == 4
     assert [c.id for c in result.project.video.clips] == ["c1"]
     assert result.project.audio[0].mode == "sequence"
     assert result.project.audio[0].clips[0].start is None
+    assert result.project.background == "#000000" and result.project.default_fit == "fit"

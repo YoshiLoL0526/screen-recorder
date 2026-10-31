@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import effects as fx
+from . import transform as tx
 from .errors import ProjectError
 from .project import Clip, Project, Track, audio_track_audible, video_audio_gain
 
@@ -165,16 +166,47 @@ def _video_chain(project: Project, clip: Clip, frames: int, size: tuple[int, int
     fps = project.fps
     w, h = size
     steps = [f"setpts=(PTS-STARTPTS)/{num(clip.speed)}" if clip.speed != 1.0 else "setpts=PTS-STARTPTS"]
-    factor, cx, cy = fx.zoom(clip)
-    if factor > 1.0 + 1e-6:
-        steps.append(f"crop=w=iw/{num(factor)}:h=ih/{num(factor)}:x=(iw-ow)*{num(cx)}:y=(ih-oh)*{num(cy)}")
-    eq = fx.eq(clip)
-    if eq is not None:
-        steps.append(f"eq=brightness={num(eq['brightness'])}:contrast={num(eq['contrast'])}"
-                     f":saturation={num(eq['saturation'])}")
+    custom = tx.needs_custom_render(project, clip)
+    if custom:
+        lay = tx.layout(project, clip, size)
+        # La auto-rotación del asset la aplica FFmpeg al abrir la entrada (display matrix); PyAV
+        # no la aplica y el preview la hace explícita. No se añade `transpose` por asset: si se
+        # desactiva la auto-rotación, FFmpeg copia la display matrix al MP4 y el reproductor
+        # volvería a girarlo (doble rotación). Ver docs/20.
+        steps += tx.rotation_filters(lay.rotation, clockwise=True)
+        if lay.flip_h:
+            steps.append("hflip")
+        if lay.flip_v:
+            steps.append("vflip")
+        if lay.crop != tx.FULL_CROP:
+            steps.append(
+                f"crop=w={lay.crop_width}:h={lay.crop_height}:x={lay.crop_x}:y={lay.crop_y}"
+            )
+        factor, cx, cy = fx.zoom(clip)
+        if factor > 1.0 + 1e-6:
+            steps.append(
+                f"crop=w=iw/{num(factor)}:h=ih/{num(factor)}:x=(iw-ow)*{num(cx)}:y=(ih-oh)*{num(cy)}"
+            )
+        steps.append(f"scale={lay.out_width}:{lay.out_height}")
+        steps += tx.compose_filters(lay)
+        eq = fx.eq(clip)  # después de la composición (el fondo no se recorta)
+        if eq is not None:
+            steps.append(f"eq=brightness={num(eq['brightness'])}:contrast={num(eq['contrast'])}"
+                         f":saturation={num(eq['saturation'])}")
+    else:
+        # Cadena histórica de F4: se conserva byte a byte para los golden y el corte rápido.
+        factor, cx, cy = fx.zoom(clip)
+        if factor > 1.0 + 1e-6:
+            steps.append(f"crop=w=iw/{num(factor)}:h=ih/{num(factor)}:x=(iw-ow)*{num(cx)}:y=(ih-oh)*{num(cy)}")
+        eq = fx.eq(clip)
+        if eq is not None:
+            steps.append(f"eq=brightness={num(eq['brightness'])}:contrast={num(eq['contrast'])}"
+                         f":saturation={num(eq['saturation'])}")
+        steps += [
+            f"scale={w}:{h}:force_original_aspect_ratio=decrease",
+            f"pad={w}:{h}:-1:-1:color=black",
+        ]
     steps += [
-        f"scale={w}:{h}:force_original_aspect_ratio=decrease",
-        f"pad={w}:{h}:-1:-1:color=black",
         f"fps={fps}",
         f"tpad=stop_mode=clone:stop={int(fps * _PAD_FRAMES_S)}",
         f"trim=end_frame={frames}",

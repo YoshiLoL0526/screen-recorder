@@ -3,7 +3,8 @@
 > Estado a **2026-10-31**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
 > filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.9), los
 > **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md))
-> y las **fases 0 y 1 de audio** ([19 — Fase 0 y 1](19-fase-0-1-audio.md)).
+> y las **fases 0, 1 y 2 del editor** ([19 — Fase 0 y 1](19-fase-0-1-audio.md),
+> [20 — Fase 2](20-fase-2-frame.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -26,13 +27,13 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Diálogos nativos de Aurora en vez de ctypes | `ui/file_dialogs.py` (borrado `platform/dialogs.py`) |
 | Bandeja, atajos globales F9/F10 y «seguir grabando al cerrar» | `ui/tray.py`, `platform/hotkeys.py` |
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
+| Lienzo configurable, transformación del frame y auto-rotación | `core/project.py`, `core/transform.py`, `core/graph.py`, `services/playback.py`, inspector (docs/20) |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**267 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
+**288 tests** en verde y `tools/check_build.py` OK (bundle de **255 MB** en local con
 `aurora 0.9.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests + build +
-instalador (`40710816126` con 0.5.0; la próxima ejecución usará el lock nuevo). Todo lo que sigue
-**no está implementado**, salvo lo marcado como hecho en los bloques A y B y las fases 0/1 de
-audio.
+instalador. Todo lo que sigue **no está implementado**, salvo lo marcado como hecho en los
+bloques A y B y las fases 0/1/2 del editor.
 
 ---
 
@@ -60,7 +61,7 @@ runner (smoke del exe incluido) y se añadió la verificación del instalador.
 
 **A2** es la prueba que más valor aporta por hora invertida: instalar en una máquina sin Python ni
 FFmpeg y completar grabar → biblioteca → editar → exportar → abrir el MP4. Todo lo que falle ahí es
-un bug real que los 267 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
+un bug real que los 288 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
 runner limpio; falta el flujo manual ([procedimiento](16-bloque-a-entrega.md#a2--máquina-limpia-pendiente-manual)).
 
 **A4/A5 están hechos**: instalador de 72 MB verificado y bundle de 370 → **255 MB** al excluir
@@ -76,8 +77,9 @@ limpia sigue pendiente (A2), igual que el móvil, el soak y el ratón (A6–A8).
 ## Bloque B — Editor: lo hecho
 
 El editor ya tiene todo lo de v1 y ahora también música, textos, selección múltiple, snap de audio,
-proxy, reubicar carpetas y **audio separable/editable** (fases 0 y 1). Resultados y decisiones en
-[17 — Bloque B](17-bloque-b-editor.md) y [19 — Fase 0 y 1](19-fase-0-1-audio.md).
+proxy, reubicar carpetas, **audio separable/editable** (fases 0 y 1) y **lienzo/transformación del
+frame** (fase 2). Resultados y decisiones en [17 — Bloque B](17-bloque-b-editor.md),
+[19 — Fase 0 y 1](19-fase-0-1-audio.md) y [20 — Fase 2](20-fase-2-frame.md).
 
 ### B1 — Pista de música, ducking y crossfades de audio (✅ · L)
 
@@ -132,10 +134,27 @@ Resultados y decisiones completas en [19 — Fase 0 y 1](19-fase-0-1-audio.md).
 - **Export/preview**: `adelay` en muestras + `amix` para pistas absolutas, WAV de preview con la
   misma mezcla (`build_audio`) y corte rápido bloqueado con audio separado/absoluto.
 
-> Las herramientas del editor que aún faltan (lienzo/transformación, flujo de edición,
-> composición y export) se analizan en [18 — Herramientas del editor](18-herramientas-editor.md).
-> Ese documento propone la hoja de ruta; este sigue siendo el backlog de fases hasta que se
-> incorpore. La fase 2 (lienzo y frame) es la siguiente.
+### B8 — Lienzo y transformación del frame: fase 2 (✅ · M)
+
+Resultados y decisiones completas en [20 — Fase 2](20-fase-2-frame.md).
+
+- **Modelo v4** (`SCHEMA_VERSION=4`): `Project.background`, `Project.default_fit` y
+  `Clip.transform` (`Transform` con fit/scale/x/y/rotation/flip/crop). Migración v3 → v4 y
+  proyectos v1/v2/v3 idénticos.
+- **Lienzo configurable** en el inspector: presets 16:9/9:16/1:1/4:5/1440p/4K, tamaño
+  personalizado, encaje por defecto, color de fondo y FPS. Cambiarlo no mueve clips.
+- **Transformación por clip** con un solo undo por cambio y preview inmediato.
+- **Fit/fill/stretch** y la misma geometría en `core/transform.py` para preview y export;
+  `eq`/fundidos/textos mantienen su orden y los golden de F4 no cambian.
+- **Auto-rotación** de móviles leída con PyAV; el export deja que FFmpeg auto-rote (evita la
+  display matrix duplicada) y el preview la aplica explícitamente.
+- **Corte rápido** bloqueado con lienzo distinto, fondo/fit no histórico, transformación o
+  auto-rotación.
+
+> Las herramientas del editor que aún faltan (flujo de edición, composición y export) se analizan
+> en [18 — Herramientas del editor](18-herramientas-editor.md). **La fase 3 (flujo de edición) es
+> la siguiente**: portapapeles/duplicar, razor, marquesina que mueve, marcadores, loop e in/out y
+> export de rango.
 
 ---
 
@@ -252,9 +271,11 @@ Si hay que elegir un orden (y no simplemente el orden del documento):
    smoke del exe, pero no el flujo CU-1→CU-5 con monitor y audio.
 2. **A6 + A7 + A8** — cerrar las comprobaciones manuales del bloque A (móvil, soak de 30 min y
    sensación del timeline); los procedimientos están en [docs/16](16-bloque-a-entrega.md).
-3. **C1** — webcam PiP, el siguiente salto de producto.
-4. **D1** — GIF/WebM para compartir en un clic.
-5. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de
+3. **Fase 3 del editor** — flujo de edición (copiar/pegar/duplicar, razor, marquesina que mueve,
+   marcadores, loop e in/out, export de rango).
+4. **C1** — webcam PiP, el siguiente salto de producto.
+5. **D1** — GIF/WebM para compartir en un clic.
+6. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de
    Aurora (empezando por `chart` y `overflow`, que son los más baratos).
 
 **Fuera de este roadmap** (para no reabrirlo cada vez): telemetría, multi-ventana por capricho,

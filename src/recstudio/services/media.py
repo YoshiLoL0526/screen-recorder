@@ -21,7 +21,7 @@ from pathlib import Path
 import numpy as np
 
 from ..core.errors import MediaError
-from ..core.project import MediaAsset, new_id
+from ..core.project import MediaAsset, new_id, normalize_rotation
 from ..platform import paths
 
 BUCKETS_PER_S = 100
@@ -32,7 +32,7 @@ THUMB_COUNT = 24  # miniaturas por asset, repartidas por toda su duración
 _lock = threading.Lock()
 _waveforms: dict[str, np.ndarray] = {}
 _thumbstrips: dict[str, tuple[bytes, ...]] = {}
-_proxy_cache: dict[tuple[str, int], Path | None] = {}
+_proxy_cache: dict[tuple[str, int, int], Path | None] = {}
 
 
 def _cache_key(path: Path) -> str:
@@ -79,15 +79,30 @@ def probe(path: str | Path, asset_id: str | None = None) -> MediaAsset:
         if duration <= 0:
             raise MediaError(f"«{path.name}»: duración desconocida")
         rate = (video.average_rate or video.guessed_rate or 0) if video is not None else 0
+        width = int(video.codec_context.width) if video is not None else 0
+        height = int(video.codec_context.height) if video is not None else 0
+        rotation = 0
+        if video is not None:
+            # PyAV no aplica la auto-rotación al decodificar: el primer frame trae la matriz de
+            # visualización (`frame.rotation`). Ver docs/20 y el gotcha de `-noautorotate`.
+            try:
+                frame = next(container.decode(video), None)
+                if frame is not None:
+                    rotation = normalize_rotation(frame.rotation or 0)
+            except Exception:
+                rotation = 0
+            if rotation in (90, 270):
+                width, height = height, width
         return MediaAsset(
             id=asset_id or new_id("a"),
             path=str(path.resolve()),
             duration=round(duration, 6),
-            width=int(video.codec_context.width) if video is not None else 0,
-            height=int(video.codec_context.height) if video is not None else 0,
+            width=width,
+            height=height,
             fps=float(rate) if rate else 0.0,
             has_audio=bool(audio),
             audio_channels=int(audio[0].codec_context.channels) if audio else 0,
+            rotation=rotation,
         )
     finally:
         container.close()
@@ -231,17 +246,19 @@ def is_heavy(asset: MediaAsset) -> bool:
     return asset.height > 1080 or asset.fps > 60.0
 
 
-def _proxy_file(path: Path, height: int) -> Path:
-    return _cache_dir("proxies") / f"{_cache_key(path)}-{height}.mp4"
+def _proxy_file(path: Path, height: int, rotation: int = 0) -> Path:
+    suffix = f"-r{normalize_rotation(rotation)}" if normalize_rotation(rotation) else ""
+    return _cache_dir("proxies") / f"{_cache_key(path)}-{height}{suffix}.mp4"
 
 
-def cached_proxy(path: str | Path, height: int = 540) -> Path | None:
+def cached_proxy(path: str | Path, height: int = 540, rotation: int = 0) -> Path | None:
     """Proxy ya generado para el preview (o `None`). Cachea también los negativos."""
-    key = (str(Path(path)), int(height))
+    rotation = normalize_rotation(rotation)
+    key = (str(Path(path)), int(height), rotation)
     if key in _proxy_cache:
         return _proxy_cache[key]
     try:
-        file = _proxy_file(Path(path), height)
+        file = _proxy_file(Path(path), height, rotation)
     except OSError:
         _proxy_cache[key] = None
         return None
@@ -252,19 +269,24 @@ def cached_proxy(path: str | Path, height: int = 540) -> Path | None:
 
 def preview_path(asset: MediaAsset, height: int = 540) -> str:
     """Ruta que debe abrir el preview: el proxy si está listo; si no, el original."""
-    proxy = cached_proxy(asset.path, height)
+    proxy = cached_proxy(asset.path, height, asset.rotation)
     return str(proxy) if proxy is not None else asset.path
 
 
-def proxy(path: str | Path, height: int = 540) -> Path:
-    """Genera (si falta) un proxy H.264 540p sin audio para el preview; lo cachea en disco."""
+def proxy(path: str | Path, height: int = 540, rotation: int = 0) -> Path:
+    """Genera (si falta) un proxy H.264 540p sin audio para el preview; lo cachea en disco.
+
+    Se genera con `-noautorotate`: el proxy conserva la orientación codificada y el preview
+    aplica la rotación del asset (la misma que el export), igual que con el archivo original.
+    """
     path = Path(path)
+    rotation = normalize_rotation(rotation)
     try:
-        target = _proxy_file(path, height)
+        target = _proxy_file(path, height, rotation)
     except OSError as exc:
         raise MediaError(f"no se pudo escribir la cache de proxies: {exc}") from exc
     if target.is_file() and target.stat().st_size > 0:
-        _proxy_cache[(str(path), int(height))] = target
+        _proxy_cache[(str(path), int(height), rotation)] = target
         return target
     from ..platform import ffmpeg as ffmpeg_mod
 
@@ -272,7 +294,8 @@ def proxy(path: str | Path, height: int = 540) -> Path:
     tmp = target.with_name(target.name + ".tmp.mp4")
     command = [
         ffmpeg_mod.ffmpeg_exe(), "-hide_banner", "-nostdin", "-loglevel", "error", "-y",
-        "-i", str(path), "-vf", f"scale=-2:{height}:force_original_aspect_ratio=decrease",
+        "-noautorotate", "-i", str(path),
+        "-vf", f"scale=-2:{height}:force_original_aspect_ratio=decrease",
         "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "23", "-pix_fmt", "yuv420p",
         "-movflags", "+faststart", str(tmp),
     ]
@@ -289,7 +312,7 @@ def proxy(path: str | Path, height: int = 540) -> Path:
             tmp.unlink(missing_ok=True)
         except OSError:
             pass
-    _proxy_cache[(str(path), int(height))] = target
+    _proxy_cache[(str(path), int(height), rotation)] = target
     return target
 
 

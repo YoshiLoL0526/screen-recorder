@@ -29,6 +29,7 @@ from ..core.project import (
     MediaAsset,
     Project,
     Track,
+    Transform,
     Transition,
     new_id,
 )
@@ -46,6 +47,35 @@ _CLICK_SLOP_PX = 3.0
 SPEED_CHOICES = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
 TRANSITION_DURATIONS = (0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0)
 MAX_AUDIO_TRACKS = 6  # alternativa al scroll vertical anidado (docs/19)
+
+# Presets de lienzo (fase 2). `custom` deja los campos editables tal como están.
+CANVAS_PRESETS = (
+    ("1920x1080", 1920, 1080, "1920×1080 (16:9)"),
+    ("2560x1440", 2560, 1440, "2560×1440 (16:9)"),
+    ("3840x2160", 3840, 2160, "3840×2160 (4K)"),
+    ("1080x1920", 1080, 1920, "1080×1920 (9:16)"),
+    ("1080x1080", 1080, 1080, "1080×1080 (1:1)"),
+    ("1080x1350", 1080, 1350, "1080×1350 (4:5)"),
+)
+CANVAS_SIZES = {key: (w, h) for key, w, h, _label in CANVAS_PRESETS}
+CANVAS_LABELS = {key: label for key, _w, _h, label in CANVAS_PRESETS}
+
+# Campos de la transformación del clip: (signal, campo, etiqueta de undo)
+TRANSFORM_FIELDS = (
+    (state.insp_fit, "fit", "encaje"),
+    (state.insp_scale, "scale", "escala"),
+    (state.insp_pos_x, "x", "posición X"),
+    (state.insp_pos_y, "y", "posición Y"),
+    (state.insp_rotation, "rotation", "rotación"),
+    (state.insp_flip_h, "flip_h", "volteo horizontal"),
+    (state.insp_flip_v, "flip_v", "volteo vertical"),
+)
+CROP_FIELDS = (
+    (state.insp_crop_l, 0, "recorte izquierdo"),
+    (state.insp_crop_t, 1, "recorte superior"),
+    (state.insp_crop_r, 2, "recorte derecho"),
+    (state.insp_crop_b, 3, "recorte inferior"),
+)
 
 # Campos de efectos del inspector: (signal, efecto, parámetro, valor neutro, etiqueta de undo)
 EFFECT_FIELDS = (
@@ -116,6 +146,11 @@ class EditorController:
         state.insp_transition.subscribe(live(self._on_insp_transition))
         state.insp_transition_dur.subscribe(live(self._on_insp_transition_dur))
         state.insp_fps.subscribe(live(lambda fps: self.set_project_fps(int(fps)) if state.project_open() else None))
+        state.proj_canvas.subscribe(live(self._on_proj_canvas))
+        state.proj_fit.subscribe(live(self._on_proj_fit))
+        state.proj_background.subscribe(live(self._on_proj_background))
+        for signal, field, _label in TRANSFORM_FIELDS:
+            signal.subscribe(live(lambda value, f=field: self._on_insp_transform(f, value)))
         for signal, kind, name, _neutral, label in EFFECT_FIELDS:
             signal.subscribe(live(lambda value, k=kind, n=name, lb=label: self._on_insp_effect(k, n, lb, value)))
         for signal, kind, name, _neutral, label in AUDIO_EFFECT_FIELDS:
@@ -200,6 +235,12 @@ class EditorController:
         project = self.store.project
         state.insp_fps.set(project.fps)
         state.insp_track_gain.set(0.0 if project.video.muted else project.video.gain)
+        state.proj_canvas.set(self._canvas_key(project.width, project.height))
+        state.proj_width.set(str(project.width))
+        state.proj_height.set(str(project.height))
+        state.proj_fit.set(project.default_fit)
+        state.proj_background.set(project.background)
+        state.proj_bg_hex.set(project.background)
         clip = self.selected_clip()
         if clip is not None:
             state.insp_in.set(tl.format_time(clip.in_))
@@ -209,6 +250,11 @@ class EditorController:
                 signal.set(fx.param(clip, kind, name, neutral))
             for signal, kind, name, neutral, _label in AUDIO_EFFECT_FIELDS:
                 signal.set(fx.param(clip, kind, name, neutral))
+            transform = clip.transform or Transform()
+            for signal, field, _label in TRANSFORM_FIELDS:
+                signal.set(getattr(transform, field))
+            for signal, index, _label in CROP_FIELDS:
+                signal.set(f"{float(transform.crop[index]):.3f}".rstrip("0").rstrip("."))
         index = self._transition_index()
         if index is not None:
             current = project.video.transitions[index]
@@ -239,6 +285,33 @@ class EditorController:
             state.insp_text_x.set(overlay.x)
             state.insp_text_y.set(overlay.y)
             state.insp_text_bold.set(overlay.bold)
+
+    def _canvas_key(self, width: int, height: int) -> str:
+        for key, (w, h) in CANVAS_SIZES.items():
+            if (w, h) == (int(width), int(height)):
+                return key
+        return "custom"
+
+    def _on_proj_canvas(self, key: str) -> None:
+        if key in CANVAS_SIZES and state.project_open():
+            self.set_project_size(*CANVAS_SIZES[key])
+
+    def _on_proj_fit(self, fit: str) -> None:
+        if state.project_open() and fit != self.project.default_fit:
+            self.set_project_fit(str(fit))
+
+    def _on_proj_background(self, color: str) -> None:
+        if state.project_open() and str(color) != self.project.background:
+            self.set_project_background(str(color))
+
+    def _on_insp_transform(self, field: str, value) -> None:  # noqa: ANN001
+        clip = self.selected_clip()
+        if clip is None:
+            return
+        current = clip.transform or Transform()
+        if getattr(current, field) == value:
+            return
+        self.set_transform(**{field: value})
 
     def _on_insp_speed(self, speed: float) -> None:
         clip = self.selected_clip()
@@ -656,6 +729,84 @@ class EditorController:
         if clip is None or not clip.effects:
             return
         self._apply("quitar efectos", fx.clear_effects(self.project, clip.id))
+
+    # -- lienzo y transformación (fase 2) -----------------------------------------
+
+    def set_project_size(self, width: int, height: int) -> None:
+        try:
+            project = tl.set_project_size(self.project, width, height)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply("lienzo del proyecto", project)
+
+    def submit_project_size(self, width: str, height: str) -> None:
+        try:
+            w, h = int(str(width).strip()), int(str(height).strip())
+        except ValueError:
+            state.toast("warning", "El ancho y el alto del lienzo deben ser números enteros")
+            self._sync_inspector()
+            return
+        self.set_project_size(w, h)
+
+    def set_project_fit(self, fit: str) -> None:
+        try:
+            project = tl.set_project_fit(self.project, fit)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply("encaje del proyecto", project)
+
+    def set_project_background(self, color: str) -> None:
+        try:
+            project = tl.set_project_background(self.project, color)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply("fondo del proyecto", project)
+
+    def submit_project_background(self, text: str) -> None:
+        value = str(text).strip()
+        if not value:
+            self._sync_inspector()
+            return
+        self.set_project_background(value)
+
+    def set_transform(self, **changes) -> None:  # noqa: ANN003
+        clip = self.selected_clip()
+        if clip is None:
+            return
+        try:
+            project = tl.set_transform(self.project, clip.id, **changes)
+        except ProjectError as exc:
+            state.toast("warning", f"Transformación inválida: {exc.message}")
+            self._sync_inspector()
+            return
+        self._apply("transformación", project)
+
+    def reset_transform(self) -> None:
+        clip = self.selected_clip()
+        if clip is None or clip.transform is None:
+            return
+        self._apply("restablecer transformación", tl.reset_transform(self.project, clip.id))
+
+    def submit_transform_crop(self, side: int, text: str) -> None:
+        clip = self.selected_clip()
+        if clip is None:
+            return
+        try:
+            value = float(str(text).strip().replace(",", "."))
+        except ValueError:
+            state.toast("warning", "El recorte debe ser un número entre 0 y 1")
+            self._sync_inspector()
+            return
+        current = clip.transform or Transform()
+        crop = list(current.crop)
+        crop[int(side)] = value
+        self.set_transform(crop=tuple(crop))
 
     def set_track_gain(self, value: float) -> None:
         """Volumen del audio original de todos los clips (0 = silenciado)."""
@@ -2015,7 +2166,7 @@ class EditorController:
         """Genera un proxy 540p en un hilo para videos pesados (4K/60+); el export usa el original."""
         if not media.is_heavy(asset) or media.is_offline(asset):
             return
-        if media.cached_proxy(asset.path) is not None:
+        if media.cached_proxy(asset.path, rotation=asset.rotation) is not None:
             state.proxies.set(state.proxies() + 1)
             return
         with self._proxy_lock:
@@ -2025,7 +2176,7 @@ class EditorController:
 
         def worker() -> None:
             try:
-                media.proxy(asset.path)
+                media.proxy(asset.path, rotation=asset.rotation)
                 state.proxies.set(state.proxies() + 1)
             except RecStudioError:
                 pass

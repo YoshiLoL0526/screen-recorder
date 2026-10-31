@@ -40,6 +40,15 @@ _ZOOMS = [(v, f"{v:g}×") for v in (1.0, 1.1, 1.25, 1.5, 2.0, 3.0)]
 _BRIGHTNESS = [(v, f"{v:+.2f}" if v else "0 (original)") for v in (-0.3, -0.2, -0.1, -0.05, 0.0, 0.05, 0.1, 0.2, 0.3)]
 _CONTRAST = [(v, f"{v:g}×" if v != 1 else "1× (original)") for v in (0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 2.0)]
 _SATURATION = [(v, f"{v:g}×" if v != 1 else "1× (original)") for v in (0.0, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0)]
+_CANVAS_COLORS = [("#000000", "Negro"), ("#FFFFFF", "Blanco"), ("#808080", "Gris"),
+                  ("#1E1E1E", "Grafito")]
+_PROJECT_FITS = [("fit", "Encajar"), ("fill", "Rellenar"), ("stretch", "Estirar")]
+_CLIP_FITS = [("inherit", "Heredar del proyecto"), ("fit", "Encajar"), ("fill", "Rellenar"),
+              ("stretch", "Estirar")]
+_SCALES = [(v, f"{v:g}×") for v in (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)]
+_POSITIONS = [(v, f"{v:.2f}") for v in (0.0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1.0)]
+_ROTATIONS = [(0, "0°"), (90, "90°"), (180, "180°"), (270, "270°")]
+_FLIPS = [(False, "No"), (True, "Sí")]
 
 
 def _options(options, current):
@@ -197,6 +206,45 @@ def _effects_controls(clip):
     )
 
 
+def _color_options(current: str):
+    if all(value.upper() != current.upper() for value, _label in _CANVAS_COLORS):
+        return [*_CANVAS_COLORS, (current, f"Personalizado ({current})")]
+    return _CANVAS_COLORS
+
+
+def _transform_controls(clip):
+    from ...core.project import Transform
+
+    transform = clip.transform or Transform()
+    return section(
+        "Transformación",
+        _row("Encaje", select(state.insp_fit, _CLIP_FITS, key="insp-fit")),
+        _row("Escala", select(state.insp_scale, _options(_SCALES, transform.scale), key="insp-scale")),
+        _row("Posición X", select(state.insp_pos_x, _options(_POSITIONS, transform.x), key="insp-pos-x")),
+        _row("Posición Y", select(state.insp_pos_y, _options(_POSITIONS, transform.y), key="insp-pos-y")),
+        _row("Rotación", select(state.insp_rotation, _ROTATIONS, key="insp-rotation")),
+        _row("Voltear H", select(state.insp_flip_h, _FLIPS, key="insp-flip-h")),
+        _row("Voltear V", select(state.insp_flip_v, _FLIPS, key="insp-flip-v")),
+        _row("Recorte L", text_input(state.insp_crop_l, key="insp-crop-l",
+                                     on_submit=_submit_crop(0), on_key=mark_input_key,
+                                     font_family="Consolas", padding=(7, 10))),
+        _row("Recorte T", text_input(state.insp_crop_t, key="insp-crop-t",
+                                     on_submit=_submit_crop(1), on_key=mark_input_key,
+                                     font_family="Consolas", padding=(7, 10))),
+        _row("Recorte R", text_input(state.insp_crop_r, key="insp-crop-r",
+                                     on_submit=_submit_crop(2), on_key=mark_input_key,
+                                     font_family="Consolas", padding=(7, 10))),
+        _row("Recorte B", text_input(state.insp_crop_b, key="insp-crop-b",
+                                     on_submit=_submit_crop(3), on_key=mark_input_key,
+                                     font_family="Consolas", padding=(7, 10))),
+        text("0–1 normalizado: (0,0,1,1) es el clip entero. La rotación se aplica después de la "
+             "auto-rotación del archivo.", size=11, color="$muted", line_height=1.35),
+        button("Restablecer transformación", _call("reset_transform"), variant="ghost",
+               padding=(4, 10), font_size=11.5, key="insp-transform-reset"),
+        gap=8,
+    )
+
+
 def _audio_fade_rows(prefix: str = "insp-audio"):
     return (
         _row("Fundido audio ↗", select(
@@ -244,7 +292,7 @@ def _transition_controls(index: int | None):
 
 @component
 def inspector():
-    from ..editor_controller import SPEED_CHOICES
+    from ..editor_controller import CANVAS_LABELS, SPEED_CHOICES
 
     project = state.editor_project()
     selection = state.selection()
@@ -290,6 +338,7 @@ def inspector():
             gap=10,
         ))
         children.append(_effects_controls(clip))
+        children.append(_transform_controls(clip))
         children.append(_video_audio_controls(project, clip))
         if index < len(project.video.transitions):
             children.append(_transition_controls(index))
@@ -398,11 +447,23 @@ def inspector():
                              size=11.5, color="$muted", line_height=1.4))
     else:
         total = tl.total_duration(project)
+        canvas_options = [(key, label) for key, label in CANVAS_LABELS.items()] + [
+            ("custom", "Personalizado"),
+        ]
         children.append(section(
             "Proyecto",
             _row("Duración", tl.format_time(total)),
             _row("Clips", str(len(project.video.clips))),
-            _row("Resolución", f"{project.width}×{project.height}"),
+            _row("Lienzo", select(state.proj_canvas, canvas_options, key="proj-canvas")),
+            _row("Ancho", text_input(state.proj_width, key="proj-width", on_submit=_submit_width,
+                                     on_key=mark_input_key, font_family="Consolas", padding=(7, 10))),
+            _row("Alto", text_input(state.proj_height, key="proj-height", on_submit=_submit_height,
+                                    on_key=mark_input_key, font_family="Consolas", padding=(7, 10))),
+            _row("Encaje", select(state.proj_fit, _PROJECT_FITS, key="proj-fit")),
+            _row("Fondo", select(state.proj_background, _color_options(state.proj_background()),
+                                 key="proj-bg")),
+            _row("Hex", text_input(state.proj_bg_hex, key="proj-bg-hex", on_submit=_submit_background,
+                                   on_key=mark_input_key, font_family="Consolas", padding=(7, 10))),
             _row("FPS", select(state.insp_fps, [(f, f"{f} fps") for f in (24, 30, 60)], key="insp-fps")),
             _row("Audio", select(state.insp_track_gain,
                                  _options([(0.0, "Silenciado"), *_VOLUMES[1:]],
@@ -477,6 +538,33 @@ def _submit(name: str):
             getattr(editor, name)(value)
 
     return handler
+
+
+def _submit_crop(side: int):
+    def handler(value: str) -> None:
+        editor = _editor()
+        if editor is not None:
+            editor.submit_transform_crop(side, value)
+
+    return handler
+
+
+def _submit_width(value: str) -> None:
+    editor = _editor()
+    if editor is not None:
+        editor.submit_project_size(value, state.proj_height())
+
+
+def _submit_height(value: str) -> None:
+    editor = _editor()
+    if editor is not None:
+        editor.submit_project_size(state.proj_width(), value)
+
+
+def _submit_background(value: str) -> None:
+    editor = _editor()
+    if editor is not None:
+        editor.submit_project_background(value)
 
 
 # -- timeline -----------------------------------------------------------------------

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import effects as fx
+from . import transform as tx
 from .errors import ProjectError
 from .graph import num
 from .project import Project
@@ -79,6 +80,15 @@ def blockers(project: Project) -> list[str]:
     if project.texts:
         reasons.append("tiene textos sobre el video")
     by_id = {a.id: a for a in project.assets}
+    first = next((by_id[c.asset_id] for c in track.clips if c.asset_id in by_id), None)
+    if first is not None and (project.width, project.height) != (first.width, first.height):
+        reasons.append("cambia el tamaño del lienzo")
+    if project.background.upper() != "#000000" or project.default_fit != "fit":
+        reasons.append("cambia el fondo o el encaje del lienzo")
+    if any(c.transform is not None for c in track.clips):
+        reasons.append("hay transformaciones de clip")
+    if any(tx.normalize_rotation(a.rotation) for a in by_id.values()):
+        reasons.append("hay videos con rotación automática")
     used = {(by_id[c.asset_id].width, by_id[c.asset_id].height, round(by_id[c.asset_id].fps, 2),
              by_id[c.asset_id].has_audio)
             for c in track.clips if c.asset_id in by_id}

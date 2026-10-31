@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 from .errors import ProjectError
 
-SCHEMA_VERSION = 3  # v3: audio absoluto separable (start/mode/link) — docs/19
+SCHEMA_VERSION = 4  # v4: lienzo, fondo y transformación por clip (docs/20)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -34,7 +34,12 @@ EFFECT_KINDS = ("eq", "volume", "fade_in", "fade_out", "audio_fade_in", "audio_f
 TRACK_MODES = ("sequence", "absolute")
 AUDIO_VIDEO_TRACK_NAME = "Audio del video"
 TEXT_SIZE_MIN, TEXT_SIZE_MAX = 8, 200
-_TEXT_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
+FIT_MODES = ("fit", "fill", "stretch")
+TRANSFORM_FITS = ("inherit", *FIT_MODES)
+TRANSFORM_ROTATIONS = (0, 90, 180, 270)
+TRANSFORM_SCALE_MIN, TRANSFORM_SCALE_MAX = 0.25, 4.0
+DEFAULT_BACKGROUND = "#000000"
+_HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # Holgura al comparar con la duración del asset (los probes redondean a µs).
 _EPS = 1e-6
 
@@ -43,6 +48,17 @@ def new_id(prefix: str = "") -> str:
     """Identificador corto (8 hex) con prefijo opcional: `c-1a2b3c4d`."""
     short = uuid.uuid4().hex[:8]
     return f"{prefix}-{short}" if prefix else short
+
+
+def normalize_rotation(rotation: float | int) -> int:
+    """Grados normalizados a 0/90/180/270 (redondea al cuarto de vuelta más cercano)."""
+    try:
+        value = float(rotation)
+    except (TypeError, ValueError):
+        return 0
+    if value != value:  # NaN
+        return 0
+    return (int(round(value / 90.0)) * 90) % 360
 
 
 @dataclass(frozen=True)
@@ -113,12 +129,52 @@ class TextOverlay:
             raise ProjectError(f"texto {self.id}: posición fuera del frame ({self.x}, {self.y})")
         if not TEXT_SIZE_MIN <= int(self.size) <= TEXT_SIZE_MAX:
             raise ProjectError(f"texto {self.id}: tamaño fuera de [{TEXT_SIZE_MIN}, {TEXT_SIZE_MAX}]")
-        if not _TEXT_COLOR.match(self.color):
+        if not _HEX_COLOR.match(self.color):
             raise ProjectError(f"texto {self.id}: color inválido ({self.color!r})")
 
     @property
     def seconds(self) -> float:
         return self.end - self.start
+
+
+@dataclass(frozen=True)
+class Transform:
+    """Transformación opcional de un clip de video (fase 2, docs/20).
+
+    Orden: auto-rotación del asset → rotación/flip del clip → `crop` → encaje (`fit`) →
+    `scale` → posición (`x`, `y`) sobre el lienzo. `None` en `Clip.transform` significa «sin
+    transformación propia»: se usa el encaje por defecto del proyecto y el resto neutro.
+    """
+
+    fit: Literal["inherit", "fit", "fill", "stretch"] = "inherit"
+    scale: float = 1.0  # relativa al encaje (0.25…4)
+    x: float = 0.5  # centro en fracción del lienzo
+    y: float = 0.5
+    rotation: int = 0  # grados horarios: 0, 90, 180, 270
+    flip_h: bool = False
+    flip_v: bool = False
+    crop: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)  # l, t, r, b
+
+    def __post_init__(self) -> None:
+        if self.fit not in TRANSFORM_FITS:
+            raise ProjectError(f"transformación: encaje desconocido ({self.fit!r})")
+        if not (TRANSFORM_SCALE_MIN - _EPS <= self.scale <= TRANSFORM_SCALE_MAX + _EPS):
+            raise ProjectError(
+                f"transformación: escala fuera de [{TRANSFORM_SCALE_MIN}, {TRANSFORM_SCALE_MAX}] "
+                f"({self.scale})"
+            )
+        if not 0.0 <= self.x <= 1.0 or not 0.0 <= self.y <= 1.0:
+            raise ProjectError(f"transformación: posición fuera del lienzo ({self.x}, {self.y})")
+        if int(self.rotation) not in TRANSFORM_ROTATIONS:
+            raise ProjectError(f"transformación: rotación no permitida ({self.rotation})")
+        try:
+            if len(self.crop) != 4:
+                raise ValueError
+            left, top, right, bottom = (float(v) for v in self.crop)
+        except (TypeError, ValueError) as exc:
+            raise ProjectError("transformación: el recorte necesita 4 valores (l, t, r, b)") from exc
+        if not (0.0 <= left < right <= 1.0 and 0.0 <= top < bottom <= 1.0):
+            raise ProjectError(f"transformación: recorte inválido ({self.crop})")
 
 
 @dataclass(frozen=True)
@@ -132,6 +188,7 @@ class Clip:
     start: float | None = None  # solo en pistas `absolute` (s)
     audio_enabled: bool = True  # solo con sentido en la pista de video
     link_id: str | None = None  # clip de audio separado → clip de video enlazado
+    transform: Transform | None = None  # solo con sentido en la pista de video (fase 2)
 
     def __post_init__(self) -> None:
         if self.in_ < 0:
@@ -144,6 +201,8 @@ class Clip:
             raise ProjectError(f"clip {self.id}: inicio negativo ({self.start})")
         if self.start is not None and self.start != self.start:  # NaN
             raise ProjectError(f"clip {self.id}: inicio inválido ({self.start})")
+        if self.transform is not None and not isinstance(self.transform, Transform):
+            raise ProjectError(f"clip {self.id}: transformación inválida")
 
     @property
     def duration(self) -> float:
@@ -200,6 +259,8 @@ class Project:
     fps: int = 60
     width: int = 1920
     height: int = 1080
+    background: str = DEFAULT_BACKGROUND  # color del lienzo (#RRGGBB)
+    default_fit: Literal["fit", "fill", "stretch"] = "fit"
 
     # -- consultas -------------------------------------------------------------
 
@@ -239,6 +300,10 @@ class Project:
         """Comprueba los invariantes de docs/04 y docs/19 y devuelve el proyecto (o `ProjectError`)."""
         if self.fps <= 0 or self.width <= 0 or self.height <= 0:
             raise ProjectError("fps y resolución del proyecto deben ser positivos")
+        if self.default_fit not in FIT_MODES:
+            raise ProjectError(f"encaje del proyecto desconocido ({self.default_fit!r})")
+        if not isinstance(self.background, str) or not _HEX_COLOR.match(self.background):
+            raise ProjectError(f"color de fondo inválido ({self.background!r}); usa #RRGGBB")
         ids = [a.id for a in self.assets]
         if len(set(ids)) != len(ids):
             raise ProjectError("ids de asset duplicados")
@@ -333,6 +398,16 @@ def to_dict(project: Project) -> dict[str, Any]:
             "id": c.id, "asset_id": c.asset_id, "in_": c.in_, "out_": c.out_, "speed": c.speed,
             "effects": [{"kind": e.kind, "params": [list(p) for p in e.params]} for e in c.effects],
             "start": c.start, "audio_enabled": c.audio_enabled, "link_id": c.link_id,
+            "transform": None if c.transform is None else {
+                "fit": c.transform.fit,
+                "scale": c.transform.scale,
+                "x": c.transform.x,
+                "y": c.transform.y,
+                "rotation": c.transform.rotation,
+                "flip_h": c.transform.flip_h,
+                "flip_v": c.transform.flip_v,
+                "crop": list(c.transform.crop),
+            },
         }
 
     def track_dict(t: Track) -> dict[str, Any]:
@@ -355,6 +430,8 @@ def to_dict(project: Project) -> dict[str, Any]:
         "fps": project.fps,
         "width": project.width,
         "height": project.height,
+        "background": project.background,
+        "default_fit": project.default_fit,
         "assets": [
             {
                 "id": a.id, "path": a.path, "duration": a.duration, "width": a.width, "height": a.height,
@@ -378,6 +455,23 @@ def to_dict(project: Project) -> dict[str, Any]:
 def from_dict(data: dict[str, Any]) -> Project:
     """Inverso de `to_dict`; `ProjectError` si falta algo o los tipos no cuadran."""
     try:
+        def transform_of(d: dict[str, Any] | None) -> Transform | None:
+            if d is None:
+                return None
+            if not isinstance(d, dict):
+                raise ProjectError("transformación ilegible en el proyecto")
+            crop = d.get("crop", (0.0, 0.0, 1.0, 1.0))
+            return Transform(
+                fit=str(d.get("fit", "inherit")),  # type: ignore[arg-type]
+                scale=float(d.get("scale", 1.0)),
+                x=float(d.get("x", 0.5)),
+                y=float(d.get("y", 0.5)),
+                rotation=int(d.get("rotation", 0)),
+                flip_h=bool(d.get("flip_h", False)),
+                flip_v=bool(d.get("flip_v", False)),
+                crop=tuple(float(v) for v in crop),  # type: ignore[arg-type]
+            )
+
         def clip_of(d: dict[str, Any]) -> Clip:
             start = d.get("start")
             return Clip(
@@ -393,6 +487,7 @@ def from_dict(data: dict[str, Any]) -> Project:
                 start=None if start is None else float(start),
                 audio_enabled=bool(d.get("audio_enabled", True)),
                 link_id=None if d.get("link_id") is None else str(d["link_id"]),
+                transform=transform_of(d.get("transform")),
             )
 
         def track_of(d: dict[str, Any], kind: str) -> Track:
@@ -444,6 +539,8 @@ def from_dict(data: dict[str, Any]) -> Project:
             fps=int(data.get("fps", 60)),
             width=int(data.get("width", 1920)),
             height=int(data.get("height", 1080)),
+            background=str(data.get("background", DEFAULT_BACKGROUND)),
+            default_fit=str(data.get("default_fit", "fit")),  # type: ignore[arg-type]
         )
     except ProjectError:
         raise

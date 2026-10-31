@@ -1,8 +1,9 @@
 # 18 — Herramientas que faltan en el editor
 
-> Análisis a **2026-10-31**, sobre la v1.0.0 + bloques A y B. Las **fases 0 y 1 ya están
-> implementadas** (modelo v3, pistas absolutas y audio editable; resultados en
-> [19 — Fase 0 y 1](19-fase-0-1-audio.md)). El resto del documento conserva el análisis y la
+> Análisis a **2026-10-31**, sobre la v1.0.0 + bloques A y B. Las **fases 0, 1 y 2 ya están
+> implementadas** (modelo v3 con audio absoluto, audio editable y modelo v4 con lienzo/
+> transformación; resultados en [19 — Fase 0 y 1](19-fase-0-1-audio.md) y
+> [20 — Fase 2](20-fase-2-frame.md)). El resto del documento conserva el análisis y la
 > hoja de ruta propuesta.
 >
 > Complementa [04 — Editor](04-editor.md), [12 — F3](12-f3-editor.md), [13 — F4](13-f4-export.md),
@@ -44,17 +45,17 @@ dónde guardar el resultado.
 | Pistas de audio extra | `Project.audio` admite varias y **todas** se dibujan y editan (mutear, solo, bloquear, volumen, mover/recortar/dividir/borrar). La importación de música va a la primera pista secuencial. |
 | Clips de música | Secuenciales desde 0; se pueden seleccionar, mover (reordenar), recortar, dividir, borrar y ajustar volumen/ducking/crossfade. |
 | Timeline | Mover/reordenar, trim por asas, split en playhead (todo o solo audio), ripple delete, velocidad, transiciones, snap, waveform, filmstrip, marquesina (solo borrado) y drags de audio. |
-| Frame | `Project.width/height` se fija al crear el proyecto con el primer asset; el inspector solo permite cambiar FPS. No hay presets de resolución/aspecto ni cambio de lienzo. |
-| Render | Cada clip se normaliza con `scale=…:force_original_aspect_ratio=decrease` + `pad` negro; el preview hace el equivalente con `_fit` y lienzo negro. |
-| Transformación | Solo el efecto `zoom`: recorte centrado con factor 1–4 y centro X/Y. No hay escala libre, posición, rotación, volteo ni crop arbitrario. |
-| Rotación | `MediaAsset.rotation` existe en el modelo, pero `media.probe` no la rellena y ni el preview ni el graph la aplican. Un móvil grabado en vertical puede salir girado. |
+| Frame | `Project.width/height` se fija al crear el proyecto con el primer asset; el inspector permite cambiar lienzo, fondo, encaje y FPS. |
+| Render | Cada clip se normaliza con `fit`/`fill`/`stretch`; el fondo sale de `Project.background` y la transformación de `Clip.transform`. El preview usa la misma geometría. |
+| Transformación | `Transform` por clip: fit/fill/stretch, escala, posición, rotación, flip y crop (docs/20). El efecto `zoom` histórico se conserva. |
+| Rotación | `MediaAsset.rotation` se lee en `probe`; preview y export enderezan la imagen y `keyframes.blockers` lo detecta. |
 | Textos | `TextOverlay` de una línea, Arial fija, posición por selects del inspector; no se arrastra sobre el preview. No hay subtítulos. |
 | Efectos | Estáticos por clip: eq, volume, fade in/out, zoom. No hay keyframes, curvas, LUT, temperatura, denoise… |
 | Multi-selección | Marquesina + `Supr` con un undo; **no** se mueve en lote (docs/17). |
 | Portapapeles | No hay copiar/pegar/duplicar. |
 | Marcadores / loop | No hay marcadores, ni loop, ni puntos in/out. docs/04 menciona «loop de selección», pero el código no lo implementa. |
 | Preview | Play/pausa, scrub, ±1 frame, audio best-effort, transiciones aproximadas, textos y proxy 540p. No hay loop, medidores, scopes, zoom/pan ni segunda ventana. |
-| Proyecto | `.rsproj/project.json` schema 2, autosave, undo/redo, reubicar offline. No hay «nuevo», «guardar como», renombrar ni ajustes de proyecto. |
+| Proyecto | `.rsproj/project.json` schema 4, autosave, undo/redo, reubicar offline y ajustes de lienzo/fondo/encaje. No hay «nuevo», «guardar como» ni renombrar. |
 | Export | Presets Rápido/Calidad/Ligero 720p/Sin recodificar. No hay resolución/bitrate personalizados, rango, audio solo ni GIF/WebM. |
 | Medios | Assets implícitos en el proyecto; no hay panel de medios, imágenes ni reemplazo de un asset online. |
 
@@ -88,6 +89,11 @@ No existe un modelo de transformación por clip más allá del zoom centrado. Po
 - no se puede «llenar» el frame sin barras negras;
 - no se puede colocar un clip más pequeño, moverlo, rotarlo o voltearlo;
 - un video de móvil con rotación 90/270 no se endereza.
+
+> **Resuelto en la fase 2:** el lienzo es configurable (`Project.width/height`, `background`,
+> `default_fit`) y cada clip puede llevar un `Transform` (fit/fill/stretch, escala, posición,
+> rotación, flip y crop). La auto-rotación se lee en `media.probe`. Ver
+> [20 — Fase 2](20-fase-2-frame.md).
 
 ### 2.3 Efectos estáticos y textos rígidos
 
@@ -171,14 +177,14 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 
 | # | Función | Estado | Qué falta / dónde | Prio | Tam |
 |---|---|---|---|---|---|
-| C1 | Cambiar resolución y aspecto del proyecto | ⛔ | `Project.width/height` fijos al crear; no hay UI | P0 | S–M |
-| C2 | Presets de lienzo 16:9, 9:16, 1:1, 4:5 y personalizado | ⛔ | No existe el concepto de preset de proyecto | P1 | S |
-| C3 | Encajar / rellenar / estirar por clip | ◐ | Solo «fit» con barras negras | P0 | M |
-| C4 | Escala y posición libres por clip | ◐ | Solo zoom centrado 1–4× | P0 | M |
-| C5 | Crop interactivo | ◐ | Solo el crop centrado del zoom | P0 | M |
-| C6 | Rotar y voltear | ⛔ | No hay filtros ni UI | P0 | S–M |
-| C7 | Auto-rotación de videos de móvil | ⛔ | `rotation` no se lee ni se aplica | P1 | S |
-| C8 | Fondo del lienzo: color, blur, imagen | ⛔ | Siempre negro | P1 | M |
+| C1 | Cambiar resolución y aspecto del proyecto | ✅ | `Project.width/height` + `tl.set_project_size`; presets y custom en el inspector (docs/20) | — | — |
+| C2 | Presets de lienzo 16:9, 9:16, 1:1, 4:5 y personalizado | ✅ | Inspector de proyecto (`CANVAS_PRESETS`); custom con ancho/alto | — | — |
+| C3 | Encajar / rellenar / estirar por clip | ✅ | `Project.default_fit` + `Transform.fit`; misma geometría en preview/export (docs/20) | — | — |
+| C4 | Escala y posición libres por clip | ✅ | `Transform.scale`, `x`, `y`; controles en el inspector | — | — |
+| C5 | Crop interactivo | ◐ | Crop normalizado L/T/R/B por campos; falta arrastre sobre el preview | P1 | S–M |
+| C6 | Rotar y voltear | ✅ | `Transform.rotation` (0/90/180/270), `flip_h`, `flip_v` | — | — |
+| C7 | Auto-rotación de videos de móvil | ✅ | `media.probe` lee `frame.rotation`; preview y export enderezan (docs/20) | — | — |
+| C8 | Fondo del lienzo: color, blur, imagen | ◐ | Color sólido (`Project.background`); blur/imagen pendientes | P1 | M |
 | C9 | PiP / pista de video superpuesta | ⛔ | Una sola pista de video; C1 webcam PiP del backlog | P2 | L |
 | C10 | Opacidad, borde y sombra de overlays | ⛔ | No hay overlays | P2 | M |
 | C11 | Color avanzado: temperatura, LUT, curvas, HSL, viñeta | ◐ | Solo brillo/contraste/saturación | P2 | M–L |
@@ -206,7 +212,7 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 
 | # | Función | Estado | Qué falta / dónde | Prio | Tam |
 |---|---|---|---|---|---|
-| E1 | Ajustes de proyecto: nombre, resolución, fps, fondo | ◐ | Solo fps y volumen en el inspector; resolución de solo lectura | P0 | S–M |
+| E1 | Ajustes de proyecto: nombre, resolución, fps, fondo | ✅ (resolución/fps/fondo; nombre aún no editable) | Inspector de proyecto: lienzo, fit, fondo y FPS (docs/20) | — | — |
 | E2 | Nuevo proyecto / guardar como / duplicar | ⛔ | Se crea al importar; no hay «guardar como» | P1 | S–M |
 | E3 | Panel de medios y reemplazo de asset online | ⛔ | Solo «reubicar» cuando falta el archivo | P2 | M |
 | E4 | Importar imágenes al timeline | ⛔ | Solo videos y audio de música | P2 | M |
@@ -311,6 +317,11 @@ Para **picar**:
   razor que corta la pista donde se pulsa.
 
 ### 4.3 Frame y transformación
+
+> **Implementado en la fase 2** ([20](20-fase-2-frame.md)). Resumen de la decisión: `Project`
+> gana `background`/`default_fit`, `Clip` gana un `Transform` tipado y el render comparte la
+> geometría en `core/transform.py`. La cadena real es
+> `rotación/flip → crop → fit/fill/stretch + scale → posición/fondo → eq → fades → texto`.
 
 Separar dos conceptos que hoy están mezclados:
 
@@ -426,16 +437,19 @@ reabre; los tests actuales siguen verdes.
 exportar; el pitido suena en 0:06 y el video original queda mudo; undo en un paso; preview y
 export coinciden; el proyecto reabre igual.
 
-### Fase 2 — Lienzo y frame (M)
+### Fase 2 — Lienzo y frame (M) — ✅ implementada
 
-- Ajustes de proyecto (resolución/aspecto/fps/fondo) y presets.
-- `fit`/`fill`/`stretch`, escala/posición, rotación/flip, crop.
-- Auto-rotación de móviles; fondo de color (blur después).
-- Preview y graph con la misma matemática; blockers del corte rápido.
+> Resultado y decisiones: [20 — Fase 2](20-fase-2-frame.md).
+
+- Ajustes de proyecto (resolución/aspecto/fps/fondo) y presets. ✅
+- `fit`/`fill`/`stretch`, escala/posición, rotación/flip, crop. ✅
+- Auto-rotación de móviles; fondo de color (blur después). ✅ color; blur pendiente.
+- Preview y graph con la misma matemática; blockers del corte rápido. ✅
+- UI de transformación con undo; falta arrastre/recorte directo sobre el preview (no bloqueante).
 
 **Criterio:** el mismo proyecto en 16:9 se cambia a 9:16; un clip 16:9 se ve «fill» sin barras o
 «fit» con fondo; un texto conserva su posición relativa; un video rotado 90° se endereza; el
-export vertical coincide con el preview; el corte rápido se bloquea si hay transformación.
+export vertical coincide con el preview; el corte rápido se bloquea si hay transformación. ✅
 
 ### Fase 3 — Flujo de edición (M)
 
@@ -479,8 +493,9 @@ aceptables; el progreso/ETA/cancelar siguen funcionando.
 ## 7. Decisiones pendientes antes de implementar
 
 > **Resueltas en la fase 1:** «picar» audio con pista absoluta (decisión 2) y alcance del audio
-> libre (decisión 5, primera iteración). Las decisiones 1 (lienzo/transformación), 3 (pistas de
-> video) y 4 (keyframes) siguen abiertas para las fases 2–4. Ver [19](19-fase-0-1-audio.md).
+> libre (decisión 5, primera iteración). **Resuelta en la fase 2:** «resizar el frame» se hizo con
+> lienzo **y** transformación por clip (decisión 1, ver [20](20-fase-2-frame.md)). Las decisiones
+> 3 (pistas de video) y 4 (keyframes) siguen abiertas para las fases 3–4.
 
 1. **«Resizar el frame»**: ¿cambiar el lienzo del proyecto (resolución/aspecto), transformar el
    clip (escala/posición/crop), o ambos? La recomendación es **ambos**, empezando por el lienzo.
@@ -497,8 +512,10 @@ aceptables; el progreso/ETA/cancelar siguen funcionando.
 
 ## 8. Primer corte recomendado
 
-> **Hecho:** fase 0 + fase 1 (modelo absoluto + audio editable). Ver
-> [19 — Fase 0 y 1](19-fase-0-1-audio.md). Lo siguiente es la fase 2 (lienzo y frame).
+> **Hecho:** fases 0, 1 y 2 (modelo absoluto + audio editable + lienzo/transformación). Ver
+> [19 — Fase 0 y 1](19-fase-0-1-audio.md) y [20 — Fase 2](20-fase-2-frame.md). Lo siguiente es la
+> fase 3 (flujo de edición: portapapeles, razor, marquesina que mueve, marcadores, loop y rango de
+> export).
 
 Si hay que elegir una sola entrega después de este análisis:
 
@@ -508,6 +525,7 @@ además deja preparada la base para overlays y PiP.
 
 Después, **Fase 2** para el frame. El lienzo y la transformación son más autocontenidos, pero
 necesitan el mismo cuidado de paridad preview/export; hacerlos después de audio permite reutilizar
-la infraestructura de pistas absolutas.
+la infraestructura de pistas absolutas. **Ambas entregas están hechas** (ver [19](19-fase-0-1-audio.md)
+y [20](20-fase-2-frame.md)).
 
 No empezaría por copiar/pegar, marcadores o GIF: son útiles, pero no desbloquean el resto.
