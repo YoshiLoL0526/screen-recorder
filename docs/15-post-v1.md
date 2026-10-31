@@ -1,8 +1,9 @@
 # 15 — Roadmap post-v1: qué falta
 
 > Estado a **2026-10-31**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
-> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.9) y el
-> **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md)).
+> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.9), los
+> **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md))
+> y las **fases 0 y 1 de audio** ([19 — Fase 0 y 1](19-fase-0-1-audio.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -27,10 +28,11 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**227 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
+**267 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
 `aurora 0.9.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests + build +
 instalador (`40710816126` con 0.5.0; la próxima ejecución usará el lock nuevo). Todo lo que sigue
-**no está implementado**, salvo lo marcado como hecho en los bloques A y B.
+**no está implementado**, salvo lo marcado como hecho en los bloques A y B y las fases 0/1 de
+audio.
 
 ---
 
@@ -58,7 +60,7 @@ runner (smoke del exe incluido) y se añadió la verificación del instalador.
 
 **A2** es la prueba que más valor aporta por hora invertida: instalar en una máquina sin Python ni
 FFmpeg y completar grabar → biblioteca → editar → exportar → abrir el MP4. Todo lo que falle ahí es
-un bug real que los 227 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
+un bug real que los 267 tests no ven. El CI ya cubre la instalación silenciosa y el smoke en un
 runner limpio; falta el flujo manual ([procedimiento](16-bloque-a-entrega.md#a2--máquina-limpia-pendiente-manual)).
 
 **A4/A5 están hechos**: instalador de 72 MB verificado y bundle de 370 → **255 MB** al excluir
@@ -74,8 +76,8 @@ limpia sigue pendiente (A2), igual que el móvil, el soak y el ratón (A6–A8).
 ## Bloque B — Editor: lo hecho
 
 El editor ya tiene todo lo de v1 y ahora también música, textos, selección múltiple, snap de audio,
-proxy y reubicar carpetas. Resultados y decisiones en
-[17 — Bloque B](17-bloque-b-editor.md).
+proxy, reubicar carpetas y **audio separable/editable** (fases 0 y 1). Resultados y decisiones en
+[17 — Bloque B](17-bloque-b-editor.md) y [19 — Fase 0 y 1](19-fase-0-1-audio.md).
 
 ### B1 — Pista de música, ducking y crossfades de audio (✅ · L)
 
@@ -111,6 +113,29 @@ proxy y reubicar carpetas. Resultados y decisiones en
 
 - «Reubicar carpeta…» busca por nombre (sin distinguir mayúsculas) en la carpeta elegida y resuelve
   todos los assets offline de una vez, con un solo undo.
+
+### B7 — Audio separable y editable: fases 0 y 1 (✅ · L)
+
+Resultados y decisiones completas en [19 — Fase 0 y 1](19-fase-0-1-audio.md).
+
+- **Modelo v3** (`SCHEMA_VERSION=3`): `Clip.start`, `audio_enabled`, `link_id`; `Track.mode`
+  (`sequence`/`absolute`), `name`, `solo`, `locked`. Migración v2 → v3 y proyectos v1/v2
+  idénticos al abrir.
+- **Separar/adjuntar audio** (`detach_audio`/`attach_audio`) con una pista absoluta enlazada y
+  un solo undo. **Dividir todo** (`S`), **solo audio** (`Mayús+S`) y por pista.
+- **Editar clips de audio**: mover, recortar y borrar en pistas secuenciales y absolutas, con
+  drags, snap y transacciones de undo.
+- **Varias pistas visibles** con cabeceras de nombre, mute, solo, bloqueo y volumen; añadir y
+  quitar pista. El solo aísla también el audio del video; el bloqueo impide mover/recortar/
+  borrar/dividir. Límite de 6 pistas nuevas (alternativa al scroll vertical anidado de Aurora 0.9).
+- **Fundidos de audio independientes** (`audio_fade_in/out`) en el graph y el preview.
+- **Export/preview**: `adelay` en muestras + `amix` para pistas absolutas, WAV de preview con la
+  misma mezcla (`build_audio`) y corte rápido bloqueado con audio separado/absoluto.
+
+> Las herramientas del editor que aún faltan (lienzo/transformación, flujo de edición,
+> composición y export) se analizan en [18 — Herramientas del editor](18-herramientas-editor.md).
+> Ese documento propone la hoja de ruta; este sigue siendo el backlog de fases hasta que se
+> incorpore. La fase 2 (lienzo y frame) es la siguiente.
 
 ---
 

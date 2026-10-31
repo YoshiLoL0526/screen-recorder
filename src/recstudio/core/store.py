@@ -223,15 +223,48 @@ class LoadResult:
 def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     """Lleva `data` al esquema actual. Devuelve `(data, read_only)`.
 
-    Cada cambio de esquema añadirá aquí su paso `vN → vN+1`. Un archivo de una versión más
+    Cada cambio de esquema añade aquí su paso `vN → vN+1`. Un archivo de una versión más
     nueva se abre en modo lectura (se interpreta lo que se entiende y no se sobrescribe).
     """
     version = int(data.get("schema_version", 1))
     if version > SCHEMA_VERSION:
         return data, True
-    # (v1 es el esquema inicial: no hay migraciones todavía)
+    if version < 3:
+        data = _migrate_v2_v3(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
+
+
+def _migrate_v2_v3(data: dict[str, Any]) -> dict[str, Any]:
+    """v2 → v3: audio separable. Rellena solo lo que falta (los proyectos v1/v2 son idénticos).
+
+    - Toda pista existente era secuencial y sin nombre/solo/lock.
+    - Todo clip existente no tenía posición absoluta, ni enlace, y su audio estaba activo.
+    """
+    migrated = {**data}
+
+    def track(track_data: dict[str, Any]) -> dict[str, Any]:
+        out = {**track_data}
+        out.setdefault("mode", "sequence")
+        out.setdefault("name", "")
+        out.setdefault("solo", False)
+        out.setdefault("locked", False)
+        clips = []
+        for clip in out.get("clips", ()):
+            item = {**clip}
+            item.setdefault("start", None)
+            item.setdefault("audio_enabled", True)
+            item.setdefault("link_id", None)
+            clips.append(item)
+        if clips or "clips" in out:
+            out["clips"] = clips
+        return out
+
+    if "video" in migrated:
+        migrated["video"] = track(migrated["video"])
+    if "audio" in migrated:
+        migrated["audio"] = [track(t) for t in migrated["audio"]]
+    return migrated
 
 
 def _backup_path(path: Path) -> Path:

@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 
 from .errors import ProjectError
 from .project import (
+    AUDIO_VIDEO_TRACK_NAME,
     SPEED_MAX,
     SPEED_MIN,
     TRANSITION_MIN,
@@ -55,7 +56,13 @@ class TransitionPos:
 
 
 def clip_starts(track: Track) -> list[float]:
-    """Inicio global de cada clip (aplicando los solapes de las transiciones)."""
+    """Inicio global de cada clip.
+
+    `sequence`: fórmula actual (aplicando los solapes de las transiciones).
+    `absolute`: el `start` explícito de cada clip (`None` se trata como 0), con huecos.
+    """
+    if track.mode == "absolute":
+        return [max(0.0, float(clip.start or 0.0)) for clip in track.clips]
     starts: list[float] = []
     cursor = 0.0
     for index, clip in enumerate(track.clips):
@@ -70,8 +77,15 @@ def clip_starts(track: Track) -> list[float]:
 def track_duration(track: Track) -> float:
     if not track.clips:
         return 0.0
+    if track.mode == "absolute":
+        return max(start + clip.duration for start, clip in zip(clip_starts(track), track.clips))
     starts = clip_starts(track)
     return starts[-1] + track.clips[-1].duration
+
+
+def project_extent(p: Project) -> float:
+    """Duración que hay que dibujar: el video manda, pero el audio absoluto puede sobresalir."""
+    return max([total_duration(p), *(track_duration(t) for t in p.audio)])
 
 
 def total_duration(p: Project) -> float:
@@ -257,6 +271,12 @@ def _insert_at(clips: list[Clip], transitions: list[Transition | None], j: int, 
         transitions.insert(j, None)
 
 
+def _ensure_unlocked(track: Track) -> None:
+    if track.locked:
+        label = track.name or ("video" if track.kind == "video" else track.kind)
+        raise ProjectError(f"la pista «{label}» está bloqueada")
+
+
 def _source_grid(p: Project, clip: Clip) -> float:
     """fps de la rejilla de la fuente (frames reales del asset; el del proyecto si no se sabe)."""
     try:
@@ -271,36 +291,150 @@ def min_source_length(p: Project, clip: Clip, speed: float | None = None) -> flo
     return (speed or clip.speed) / p.fps
 
 
+def _audio_index(p: Project, track) -> int | None:  # noqa: ANN001
+    """`None` para el video o el índice de `p.audio` para una pista de audio."""
+    if track is None:
+        return None
+    if isinstance(track, int):
+        if not 0 <= track < len(p.audio):
+            raise ProjectError(f"no existe la pista de audio {track}")
+        return track
+    if track is p.video or track == p.video:
+        return None
+    for index, candidate in enumerate(p.audio):
+        if track is candidate or track == candidate:
+            return index
+    raise ProjectError("la pista no pertenece al proyecto")
+
+
+def _track_of(p: Project, index: int | None) -> Track:
+    return p.video if index is None else p.audio[index]
+
+
+def _with_track_index(p: Project, index: int | None, track: Track) -> Project:
+    if index is None:
+        return replace(p, video=fit_transitions(track))
+    tracks = list(p.audio)
+    tracks[index] = fit_transitions(track)
+    return replace(p, audio=tuple(tracks))
+
+
+def _spans(track: Track, index: int, t: float) -> bool:
+    start = clip_starts(track)[index]
+    return start <= t < start + track.clips[index].duration
+
+
+def _split_track_impl(
+    p: Project, index: int | None, t: float, *, relink: str | None = None, keep_link: bool = False,
+) -> tuple[Project, Clip, Clip]:
+    """Parte el clip de la pista `index` (`None` = video) bajo `t`. Devuelve `(proyecto, izq, der)`."""
+    track = _track_of(p, index)
+    _ensure_unlocked(track)
+    t = frame_round(t, p.fps)
+    starts = clip_starts(track)
+    hit = next(
+        ((i, clip, start) for i, (clip, start) in enumerate(zip(track.clips, starts))
+         if start <= t < start + clip.duration),
+        None,
+    )
+    if hit is None:
+        raise ProjectError("no hay ningún clip que dividir en ese punto")
+    clip_index, clip, start = hit
+    local = t - start
+    frame = 1.0 / p.fps
+    if local < frame - 1e-9 or clip.duration - local < frame - 1e-9:
+        raise ProjectError("el playhead está en el borde del clip: no hay nada que dividir")
+    grid = _source_grid(p, clip)
+    cut = frame_round(clip.in_ + local * clip.speed, grid)
+    min_len = min_source_length(p, clip)
+    cut = max(clip.in_ + min_len, min(cut, clip.out_ - min_len))
+    left_effects = tuple(e for e in clip.effects if e.kind not in ("fade_out", "audio_fade_out"))
+    right_effects = tuple(e for e in clip.effects if e.kind not in ("fade_in", "audio_fade_in"))
+    left = replace(clip, out_=cut, effects=left_effects)
+    right = replace(
+        clip,
+        id=new_id("a" if index is not None else "c"),
+        in_=cut,
+        effects=right_effects,
+        start=round(t, 6) if track.mode == "absolute" else None,
+        link_id=relink if relink is not None else (clip.link_id if keep_link else None),
+    )
+    clips = list(track.clips)
+    transitions = list(track.transitions)
+    clips[clip_index : clip_index + 1] = [left, right]
+    transitions.insert(clip_index, None)
+    project = _with_track_index(p, index, replace(track, clips=tuple(clips), transitions=tuple(transitions)))
+    return project, left, right
+
+
 def split(p: Project, t: float) -> Project:
-    """Corta el clip bajo `t` (redondeado a frame). El izquierdo conserva la transición entrante;
-    el derecho, la saliente; la frontera nueva nace sin transición."""
+    """Corta el clip de video bajo `t` (redondeado a frame). El izquierdo conserva la transición
+    entrante; el derecho, la saliente; la frontera nueva nace sin transición.
+
+    No toca el audio separado: para eso están `split_all` (video + audio enlazado) y
+    `split_audio` (solo audio), que es lo que usa la UI.
+    """
+    project, _left, _right = _split_track_impl(p, None, t)
+    return project
+
+
+def split_track(p: Project, track, t: float) -> Project:  # noqa: ANN001
+    """Corta una pista concreta: `None`/`p.video` para el video, un índice o `Track` de audio."""
+    project, _left, _right = _split_track_impl(p, _audio_index(p, track), t)
+    return project
+
+
+def split_all(p: Project, t: float) -> Project:
+    """Un solo undo: corta el video en `t` y el audio enlazado al clip que cae bajo el playhead.
+
+    El trozo derecho del audio queda enlazado al trozo derecho del video (`link_id`), así
+    `attach_audio` puede deshacer el corte por parejas.
+    """
     t = frame_round(t, p.fps)
     pos = locate(p, t)
     if pos is None:
         raise ProjectError("no hay clips que dividir")
-    clip = pos.clip
-    frame = 1.0 / p.fps
-    if pos.t_local < frame - 1e-9 or clip.duration - pos.t_local < frame - 1e-9:
-        raise ProjectError("el playhead está en el borde del clip: no hay nada que dividir")
-    grid = _source_grid(p, clip)
-    cut = frame_round(pos.t_source, grid)
-    min_len = min_source_length(p, clip)
-    cut = max(clip.in_ + min_len, min(cut, clip.out_ - min_len))
-    left_effects = tuple(e for e in clip.effects if e.kind != "fade_out")
-    right_effects = tuple(e for e in clip.effects if e.kind != "fade_in")
-    left = replace(clip, out_=cut, effects=left_effects)
-    right = replace(clip, id=new_id("c"), in_=cut, effects=right_effects)
-    clips = list(p.video.clips)
-    transitions = list(p.video.transitions)
-    clips[pos.index : pos.index + 1] = [left, right]
-    transitions.insert(pos.index, None)
-    return _with_track(p, clips, transitions)
+    project, left, right = _split_track_impl(p, None, t)
+    for track_index in range(len(project.audio)):
+        track = project.audio[track_index]
+        starts = clip_starts(track)
+        if any(
+            clip.link_id == left.id and start <= t < start + clip.duration
+            for clip, start in zip(track.clips, starts)
+        ):
+            project, _audio_left, _audio_right = _split_track_impl(
+                project, track_index, t, relink=right.id
+            )
+    return project
 
 
-def trim(p: Project, clip_id: str, new_in: float, new_out: float) -> Project:
-    """Nuevos `in_`/`out_` (fuente), acotados al asset, a frame y a ≥ 1 frame de duración."""
-    index = p.video.index_of(clip_id)
-    clip = p.video.clips[index]
+def split_audio(p: Project, t: float) -> Project:
+    """Corta solo las pistas de audio que cruzan `t` (la música secuencial incluida).
+
+    Los trozos de un clip enlazado conservan el mismo `link_id`: un audio dividido puede tener
+    varios segmentos enlazados al mismo video (docs/19). Así «Vincular audio» los borra todos.
+    """
+    t = frame_round(t, p.fps)
+    project = p
+    cuts = 0
+    for track_index in range(len(p.audio)):
+        original_clips = p.audio[track_index].clips
+        for original in original_clips:
+            track = project.audio[track_index]
+            try:
+                clip_index = track.index_of(original.id)
+            except ProjectError:
+                continue
+            if _spans(track, clip_index, t):
+                project, _left, _right = _split_track_impl(project, track_index, t, keep_link=True)
+                cuts += 1
+    if not cuts:
+        raise ProjectError("no hay audio que dividir en ese punto")
+    return project
+
+
+def _trim_clip(p: Project, track: Track, clip: Clip, new_in: float, new_out: float) -> Clip | None:
+    """Nuevos `in_`/`out_` (fuente) acotados al asset, a frame y a ≥ 1 frame de duración."""
     asset = p.asset(clip.asset_id)
     grid = _source_grid(p, clip)
     min_len = min_source_length(p, clip)
@@ -322,14 +456,56 @@ def trim(p: Project, clip_id: str, new_in: float, new_out: float) -> Project:
     new_in = max(0.0, new_in)
     new_out = min(asset.duration, max(new_out, new_in + min_len))
     if new_in == clip.in_ and new_out == clip.out_:
+        return None
+    return replace(clip, in_=new_in, out_=new_out)
+
+
+def trim(p: Project, clip_id: str, new_in: float, new_out: float) -> Project:
+    """Trim del clip de video `clip_id` (ver `_trim_clip`)."""
+    _ensure_unlocked(p.video)
+    index = p.video.index_of(clip_id)
+    clip = p.video.clips[index]
+    trimmed = _trim_clip(p, p.video, clip, new_in, new_out)
+    if trimmed is None:
         return p
     clips = list(p.video.clips)
-    clips[index] = replace(clip, in_=new_in, out_=new_out)
+    clips[index] = trimmed
     return _with_track(p, clips, list(p.video.transitions))
+
+
+def trim_audio(p: Project, track_index: int, clip_id: str, new_in: float, new_out: float) -> Project:
+    """Trim de un clip de audio.
+
+    En pistas absolutas, recortar solo por la izquierda desplaza `start` y mantiene fijo el borde
+    derecho; recortar por la derecha (o ambos bordes) no mueve `start`.
+    """
+    track = p.audio[track_index]
+    _ensure_unlocked(track)
+    index = track.index_of(clip_id)
+    clip = track.clips[index]
+    trimmed = _trim_clip(p, track, clip, new_in, new_out)
+    if trimmed is None:
+        return p
+    moved_in = abs(new_in - clip.in_) > 1e-9
+    moved_out = abs(new_out - clip.out_) > 1e-9
+    if track.mode == "absolute" and moved_in and not moved_out and trimmed.in_ != clip.in_:
+        # El asa izquierda de una pista absoluta mueve el inicio en el timeline y deja fijo el
+        # borde derecho (a diferencia de una pista secuencial, donde manda el orden).
+        delta = (trimmed.in_ - clip.in_) / clip.speed
+        new_start = frame_round(float(clip.start or 0.0) + delta, p.fps)
+        if new_start < -1e-9:
+            raise ProjectError("el recorte se sale del timeline (inicio negativo)")
+        if _absolute_overlap(track, new_start, trimmed.duration, exclude=clip.id):
+            raise ProjectError("el recorte se solaparía con otro clip de la misma pista")
+        trimmed = replace(trimmed, start=round(max(0.0, new_start), 6))
+    clips = list(track.clips)
+    clips[index] = trimmed
+    return _with_track_index(p, track_index, replace(track, clips=tuple(clips)))
 
 
 def move(p: Project, clip_id: str, to_index: int) -> Project:
     """Reordena: el clip pasa a ocupar `to_index` (índice final). Sus transiciones se pierden."""
+    _ensure_unlocked(p.video)
     clips = list(p.video.clips)
     transitions = list(p.video.transitions)
     index = p.video.index_of(clip_id)
@@ -341,13 +517,8 @@ def move(p: Project, clip_id: str, to_index: int) -> Project:
     return _with_track(p, clips, transitions)
 
 
-def drop_index(p: Project, clip_id: str, ghost_start: float) -> int:
-    """Índice final de un clip arrastrado cuyo fantasma empieza en `ghost_start`.
-
-    Regla clásica: el clip adelanta a un vecino cuando el borde delantero del fantasma pasa el
-    centro de ese vecino (posiciones originales, con el clip arrastrado aún en su sitio).
-    """
-    track = p.video
+def _drop_index(track: Track, clip_id: str, ghost_start: float) -> int:
+    """Índice final de un clip arrastrado dentro de una pista secuencial (regla del centro)."""
     index = track.index_of(clip_id)
     dragged = track.clips[index]
     starts = clip_starts(track)
@@ -360,12 +531,47 @@ def drop_index(p: Project, clip_id: str, ghost_start: float) -> int:
     return index - passed
 
 
+def drop_index(p: Project, clip_id: str, ghost_start: float) -> int:
+    """Índice final de un clip de video arrastrado cuyo fantasma empieza en `ghost_start`."""
+    return _drop_index(p.video, clip_id, ghost_start)
+
+
+def audio_drop_index(p: Project, track_index: int, clip_id: str, ghost_start: float) -> int:
+    """Como `drop_index`, para una pista de audio secuencial."""
+    return _drop_index(p.audio[track_index], clip_id, ghost_start)
+
+
+def _remove_linked_audio(p: Project, video_clip_id: str) -> Project:
+    """Borra el audio enlazado a un clip de video (cascada al borrar el video)."""
+    tracks = list(p.audio)
+    changed = False
+    for track_index, track in enumerate(tracks):
+        indexes = [i for i, c in enumerate(track.clips) if c.link_id == video_clip_id]
+        if not indexes:
+            continue
+        _ensure_unlocked(track)
+        clips = list(track.clips)
+        transitions = list(track.transitions)
+        for index in reversed(indexes):
+            _remove_at(clips, transitions, index)
+        tracks[track_index] = fit_transitions(
+            replace(track, clips=tuple(clips), transitions=tuple(transitions))
+        )
+        changed = True
+    return replace(p, audio=tuple(tracks)) if changed else p
+
+
 def ripple_delete(p: Project, clip_id: str) -> Project:
-    """Quita el clip y cierra el hueco. Los assets se conservan (siguen en el proyecto)."""
+    """Quita el clip y cierra el hueco. Los assets se conservan (siguen en el proyecto).
+
+    Si el clip tenía audio separado enlazado, se borra también (en la misma operación).
+    """
+    _ensure_unlocked(p.video)
     clips = list(p.video.clips)
     transitions = list(p.video.transitions)
     _remove_at(clips, transitions, p.video.index_of(clip_id))
-    return _with_track(p, clips, transitions)
+    project = _with_track(p, clips, transitions)
+    return _remove_linked_audio(project, clip_id)
 
 
 def ripple_delete_many(p: Project, clip_ids) -> Project:  # noqa: ANN001
@@ -394,6 +600,209 @@ def set_speed(p: Project, clip_id: str, speed: float) -> Project:
     out = max(clip.out_, clip.in_ + min_source_length(p, clip, speed))
     clips[index] = replace(clip, speed=speed, out_=min(out, p.asset(clip.asset_id).duration))
     return _with_track(p, clips, list(p.video.transitions))
+
+
+# -- audio editable (fase 1, docs/19) ------------------------------------------------
+
+
+def _absolute_overlap(track: Track, start: float, duration: float, *, exclude: str | None = None) -> bool:
+    end = start + duration
+    for clip in track.clips:
+        if clip.id == exclude:
+            continue
+        other = max(0.0, float(clip.start or 0.0))
+        if start < other + clip.duration - 1e-9 and other < end - 1e-9:
+            return True
+    return False
+
+
+def _ordered_absolute_clips(clips: list[Clip]) -> tuple[Clip, ...]:
+    ordered = tuple(sorted(clips, key=lambda c: (float(c.start or 0.0), c.id)))
+    return ordered
+
+
+def move_audio(
+    p: Project, track_index: int, clip_id: str, *, start: float | None = None,
+    to_index: int | None = None,
+) -> Project:
+    """Mueve un clip de audio.
+
+    - Pista `absolute`: `start` es la nueva posición (redondeada a frame); no se permite solapar.
+    - Pista `sequence`: se reordena a `to_index` (la música sigue pegada, sin huecos).
+    """
+    track = p.audio[track_index]
+    _ensure_unlocked(track)
+    index = track.index_of(clip_id)
+    clip = track.clips[index]
+    if track.mode == "absolute":
+        if start is None:
+            raise ProjectError("una pista absoluta necesita `start` para mover un clip")
+        new_start = frame_round(max(0.0, float(start)), p.fps)
+        if _absolute_overlap(track, new_start, clip.duration, exclude=clip.id):
+            raise ProjectError("el clip se solaparía con otro de la misma pista")
+        if abs(new_start - float(clip.start or 0.0)) < 1e-9:
+            return p
+        clips = list(track.clips)
+        clips[index] = replace(clip, start=round(new_start, 6))
+        return _with_track_index(p, track_index, replace(track, clips=tuple(clips)))
+    if to_index is None:
+        return p
+    clips = list(track.clips)
+    transitions = list(track.transitions)
+    to_index = max(0, min(int(to_index), len(clips) - 1))
+    if to_index == index:
+        return p
+    moved = _remove_at(clips, transitions, index)
+    _insert_at(clips, transitions, to_index, moved)
+    return _with_track_index(p, track_index, replace(track, clips=tuple(clips), transitions=tuple(transitions)))
+
+
+def remove_audio(p: Project, track_index: int, clip_id: str) -> Project:
+    """Borra un clip de audio. En pistas absolutas deja hueco; en secuenciales cierra el hueco."""
+    track = p.audio[track_index]
+    _ensure_unlocked(track)
+    clips = list(track.clips)
+    transitions = list(track.transitions)
+    _remove_at(clips, transitions, track.index_of(clip_id))
+    return _with_track_index(p, track_index, replace(track, clips=tuple(clips), transitions=tuple(transitions)))
+
+
+def add_audio_track(
+    p: Project, name: str = "", *, mode: str = "absolute",
+) -> tuple[Project, int]:
+    """Añade una pista de audio vacía y devuelve `(proyecto, índice)`."""
+    if mode not in ("sequence", "absolute"):
+        raise ProjectError(f"modo de pista desconocido: {mode}")
+    label = name.strip() or f"Audio {len(p.audio) + 1}"
+    track = Track(kind="audio", mode=mode)  # type: ignore[arg-type]
+    track = replace(track, name=label)
+    return replace(p, audio=(*p.audio, track)), len(p.audio)
+
+
+def remove_audio_track(p: Project, track_index: int) -> Project:
+    """Quita la pista y reactiva el audio del video de los clips que estaban enlazados en ella."""
+    if not 0 <= track_index < len(p.audio):
+        raise ProjectError(f"no existe la pista de audio {track_index}")
+    removed = p.audio[track_index]
+    _ensure_unlocked(removed)
+    reenable = {clip.link_id for clip in removed.clips if clip.link_id}
+    video = p.video
+    if reenable:
+        clips = tuple(
+            replace(clip, audio_enabled=True) if clip.id in reenable else clip for clip in p.video.clips
+        )
+        video = replace(p.video, clips=clips)
+    return replace(p, video=video, audio=tuple(t for i, t in enumerate(p.audio) if i != track_index))
+
+
+def set_audio_track(p: Project, track_index: int, **changes) -> Project:  # noqa: ANN003
+    """Cambia nombre/mute/solo/lock/ganancia/ducking de una pista de audio (validado)."""
+    allowed = {"name", "muted", "solo", "locked", "gain", "ducking"}
+    unknown = set(changes) - allowed
+    if unknown:
+        raise ProjectError(f"campos de pista desconocidos: {', '.join(sorted(unknown))}")
+    track = p.audio[track_index]
+    updated = replace(track, **changes)
+    tracks = list(p.audio)
+    tracks[track_index] = updated
+    return replace(p, audio=tuple(tracks))
+
+
+def find_audio_clip(p: Project, clip_id: str) -> tuple[int, int, Clip] | None:
+    for track_index, track in enumerate(p.audio):
+        for clip_index, clip in enumerate(track.clips):
+            if clip.id == clip_id:
+                return track_index, clip_index, clip
+    return None
+
+
+def linked_audio_clip(p: Project, video_clip_id: str) -> tuple[int, int, Clip] | None:
+    """Primer clip de audio enlazado a un clip de video (puede haber varios si se dividió)."""
+    for track_index, track in enumerate(p.audio):
+        for clip_index, clip in enumerate(track.clips):
+            if clip.link_id == video_clip_id:
+                return track_index, clip_index, clip
+    return None
+
+
+def linked_audio_clips(p: Project, video_clip_id: str) -> list[tuple[int, int, Clip]]:
+    """Todos los clips de audio enlazados a un video (trozos de un audio dividido)."""
+    return [
+        (track_index, clip_index, clip)
+        for track_index, track in enumerate(p.audio)
+        for clip_index, clip in enumerate(track.clips)
+        if clip.link_id == video_clip_id
+    ]
+
+
+def detach_audio(p: Project, clip_id: str) -> tuple[Project, str]:
+    """Separa el audio de un clip de video en una pista absoluta (un solo undo en la UI).
+
+    Crea o reutiliza la pista «Audio del video», copia el clip con su posición, enlaza ambos
+    (`link_id`) y marca el video con `audio_enabled=False`. Devuelve `(proyecto, id_audio)`.
+    """
+    index = p.video.index_of(clip_id)
+    clip = p.video.clips[index]
+    if not clip.audio_enabled:
+        raise ProjectError("el audio de este clip ya está separado")
+    if not p.asset(clip.asset_id).has_audio:
+        raise ProjectError("el archivo de este clip no tiene audio")
+    start = frame_round(clip_starts(p.video)[index], p.fps)
+    overlap = 0.0
+    if index > 0:
+        previous = p.video.transitions[index - 1] if index - 1 < len(p.video.transitions) else None
+        overlap = previous.duration if previous is not None else 0.0
+    start = frame_round(start + overlap, p.fps)
+    track_index = next(
+        (i for i, t in enumerate(p.audio)
+         if t.mode == "absolute" and t.name == AUDIO_VIDEO_TRACK_NAME),
+        None,
+    )
+    tracks = list(p.audio)
+    if track_index is None:
+        track_index = len(tracks)
+        tracks.append(Track(kind="audio", mode="absolute", name=AUDIO_VIDEO_TRACK_NAME))
+    track = tracks[track_index]
+    _ensure_unlocked(track)
+    audio_duration = clip.duration - overlap
+    if _absolute_overlap(track, start, audio_duration):
+        raise ProjectError("la pista «Audio del video» ya tiene un clip en ese tramo")
+    audio_effects = tuple(
+        e for e in clip.effects
+        if e.kind in ("volume", "fade_in", "fade_out", "audio_fade_in", "audio_fade_out")
+    )
+    audio = Clip(
+        id=new_id("a"), asset_id=clip.asset_id, in_=clip.in_ + overlap * clip.speed,
+        out_=clip.out_, speed=clip.speed, effects=audio_effects, start=start, link_id=clip.id,
+    )
+    clips = _ordered_absolute_clips([*track.clips, audio])
+    tracks[track_index] = replace(track, clips=clips, transitions=tuple(None for _ in range(len(clips) - 1)))
+    video_clips = list(p.video.clips)
+    video_clips[index] = replace(clip, audio_enabled=False)
+    return replace(p, video=replace(p.video, clips=tuple(video_clips)), audio=tuple(tracks)), audio.id
+
+
+def attach_audio(p: Project, video_clip_id: str) -> Project:
+    """Deshace `detach_audio`: borra el/los clip(s) enlazado(s) y reactiva el audio del video."""
+    index = p.video.index_of(video_clip_id)
+    clip = p.video.clips[index]
+    tracks = list(p.audio)
+    removed = False
+    for track_index, track in enumerate(tracks):
+        keep = [c for c in track.clips if c.link_id != video_clip_id]
+        if len(keep) == len(track.clips):
+            continue
+        _ensure_unlocked(track)
+        removed = True
+        # Un corte limpio entre los clips que quedan (el enlace separado no tenía transiciones).
+        transitions = tuple(None for _ in range(max(0, len(keep) - 1)))
+        tracks[track_index] = replace(track, clips=tuple(keep), transitions=transitions)
+    if not removed and clip.audio_enabled:
+        raise ProjectError("este clip no tiene audio separado")
+    video_clips = list(p.video.clips)
+    video_clips[index] = replace(clip, audio_enabled=True)
+    return replace(p, video=replace(p.video, clips=tuple(video_clips)), audio=tuple(tracks))
+
 
 
 def add_asset(p: Project, asset: MediaAsset) -> tuple[Project, MediaAsset]:
@@ -494,16 +903,17 @@ def snap(t: float, candidates: list[float] | tuple[float, ...], zoom: float, thr
 def snap_candidates(
     p: Project, *, playhead: float | None = None, exclude: str | None = None, zoom: float | None = None
 ) -> list[float]:
-    """Bordes de clips (menos los de `exclude`), playhead, 0 y segundos enteros a zoom bajo."""
+    """Bordes de clips (video y audio, menos los de `exclude`), playhead, 0 y segundos enteros."""
     candidates = {0.0}
-    starts = clip_starts(p.video)
-    for clip, start in zip(p.video.clips, starts):
-        if clip.id == exclude:
-            continue
-        candidates.add(start)
-        candidates.add(start + clip.duration)
+    for track in (p.video, *p.audio):
+        starts = clip_starts(track)
+        for clip, start in zip(track.clips, starts):
+            if clip.id == exclude:
+                continue
+            candidates.add(start)
+            candidates.add(start + clip.duration)
     if playhead is not None:
         candidates.add(playhead)
     if zoom is not None and zoom < 40:
-        candidates.update(float(s) for s in range(int(total_duration(p)) + 1))
+        candidates.update(float(s) for s in range(int(project_extent(p)) + 1))
     return sorted(candidates)

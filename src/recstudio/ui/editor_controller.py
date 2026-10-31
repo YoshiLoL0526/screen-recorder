@@ -23,7 +23,15 @@ from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
 from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
-from ..core.project import FPS_CHOICES, Clip, MediaAsset, Project, Track, Transition, new_id
+from ..core.project import (
+    FPS_CHOICES,
+    Clip,
+    MediaAsset,
+    Project,
+    Track,
+    Transition,
+    new_id,
+)
 from ..core.store import ProjectStore
 from ..platform import paths
 from ..services import export as export_mod
@@ -37,6 +45,7 @@ _AUTOSAVE_POLL = 2.0
 _CLICK_SLOP_PX = 3.0
 SPEED_CHOICES = (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
 TRANSITION_DURATIONS = (0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0)
+MAX_AUDIO_TRACKS = 6  # alternativa al scroll vertical anidado (docs/19)
 
 # Campos de efectos del inspector: (signal, efecto, parámetro, valor neutro, etiqueta de undo)
 EFFECT_FIELDS = (
@@ -48,10 +57,25 @@ EFFECT_FIELDS = (
     (state.insp_contrast, "eq", "contrast", 1.0, "contraste"),
     (state.insp_saturation, "eq", "saturation", 1.0, "saturación"),
 )
+AUDIO_EFFECT_FIELDS = (
+    (state.insp_audio_fade_in, "audio_fade_in", "seconds", 0.0, "fundido de audio de entrada"),
+    (state.insp_audio_fade_out, "audio_fade_out", "seconds", 0.0, "fundido de audio de salida"),
+)
 
 
 def _nearest_fps(fps: float) -> int:
     return min(FPS_CHOICES, key=lambda f: abs(f - fps)) if fps > 0 else 60
+
+
+def _valid_audio_selection(project: Project, selection) -> bool:  # noqa: ANN001
+    try:
+        track_index, clip_index = int(selection[1]), int(selection[2])
+    except (IndexError, TypeError, ValueError):
+        return False
+    return (
+        0 <= track_index < len(project.audio)
+        and 0 <= clip_index < len(project.audio[track_index].clips)
+    )
 
 
 class EditorController:
@@ -94,6 +118,8 @@ class EditorController:
         state.insp_fps.subscribe(live(lambda fps: self.set_project_fps(int(fps)) if state.project_open() else None))
         for signal, kind, name, _neutral, label in EFFECT_FIELDS:
             signal.subscribe(live(lambda value, k=kind, n=name, lb=label: self._on_insp_effect(k, n, lb, value)))
+        for signal, kind, name, _neutral, label in AUDIO_EFFECT_FIELDS:
+            signal.subscribe(live(lambda value, k=kind, n=name, lb=label: self._on_insp_audio_effect(k, lb, value)))
         state.insp_track_gain.subscribe(live(self._on_insp_track_gain))
         state.insp_music_gain.subscribe(live(self._on_insp_music_gain))
         state.insp_music_duck.subscribe(live(self._on_insp_music_duck))
@@ -149,8 +175,9 @@ class EditorController:
             state.selection.set(None)
         elif selection and selection[0] == "transition" and selection[1] >= len(project.video.transitions):
             state.selection.set(None)
-        elif selection and selection[0] == "music" and selection[1] >= len(project.audio):
-            state.selection.set(None)
+        elif selection and selection[0] == "audio":
+            if not _valid_audio_selection(project, selection):
+                state.selection.set(None)
         elif selection and selection[0] == "text" and not project.has_text(selection[1]):
             state.selection.set(None)
         clip_ids = {c.id for c in project.video.clips}
@@ -180,6 +207,8 @@ class EditorController:
             state.insp_speed.set(clip.speed)
             for signal, kind, name, neutral, _label in EFFECT_FIELDS:
                 signal.set(fx.param(clip, kind, name, neutral))
+            for signal, kind, name, neutral, _label in AUDIO_EFFECT_FIELDS:
+                signal.set(fx.param(clip, kind, name, neutral))
         index = self._transition_index()
         if index is not None:
             current = project.video.transitions[index]
@@ -191,9 +220,15 @@ class EditorController:
             state.insp_music_gain.set(0.0 if music.muted else music.gain)
             state.insp_music_duck.set(music.ducking)
             state.insp_music_cross.set(self._music_crossfade(music))
-            selected_clip = self._selected_music_clip()
-            if selected_clip is not None:
-                state.insp_music_clip_gain.set(fx.gain(selected_clip[2]))
+        audio = self.selected_audio()
+        if audio is not None:
+            _track_index, _clip_index, audio_clip = audio
+            state.insp_music_clip_gain.set(fx.gain(audio_clip))
+            for signal, kind, name, neutral, _label in AUDIO_EFFECT_FIELDS:
+                signal.set(fx.param(audio_clip, kind, name, neutral))
+            start = tl.clip_starts(self.project.audio[_track_index])[_clip_index]
+            state.insp_audio_start.set(tl.format_time(start))
+            state.insp_audio_end.set(tl.format_time(start + audio_clip.duration))
         overlay = self.selected_text()
         if overlay is not None:
             state.insp_text.set(overlay.text)
@@ -218,6 +253,44 @@ class EditorController:
         if abs(fx.param(clip, kind, name, neutral) - float(value)) < 1e-6:
             return
         self.set_effect(kind, label, **{name: float(value)})
+
+    def _on_insp_audio_effect(self, kind: str, label: str, value: float) -> None:
+        audio = self.selected_audio()
+        clip = self.selected_clip()
+        target = audio[2] if audio is not None else clip
+        if target is None:
+            return
+        if abs(fx.param(target, kind, "seconds", 0.0) - float(value)) < 1e-6:
+            return
+        self.set_audio_effect(kind, label, seconds=float(value))
+
+    def _on_insp_audio_start(self, text: str) -> None:
+        if self.selected_audio() is None:
+            return
+        try:
+            start = tl.parse_time(text)
+        except ValueError:
+            state.toast("warning", "Tiempo inválido: usa mm:ss.mmm")
+            self._sync_inspector()
+            return
+        self.set_audio_clip_start(start)
+
+    def _on_insp_audio_end(self, text: str) -> None:
+        audio = self.selected_audio()
+        if audio is None:
+            return
+        try:
+            end = tl.parse_time(text)
+        except ValueError:
+            state.toast("warning", "Tiempo inválido: usa mm:ss.mmm")
+            self._sync_inspector()
+            return
+        track_index, clip_index, clip = audio
+        start = tl.clip_starts(self.project.audio[track_index])[clip_index]
+        delta = end - (start + clip.duration)
+        new_out = clip.out_ + delta * clip.speed
+        self._apply("recortar audio", tl.trim_audio(self.project, track_index, clip.id, clip.in_, new_out))
+        self._sync_inspector()
 
     def _on_insp_track_gain(self, value: float) -> None:
         video = self.project.video
@@ -301,25 +374,26 @@ class EditorController:
         project = self.store.project
         return project.clip(selection[1]) if project.has_clip(selection[1]) else None
 
-    def selected_music(self):  # noqa: ANN201
+    def selected_audio(self):  # noqa: ANN201
+        """`(track_index, clip_index, Clip)` del clip de audio seleccionado (cualquier pista)."""
         selection = state.selection()
-        if not selection or selection[0] != "music":
+        if not selection or selection[0] != "audio":
+            return None
+        if not _valid_audio_selection(self.project, selection):
+            return None
+        track_index, clip_index = int(selection[1]), int(selection[2])
+        return track_index, clip_index, self.project.audio[track_index].clips[clip_index]
+
+    def selected_music(self):  # noqa: ANN201
+        """Pista de audio seleccionada (compatibilidad con el inspector de música de B1)."""
+        selection = state.selection()
+        if not selection or selection[0] != "audio":
             return None
         index = int(selection[1])
         return self.project.audio[index] if 0 <= index < len(self.project.audio) else None
 
     def _selected_music_clip(self):  # noqa: ANN201
-        selection = state.selection()
-        if not selection or selection[0] != "music":
-            return None
-        track_index = int(selection[1])
-        if not 0 <= track_index < len(self.project.audio):
-            return None
-        track = self.project.audio[track_index]
-        clip_index = int(selection[2]) if len(selection) > 2 else 0
-        if not 0 <= clip_index < len(track.clips):
-            return None
-        return track_index, clip_index, track.clips[clip_index]
+        return self.selected_audio()
 
     def selected_text(self):  # noqa: ANN201
         selection = state.selection()
@@ -350,8 +424,11 @@ class EditorController:
     def split(self) -> None:
         if not self._guard_editable():
             return
+        if self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
         try:
-            project = tl.split(self.project, state.playhead())
+            project = tl.split_all(self.project, state.playhead())
         except ProjectError as exc:
             state.toast("info", exc.message)
             return
@@ -359,6 +436,96 @@ class EditorController:
             pos = tl.locate(project, state.playhead())
             if pos is not None:
                 state.selection.set(("clip", pos.clip.id))
+
+    def split_audio_only(self) -> None:
+        if not self._guard_editable():
+            return
+        try:
+            project = tl.split_audio(self.project, state.playhead())
+        except ProjectError as exc:
+            state.toast("info", exc.message)
+            return
+        if self._apply("dividir audio", project):
+            for track_index, track in enumerate(project.audio):
+                starts = tl.clip_starts(track)
+                for clip_index, (clip, start) in enumerate(zip(track.clips, starts)):
+                    if abs(start - state.playhead()) < 1e-6 or start < state.playhead() < start + clip.duration:
+                        self.select_audio(track_index, clip_index)
+                        state.toast("success", f"Audio dividido en «{track.name or 'pista de audio'}»")
+                        return
+            state.toast("success", "Audio dividido en el playhead")
+
+    def detach_audio(self) -> None:
+        """«Separar audio»: saca el audio del clip de video a una pista absoluta enlazada."""
+        if not self._guard_editable():
+            return
+        clip = self.selected_clip()
+        if clip is None:
+            audio = self.selected_audio()
+            if audio is not None and audio[2].link_id:
+                self.attach_audio()
+            else:
+                state.toast("info", "Selecciona un clip de video con audio")
+            return
+        if self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
+        has_track = any(
+            t.mode == "absolute" and t.name == "Audio del video" for t in self.project.audio
+        )
+        target = next(
+            (t for t in self.project.audio if t.mode == "absolute" and t.name == "Audio del video"),
+            None,
+        )
+        if target is not None and target.locked:
+            state.toast("warning", "La pista «Audio del video» está bloqueada")
+            return
+        if not has_track and len(self.project.audio) >= MAX_AUDIO_TRACKS:
+            state.toast("warning", f"Máximo de {MAX_AUDIO_TRACKS} pistas de audio: quita una antes")
+            return
+        try:
+            project, audio_id = tl.detach_audio(self.project, clip.id)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("separar audio", project):
+            found = tl.find_audio_clip(project, audio_id)
+            if found is not None:
+                self.select_audio(found[0], found[1])
+            state.toast("success", "Audio separado en una pista absoluta (enlazado al video)")
+
+    def attach_audio(self) -> None:
+        """«Vincular audio»: borra el audio separado y reactiva el del clip de video."""
+        if not self._guard_editable():
+            return
+        audio = self.selected_audio()
+        video_id = audio[2].link_id if audio is not None else None
+        if audio is not None and self.project.audio[audio[0]].locked:
+            state.toast("warning", "La pista de audio está bloqueada")
+            return
+        if video_id is None:
+            clip = self.selected_clip()
+            video_id = clip.id if clip is not None else None
+        if self.project.video.locked and video_id is not None:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
+        if video_id is not None:
+            linked = tl.linked_audio_clips(self.project, video_id)
+            if any(self.project.audio[track_index].locked for track_index, _index, _clip in linked):
+                state.toast("warning", "La pista de audio está bloqueada")
+                return
+        if video_id is None:
+            state.toast("info", "Selecciona el clip de video o su audio separado")
+            return
+        try:
+            project = tl.attach_audio(self.project, video_id)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("vincular audio", project):
+            if project.has_clip(video_id):
+                self.select_clip(video_id)
+            state.toast("success", "Audio vinculado al video de nuevo")
 
     def delete_selected(self) -> None:
         selection = state.selection()
@@ -370,7 +537,11 @@ class EditorController:
             if count == 0:
                 state.multi_selection.set(frozenset())
             else:
-                project = tl.ripple_delete_many(self.project, multi)
+                try:
+                    project = tl.ripple_delete_many(self.project, multi)
+                except ProjectError as exc:
+                    state.toast("warning", exc.message)
+                    return
                 if self._apply(f"eliminar {count} clip{'s' if count != 1 else ''}", project):
                     state.multi_selection.set(frozenset())
                     state.selection.set(None)
@@ -381,8 +552,15 @@ class EditorController:
             clip_id = selection[1]
             if not self.project.has_clip(clip_id):
                 return
+            if self.project.video.locked:
+                state.toast("warning", "La pista de video está bloqueada")
+                return
             index = self.project.video.index_of(clip_id)
-            project = tl.ripple_delete(self.project, clip_id)
+            try:
+                project = tl.ripple_delete(self.project, clip_id)
+            except ProjectError as exc:
+                state.toast("warning", exc.message)
+                return
             if self._apply("eliminar clip", project):
                 clips = project.video.clips
                 state.selection.set(("clip", clips[min(index, len(clips) - 1)].id) if clips else None)
@@ -390,8 +568,22 @@ class EditorController:
             self.set_transition(None)
         elif selection[0] == "text":
             self.delete_text()
-        elif selection[0] == "music":
-            self.remove_music()
+        elif selection[0] == "audio":
+            audio = self.selected_audio()
+            if audio is None:
+                return
+            track_index, clip_index, clip = audio
+            track = self.project.audio[track_index]
+            if track.locked:
+                state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+                return
+            project = tl.remove_audio(self.project, track_index, clip.id)
+            if self._apply("eliminar audio", project):
+                new_track = project.audio[track_index]
+                if new_track.clips:
+                    self.select_audio(track_index, min(clip_index, len(new_track.clips) - 1))
+                else:
+                    state.selection.set(None)
 
     def undo(self) -> None:
         self.cancel_drag()
@@ -420,8 +612,12 @@ class EditorController:
         state.selection.set(("transition", index))
 
     def select_music(self, index: int = 0, clip_index: int = 0) -> None:
+        """Compatibilidad: selecciona un clip de audio (la UI ya no distingue «music»)."""
+        self.select_audio(index, clip_index)
+
+    def select_audio(self, track_index: int, clip_index: int) -> None:
         state.multi_selection.set(frozenset())
-        state.selection.set(("music", int(index), int(clip_index)))
+        state.selection.set(("audio", int(track_index), int(clip_index)))
 
     def select_text(self, text_id: str) -> None:
         state.multi_selection.set(frozenset())
@@ -467,6 +663,148 @@ class EditorController:
         video = replace(self.project.video, muted=value <= 0, gain=value if value > 0 else self.project.video.gain)
         self._apply("volumen del audio original", replace(self.project, video=video))
 
+    def toggle_video_mute(self) -> None:
+        video = self.project.video
+        self._apply(
+            "silenciar video" if not video.muted else "activar audio del video",
+            replace(self.project, video=replace(video, muted=not video.muted)),
+        )
+
+    def toggle_video_lock(self) -> None:
+        video = self.project.video
+        self._apply(
+            "bloquear video" if not video.locked else "desbloquear video",
+            replace(self.project, video=replace(video, locked=not video.locked)),
+        )
+        state.toast("info", "Pista de video bloqueada" if not video.locked else "Pista de video desbloqueada")
+
+    def cycle_track_gain(self) -> None:
+        video = self.project.video
+        current = 0.0 if video.muted else video.gain
+        choices = (0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0)
+        nxt = next((v for v in choices if v > current + 1e-6), choices[0])
+        self.set_track_gain(nxt)
+
+    def set_audio_effect(self, kind: str, label: str | None = None, **params: float) -> None:
+        """Efecto de un clip de audio (o del audio de un clip de video seleccionado)."""
+        audio = self.selected_audio()
+        if audio is not None:
+            track_index, clip_index, clip = audio
+            track = self.project.audio[track_index]
+            if track.locked:
+                state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+                return
+            clips = list(track.clips)
+            clips[clip_index] = fx.with_effect(clip, kind, **params)
+            tracks = list(self.project.audio)
+            tracks[track_index] = replace(track, clips=tuple(clips))
+            self._apply(label or kind, replace(self.project, audio=tuple(tracks)))
+            return
+        clip = self.selected_clip()
+        if clip is not None:
+            self.set_effect(kind, label, **params)
+
+    def set_audio_clip_start(self, value: float) -> None:
+        audio = self.selected_audio()
+        if audio is None:
+            return
+        track_index, _clip_index, clip = audio
+        track = self.project.audio[track_index]
+        if track.locked:
+            state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        if track.mode != "absolute":
+            state.toast("info", "La música es secuencial: muévela arrastrando en el timeline")
+            self._sync_inspector()
+            return
+        try:
+            project = tl.move_audio(self.project, track_index, clip.id, start=value)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply("mover audio", project)
+
+    # -- pistas de audio (fase 1) ---------------------------------------------------
+
+    def _selected_audio_track_index(self) -> int | None:
+        selection = state.selection()
+        if selection is not None and selection[0] == "audio":
+            index = int(selection[1])
+            return index if 0 <= index < len(self.project.audio) else None
+        return None
+
+    def add_audio_track(self) -> None:
+        if not self._guard_editable():
+            return
+        if len(self.project.audio) >= MAX_AUDIO_TRACKS:
+            state.toast("warning", f"Máximo de {MAX_AUDIO_TRACKS} pistas de audio")
+            return
+        project, index = tl.add_audio_track(self.project, f"Audio {len(self.project.audio) + 1}")
+        if self._apply("añadir pista de audio", project):
+            state.toast("success", f"Pista «{project.audio[index].name}» añadida")
+
+    def remove_selected_audio_track(self) -> None:
+        index = self._selected_audio_track_index()
+        if index is None:
+            state.toast("info", "Selecciona un clip de la pista que quieres quitar")
+            return
+        self.remove_audio_track(index)
+
+    def remove_audio_track(self, index: int) -> None:
+        if not self._guard_editable():
+            return
+        track = self.project.audio[index]
+        if track.locked:
+            state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        name = track.name or f"Audio {index + 1}"
+        project = tl.remove_audio_track(self.project, index)
+        if self._apply("quitar pista de audio", project):
+            state.selection.set(None)
+            state.toast("success", f"Pista «{name}» eliminada")
+
+    def toggle_audio_mute(self, index: int) -> None:
+        track = self.project.audio[index]
+        self._apply(
+            "silenciar pista" if not track.muted else "activar pista",
+            tl.set_audio_track(self.project, index, muted=not track.muted),
+        )
+
+    def toggle_audio_solo(self, index: int) -> None:
+        track = self.project.audio[index]
+        self._apply(
+            "solo de pista" if not track.solo else "quitar solo",
+            tl.set_audio_track(self.project, index, solo=not track.solo),
+        )
+        if not track.solo:
+            state.toast("info", f"Solo en «{track.name or 'audio'}»: el resto se silencia")
+
+    def toggle_audio_lock(self, index: int) -> None:
+        track = self.project.audio[index]
+        self._apply(
+            "bloquear pista" if not track.locked else "desbloquear pista",
+            tl.set_audio_track(self.project, index, locked=not track.locked),
+        )
+        state.toast("info", "Pista bloqueada" if not track.locked else "Pista desbloqueada")
+
+    def cycle_audio_gain(self, index: int) -> None:
+        track = self.project.audio[index]
+        current = 0.0 if track.muted else track.gain
+        choices = (0.0, 0.25, 0.5, 0.75, 1.0, 1.5, 2.0)
+        nxt = next((v for v in choices if v > current + 1e-6), choices[0])
+        self.set_audio_track_gain(index, nxt)
+
+    def set_audio_track_gain(self, index: int, value: float) -> None:
+        value = max(0.0, min(fx.GAIN_MAX, float(value)))
+        track = self.project.audio[index]
+        self._apply(
+            "volumen de la pista de audio",
+            tl.set_audio_track(
+                self.project, index, muted=value <= 0, gain=value if value > 0 else track.gain
+            ),
+        )
+
     # -- música (B1) ---------------------------------------------------------------
 
     def _music_crossfade(self, track: Track) -> float:
@@ -488,7 +826,7 @@ class EditorController:
             self.import_music(chosen)
 
     def import_music(self, paths: list[Path]) -> None:
-        """Añade archivos de audio a la primera pista de música (o crea una)."""
+        """Añade archivos de audio a una pista secuencial (la primera de música o una nueva)."""
         if not paths:
             return
 
@@ -496,7 +834,19 @@ class EditorController:
             with self._io_lock:
                 project = self.project
                 tracks = list(project.audio)
-                track = tracks[0] if tracks else Track("audio")
+                index = next(
+                    (i for i, t in enumerate(tracks) if t.mode == "sequence"), None
+                )
+                if index is None:
+                    if len(tracks) >= MAX_AUDIO_TRACKS:
+                        state.toast("warning", f"Máximo de {MAX_AUDIO_TRACKS} pistas de audio")
+                        return
+                    tracks.append(Track(kind="audio", mode="sequence", name="Música"))
+                    index = len(tracks) - 1
+                track = tracks[index]
+                if track.locked:
+                    state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+                    return
                 clips = list(track.clips)
                 transitions = list(track.transitions)
                 added: list[MediaAsset] = []
@@ -517,14 +867,10 @@ class EditorController:
                 if not added:
                     return
                 track = replace(track, clips=tuple(clips), transitions=tuple(transitions))
-                if tracks:
-                    tracks[0] = track
-                else:
-                    tracks = [track]
+                tracks[index] = track
                 project = replace(project, audio=tuple(tracks))
                 if self._apply("importar música", project):
-                    index = 0
-                    state.selection.set(("music", index))
+                    self.select_audio(index, 0)
                     for asset in added:
                         self._queue_waveform(asset)
                     state.toast(
@@ -538,24 +884,15 @@ class EditorController:
         index = self._selected_music_index()
         if index is None:
             return
-        value = max(0.0, min(fx.GAIN_MAX, float(value)))
-        tracks = list(self.project.audio)
-        track = tracks[index]
-        tracks[index] = replace(track, muted=value <= 0, gain=value if value > 0 else track.gain)
-        self._apply("volumen de música", replace(self.project, audio=tuple(tracks)))
+        self.set_audio_track_gain(index, value)
 
     def set_music_clip_gain(self, value: float) -> None:
-        selected = self._selected_music_clip()
+        selected = self.selected_audio()
         if selected is None:
             return
-        track_index, clip_index, clip = selected
-        value = max(0.0, min(fx.GAIN_MAX, float(value)))
-        tracks = list(self.project.audio)
-        track = tracks[track_index]
-        clips = list(track.clips)
-        clips[clip_index] = fx.with_effect(clip, "volume", gain=value)
-        tracks[track_index] = replace(track, clips=tuple(clips))
-        self._apply("volumen del clip de música", replace(self.project, audio=tuple(tracks)))
+        _track_index, _clip_index, clip = selected
+        if abs(fx.gain(clip) - float(value)) > 1e-6:
+            self.set_audio_effect("volume", "volumen del clip de audio", gain=float(value))
 
     def set_music_ducking(self, value: float) -> None:
         index = self._selected_music_index()
@@ -570,27 +907,27 @@ class EditorController:
         index = self._selected_music_index()
         if index is None:
             return
-        tracks = list(self.project.audio)
-        track = tracks[index]
+        track = self.project.audio[index]
+        if track.mode != "sequence":
+            state.toast("info", "El crossfade solo aplica a pistas secuenciales (música)")
+            return
         if len(track.clips) < 2:
             return
         limit = min(tl.transition_limit(track, i) for i in range(len(track.clips) - 1))
         duration = min(max(0.0, float(seconds)), limit)
         transition = Transition("fade", duration) if duration >= 0.2 else None
+        tracks = list(self.project.audio)
         tracks[index] = replace(track, transitions=tuple(transition for _ in range(len(track.clips) - 1)))
         self._apply("crossfade de música", replace(self.project, audio=tuple(tracks)))
 
     def remove_music(self) -> None:
         index = self._selected_music_index()
-        if index is None:
-            return
-        tracks = tuple(t for i, t in enumerate(self.project.audio) if i != index)
-        if self._apply("quitar pista de música", replace(self.project, audio=tracks)):
-            state.selection.set(None)
+        if index is not None:
+            self.remove_audio_track(index)
 
     def _selected_music_index(self) -> int | None:
         selection = state.selection()
-        if not selection or selection[0] != "music":
+        if not selection or selection[0] != "audio":
             return None
         index = int(selection[1])
         return index if 0 <= index < len(self.project.audio) else None
@@ -814,6 +1151,12 @@ class EditorController:
         if not self._apply(label, project):
             self._sync_inspector()  # el texto vuelve al valor real
 
+    def submit_audio_start(self, text: str) -> None:
+        self._on_insp_audio_start(text)
+
+    def submit_audio_end(self, text: str) -> None:
+        self._on_insp_audio_end(text)
+
     def submit_in(self, text: str) -> None:
         try:
             value = tl.parse_time(text)
@@ -949,6 +1292,9 @@ class EditorController:
     def begin_move(self, clip_id: str) -> None:
         if not self._guard_editable() or not self.project.has_clip(clip_id):
             return
+        if self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
         self.cancel_drag()
         project = self.project
         index = project.video.index_of(clip_id)
@@ -982,6 +1328,9 @@ class EditorController:
 
     def begin_trim(self, clip_id: str, side: str) -> None:
         if not self._guard_editable() or not self.project.has_clip(clip_id):
+            return
+        if self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
             return
         self.cancel_drag()
         project = self.project
@@ -1026,17 +1375,131 @@ class EditorController:
             new_clip = project.clip(clip.id)
             self.player.seek(start + new_clip.duration - 1.0 / project.fps)  # último frame
 
+    def begin_move_audio(self, track_index: int, clip_id: str) -> None:
+        if not self._guard_editable():
+            return
+        track = self.project.audio[track_index]
+        if track.locked:
+            state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        self.cancel_drag()
+        project = self.project
+        index = track.index_of(clip_id)
+        start = tl.clip_starts(track)[index]
+        self.store.begin("mover audio")
+        self._drag = {
+            "kind": "audio_move", "track": track_index, "id": clip_id, "project": project,
+            "start": start, "dx": 0.0, "audio_peaks": self._source_peaks(project),
+        }
+        self.select_audio(track_index, index)
+
+    def drag_move_audio(self, dx: float) -> None:
+        drag = self._drag
+        if drag is None or drag["kind"] != "audio_move":
+            return
+        drag["dx"] = dx
+        if abs(dx) < _CLICK_SLOP_PX:
+            return
+        base: Project = drag["project"]
+        track_index = int(drag["track"])
+        track = base.audio[track_index]
+        index = track.index_of(drag["id"])
+        clip = track.clips[index]
+        zoom = state.tl_zoom()
+        ghost = drag["start"] + dx / zoom
+        cands = tl.snap_candidates(base, playhead=state.playhead(), exclude=clip.id)
+        cands += tl.audio_snap_candidates(base, clip.id, drag.get("audio_peaks", {}))
+        snapped_start = self._snap(ghost, cands)
+        snapped_end = self._snap(ghost + clip.duration, cands) - clip.duration
+        ghost = snapped_start if snapped_start != ghost else snapped_end
+        ghost = max(0.0, ghost)
+        if track.mode == "absolute":
+            try:
+                project = tl.move_audio(base, track_index, clip.id, start=round(ghost, 5))
+            except ProjectError:
+                return  # solape: el clip se queda donde estaba hasta que haya hueco
+            self.store.update(project)
+            state.tl_drag.set(state.TimelineDrag(
+                "audio_move", clip.id, ghost=round(ghost, 4), track_index=track_index
+            ))
+        else:
+            to_index = tl.audio_drop_index(base, track_index, clip.id, ghost)
+            project = tl.move_audio(base, track_index, clip.id, to_index=to_index)
+            self.store.update(project)
+            state.tl_drag.set(state.TimelineDrag(
+                "audio_move", clip.id, ghost=round(ghost, 4), track_index=track_index
+            ))
+
+    def begin_trim_audio(self, track_index: int, clip_id: str, side: str) -> None:
+        if not self._guard_editable():
+            return
+        track = self.project.audio[track_index]
+        if track.locked:
+            state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        self.cancel_drag()
+        project = self.project
+        index = track.index_of(clip_id)
+        start = tl.clip_starts(track)[index]
+        self.store.begin("recortar audio")
+        self._drag = {
+            "kind": f"audio_trim_{side}", "track": track_index, "id": clip_id, "project": project,
+            "index": index, "start": start, "audio_peaks": self._source_peaks(project),
+        }
+        self.select_audio(track_index, index)
+
+    def drag_trim_audio(self, dx: float) -> None:
+        drag = self._drag
+        if drag is None or not drag["kind"].startswith("audio_trim"):
+            return
+        base: Project = drag["project"]
+        track_index = int(drag["track"])
+        track = base.audio[track_index]
+        clip = track.clips[track.index_of(drag["id"])]
+        index, start = drag["index"], drag["start"]
+        zoom = state.tl_zoom()
+        starts = tl.clip_starts(track)
+        cands = [0.0, state.playhead()]
+        for j in range(index):
+            cands += [starts[j], starts[j] + track.clips[j].duration]
+        cands += tl.audio_snap_candidates(base, clip.id, drag.get("audio_peaks", {}))
+        if drag["kind"] == "audio_trim_l":
+            edge = self._snap(start + dx / zoom, cands)
+            new_in = clip.in_ + (edge - start) * clip.speed
+            try:
+                project = tl.trim_audio(base, track_index, clip.id, new_in, clip.out_)
+            except ProjectError:
+                return  # no cabe contra el vecino o el inicio del timeline
+            self.store.update(project)
+            state.tl_drag.set(state.TimelineDrag(
+                "audio_trim_l", clip.id, track_index=track_index
+            ))
+            moved_track = project.audio[track_index]
+            moved_index = moved_track.index_of(clip.id)
+            self.player.seek(tl.clip_starts(moved_track)[moved_index])
+        else:
+            edge = self._snap(start + clip.duration + dx / zoom, cands)
+            new_out = clip.in_ + (edge - start) * clip.speed
+            project = tl.trim_audio(base, track_index, clip.id, clip.in_, new_out)
+            self.store.update(project)
+            state.tl_drag.set(state.TimelineDrag(
+                "audio_trim_r", clip.id, track_index=track_index
+            ))
+            new_track = project.audio[track_index]
+            new_clip = new_track.clips[new_track.index_of(clip.id)]
+            self.player.seek(start + new_clip.duration - 1.0 / project.fps)
+
     def end_drag(self) -> None:
         drag, self._drag = self._drag, None
         if drag is None:
             return
         state.tl_drag.set(None)
-        if drag["kind"] == "move" and abs(drag.get("dx", 0.0)) < _CLICK_SLOP_PX:
+        if drag["kind"] in ("move", "audio_move") and abs(drag.get("dx", 0.0)) < _CLICK_SLOP_PX:
             self.store.cancel()  # fue un clic: solo selecciona
         else:
             self.store.commit()
         self._sync_meta()
-        if drag["kind"].startswith("trim"):
+        if drag["kind"].startswith("trim") or drag["kind"].startswith("audio_trim"):
             self.player.seek(state.playhead())
 
     def cancel_drag(self) -> bool:
@@ -1164,6 +1627,9 @@ class EditorController:
             return True
         if e.matches("end"):
             self.go_end()
+            return True
+        if e.matches("shift+s"):
+            self.split_audio_only()
             return True
         if e.matches("s"):
             self.split()

@@ -9,6 +9,8 @@ Un `Clip` lleva como mucho **un** `Effect` de cada tipo. Parámetros y rangos:
 | `volume`   | gain 0…4 (multiplicador)                 | 1                   |
 | `fade_in`  | seconds > 0 (video desde negro + audio)  | sin efecto          |
 | `fade_out` | seconds > 0 (video a negro + audio)      | sin efecto          |
+| `audio_fade_in`  | seconds > 0 (solo audio; ver docs/19) | sin efecto       |
+| `audio_fade_out` | seconds > 0 (solo audio)              | sin efecto       |
 | `zoom`     | factor 1…4, x/y 0…1 (centro del recorte) | 1                   |
 
 `speed` sigue en `EFFECT_KINDS` por compatibilidad con el esquema, pero la velocidad vive en
@@ -78,9 +80,29 @@ def fade_out(clip: Clip) -> float:
     return max(0.0, param(clip, "fade_out", "seconds", 0.0))
 
 
+def audio_fade_in(clip: Clip) -> float:
+    """Fundido de audio propio; si no existe, hereda el `fade_in` histórico (video + audio)."""
+    own = find(clip, "audio_fade_in")
+    return max(0.0, param(clip, "audio_fade_in", "seconds", 0.0)) if own else fade_in(clip)
+
+
+def audio_fade_out(clip: Clip) -> float:
+    own = find(clip, "audio_fade_out")
+    return max(0.0, param(clip, "audio_fade_out", "seconds", 0.0)) if own else fade_out(clip)
+
+
 def fades(clip: Clip, duration: float) -> tuple[float, float]:
     """Fundidos acotados a `duration` (si no caben los dos, se reparten a partes iguales)."""
     fin, fout = fade_in(clip), fade_out(clip)
+    if fin + fout > duration > 0:
+        scale = duration / (fin + fout)
+        fin, fout = fin * scale, fout * scale
+    return fin, fout
+
+
+def audio_fades(clip: Clip, duration: float) -> tuple[float, float]:
+    """Igual que `fades` pero para la cadena de audio (audio_fade_* con fallback histórico)."""
+    fin, fout = audio_fade_in(clip), audio_fade_out(clip)
     if fin + fout > duration > 0:
         scale = duration / (fin + fout)
         fin, fout = fin * scale, fout * scale
@@ -102,7 +124,12 @@ def has_video_effects(clip: Clip) -> bool:
 
 
 def has_effects(clip: Clip) -> bool:
-    return has_video_effects(clip) or abs(gain(clip) - 1.0) > 1e-6
+    return (
+        has_video_effects(clip)
+        or abs(gain(clip) - 1.0) > 1e-6
+        or find(clip, "audio_fade_in") is not None
+        or find(clip, "audio_fade_out") is not None
+    )
 
 
 # -- edición -------------------------------------------------------------------------
@@ -113,7 +140,7 @@ def _is_neutral(kind: str, params: dict[str, float]) -> bool:
         return all(abs(params.get(k, d) - d) < 1e-6 for k, d in EQ_DEFAULTS.items())
     if kind == "volume":
         return abs(params.get("gain", 1.0) - 1.0) < 1e-6
-    if kind in ("fade_in", "fade_out"):
+    if kind in ("fade_in", "fade_out", "audio_fade_in", "audio_fade_out"):
         return params.get("seconds", 0.0) <= 0
     if kind == "zoom":
         return params.get("factor", 1.0) <= 1.0 + 1e-6
@@ -128,7 +155,7 @@ def _clean(kind: str, params: dict[str, float]) -> dict[str, float]:
                 out[key] = max(lo, min(hi, out[key]))
     elif kind == "volume":
         out["gain"] = max(0.0, min(GAIN_MAX, out.get("gain", 1.0)))
-    elif kind in ("fade_in", "fade_out"):
+    elif kind in ("fade_in", "fade_out", "audio_fade_in", "audio_fade_out"):
         out["seconds"] = max(0.0, out.get("seconds", 0.0))
     elif kind == "zoom":
         out["factor"] = max(1.0, min(ZOOM_MAX, out.get("factor", 1.0)))

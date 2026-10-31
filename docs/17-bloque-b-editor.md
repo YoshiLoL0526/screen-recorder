@@ -3,6 +3,10 @@
 > Implementado el **2026-10-28** sobre la v1.0.0 y el bloque A. Cubre B1–B6 de
 > [docs/15](15-post-v1.md#bloque-b--editor-lo-hecho): música con ducking y crossfades, textos,
 > selección múltiple, snap por waveform, proxy de preview y reubicar carpetas.
+>
+> **Actualización (docs/19):** las limitaciones de B1 sobre una sola pista de música y clips sin
+> arrastre/recorte quedaron resueltas por las fases 0 y 1 de audio
+> ([19 — Fase 0 y 1](19-fase-0-1-audio.md)). Esta página se conserva como registro de B1–B6.
 
 ## Resumen
 

@@ -26,7 +26,7 @@ from pathlib import Path
 
 from . import effects as fx
 from .errors import ProjectError
-from .project import Clip, Project, Track
+from .project import Clip, Project, Track, audio_track_audible, video_audio_gain
 
 AUDIO_RATE = 48_000
 _INPUT_SLACK = 0.1  # s de margen al leer cada clip (lo sobrante lo corta `trim`/`atrim`)
@@ -210,7 +210,7 @@ def _audio_steps(clip: Clip, *, skip: float, duration: float, gain: float,
 
 
 def _fade_steps(clip: Clip, duration: float, micro_in: bool, micro_out: bool) -> list[str]:
-    fin, fout = fx.fades(clip, duration)
+    fin, fout = fx.audio_fades(clip, duration)
     if fin <= 0 and micro_in:
         fin = min(fx.MICRO_FADE, duration / 2)
     if fout <= 0 and micro_out:
@@ -236,8 +236,9 @@ def _concat(labels: list[str], out: str, *, video: bool) -> str:
 def video_has_audio(project: Project) -> bool:
     """¿El audio propio del video (voz/sistema) suena? Es el sidechain del ducking (B1)."""
     by_id = {a.id: a for a in project.assets}
-    return not project.video.muted and project.video.gain > 0 and any(
-        by_id[c.asset_id].has_audio for c in project.video.clips if c.asset_id in by_id
+    return video_audio_gain(project) > 0 and any(
+        by_id[c.asset_id].has_audio and c.audio_enabled
+        for c in project.video.clips if c.asset_id in by_id
     )
 
 
@@ -259,6 +260,45 @@ def _join_audio_track(chains: list[str], labels: list[str], transitions, prefix:
     return current
 
 
+def _absolute_track_audio(
+    project: Project, inputs: list[str], chains: list[str], *, track: Track, track_index: int,
+    total: float, next_input: int, by_id: dict,
+) -> tuple[str | None, int]:
+    """Mezcla una pista absoluta: cada clip se retrasa con `adelay` hasta su `start`."""
+    labels: list[str] = []
+    for j, clip in enumerate(track.clips):
+        asset = by_id[clip.asset_id]
+        label = f"m{track_index}_{j}"
+        if not asset.has_audio:
+            chains.append(f"{_silence(clip.duration)}[{label}]")
+        else:
+            inputs += ["-ss", num(clip.in_), "-t", num(clip.source_duration + _INPUT_SLACK),
+                       "-i", asset.path]
+            steps = _audio_steps(
+                clip, skip=0.0, duration=clip.duration, gain=fx.gain(clip) * track.gain,
+                micro_in=False, micro_out=False,
+            )
+            delay = int(round(max(0.0, float(clip.start or 0.0)) * AUDIO_RATE))
+            if delay > 0:
+                steps.append(f"adelay=delays={delay}S:all=1")
+            chains.append(f"[{next_input}:a]{','.join(steps)}[{label}]")
+            next_input += 1
+        labels.append(label)
+    if not labels:
+        return None, next_input
+    if len(labels) == 1:
+        source = labels[0]
+    else:
+        source = f"m{track_index}m"
+        chains.append(
+            f"{''.join(f'[{x}]' for x in labels)}amix=inputs={len(labels)}:normalize=0"
+            f":duration=longest[{source}]"
+        )
+    joined = f"m{track_index}"
+    chains.append(f"[{source}]apad=whole_dur={num(total)},atrim=duration={num(total)}[{joined}]")
+    return joined, next_input
+
+
 def _audio_section(
     project: Project, inputs: list[str], chains: list[str], *, first_extra_input: int,
     total_frames: int, frames: list[int], overlaps: list[int],
@@ -267,18 +307,25 @@ def _audio_section(
 
     `first_extra_input` es el índice de la primera entrada de las pistas de audio; las entradas
     de video ya están en `inputs` (una por clip) y se numeran desde 0.
+
+    Reglas de la fase 1 (docs/19):
+    - `Clip.audio_enabled=False` deja el tramo del video en silencio (el sonido vive en la pista
+      absoluta separada).
+    - Un solo de audio silencia las demás pistas **y** el audio del video.
+    - Las pistas `absolute` se mezclan con `adelay` + `amix`; las `sequence` mantienen el
+      `concat`/`acrossfade` de la música.
     """
     track = project.video
     by_id = {a.id: a for a in project.assets}
     n = len(track.clips)
     labels: list[str] = []
-    track_gain = 0.0 if track.muted else track.gain
+    track_gain = video_audio_gain(project)
     for k, clip in enumerate(track.clips):
         skip = overlaps[k - 1] / project.fps if k > 0 else 0.0
         duration = (frames[k] - (overlaps[k - 1] if k > 0 else 0)) / project.fps
         gain = fx.gain(clip) * track_gain
         label = f"a{k}"
-        if by_id[clip.asset_id].has_audio and gain > 0:
+        if clip.audio_enabled and by_id[clip.asset_id].has_audio and gain > 0:
             steps = _audio_steps(clip, skip=skip, duration=duration, gain=gain,
                                  micro_in=k > 0, micro_out=k < n - 1)
             chains.append(f"[{k}:a]{','.join(steps)}[{label}]")
@@ -294,29 +341,37 @@ def _audio_section(
     total = total_frames / project.fps
     next_input = first_extra_input
     for t_index, extra in enumerate(project.audio):
-        if extra.muted or extra.gain <= 0 or not extra.clips:
+        if not audio_track_audible(project, extra) or not extra.clips:
             continue
-        extra_labels: list[str] = []
-        for j, clip in enumerate(extra.clips):
-            asset = by_id[clip.asset_id]
-            label = f"m{t_index}_{j}"
-            if not asset.has_audio:
-                chains.append(f"{_silence(clip.duration)}[{label}]")
-            else:
-                inputs += ["-ss", num(clip.in_), "-t", num(clip.source_duration + _INPUT_SLACK),
-                           "-i", asset.path]
-                transition_in = j > 0 and extra.transitions[j - 1] is not None
-                transition_out = j < len(extra.clips) - 1 and extra.transitions[j] is not None
-                steps = _audio_steps(clip, skip=0.0, duration=clip.duration,
-                                     gain=fx.gain(clip) * extra.gain,
-                                     micro_in=j > 0 and not transition_in,
-                                     micro_out=j < len(extra.clips) - 1 and not transition_out)
-                chains.append(f"[{next_input}:a]{','.join(steps)}[{label}]")
-                next_input += 1
-            extra_labels.append(label)
-        source = _join_audio_track(chains, extra_labels, extra.transitions, f"m{t_index}c")
-        joined = f"m{t_index}"
-        chains.append(f"[{source}]apad=whole_dur={num(total)},atrim=duration={num(total)}[{joined}]")
+        if extra.mode == "absolute":
+            joined, next_input = _absolute_track_audio(
+                project, inputs, chains, track=extra, track_index=t_index, total=total,
+                next_input=next_input, by_id=by_id,
+            )
+            if joined is None:
+                continue
+        else:
+            extra_labels: list[str] = []
+            for j, clip in enumerate(extra.clips):
+                asset = by_id[clip.asset_id]
+                label = f"m{t_index}_{j}"
+                if not asset.has_audio:
+                    chains.append(f"{_silence(clip.duration)}[{label}]")
+                else:
+                    inputs += ["-ss", num(clip.in_), "-t", num(clip.source_duration + _INPUT_SLACK),
+                               "-i", asset.path]
+                    transition_in = j > 0 and extra.transitions[j - 1] is not None
+                    transition_out = j < len(extra.clips) - 1 and extra.transitions[j] is not None
+                    steps = _audio_steps(clip, skip=0.0, duration=clip.duration,
+                                         gain=fx.gain(clip) * extra.gain,
+                                         micro_in=j > 0 and not transition_in,
+                                         micro_out=j < len(extra.clips) - 1 and not transition_out)
+                    chains.append(f"[{next_input}:a]{','.join(steps)}[{label}]")
+                    next_input += 1
+                extra_labels.append(label)
+            source = _join_audio_track(chains, extra_labels, extra.transitions, f"m{t_index}c")
+            joined = f"m{t_index}"
+            chains.append(f"[{source}]apad=whole_dur={num(total)},atrim=duration={num(total)}[{joined}]")
         if extra.ducking > 0 and video_has_audio(project):
             # El audio del video (voz/sistema) es el sidechain; la música baja cuando suena.
             ratio = 2.0 + 10.0 * extra.ducking
@@ -376,10 +431,11 @@ def text_filters(project: Project, output_height: int) -> list[str]:
 
 def project_has_audio(project: Project) -> bool:
     by_id = {a.id: a for a in project.assets}
-    video_audio = not project.video.muted and project.video.gain > 0 and any(
-        by_id[c.asset_id].has_audio for c in project.video.clips if c.asset_id in by_id
+    video_audio = video_audio_gain(project) > 0 and any(
+        by_id[c.asset_id].has_audio and c.audio_enabled
+        for c in project.video.clips if c.asset_id in by_id
     )
-    extra = any(not t.muted and t.gain > 0 and t.clips for t in project.audio)
+    extra = any(audio_track_audible(project, t) and t.clips for t in project.audio)
     return video_audio or extra
 
 

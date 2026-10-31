@@ -87,7 +87,7 @@ def test_importar_musica_crea_la_pista_y_su_inspector(ui, tmp_path: Path) -> Non
     assert _wait(lambda: state.editor_project().audio), "no se creó la pista de música"
     _settle(pilot)
     clip = state.editor_project().audio[0].clips[0]
-    assert pilot.rect(f"music-{clip.id}") is not None, "no se dibujó la pista M"
+    assert pilot.rect(f"audio-{clip.id}") is not None, "no se dibujó la pista de audio"
     editor.select_music()
     _settle(pilot)
     assert pilot.rect("insp-music-gain") is not None

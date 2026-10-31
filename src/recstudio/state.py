@@ -109,11 +109,12 @@ library_reload = Signal(0)  # contador: cambiarlo fuerza recarga
 class TimelineDrag:
     """Lo que el timeline dibuja durante un drag (el modelo ya va actualizado en el store)."""
 
-    kind: str  # move | trim_l | trim_r
+    kind: str  # move | trim_l | trim_r | audio_move | audio_trim_l | audio_trim_r
     clip_id: str
     ghost: float = 0.0  # move: inicio del fantasma (s)
     shift_index: int = -1  # trim_l: desde este clip se dibuja desplazado `shift` s…
     shift: float = 0.0  # …para que el borde siga al ratón hasta soltar (luego se cierra el hueco)
+    track_index: int = -1  # pista de audio del clip (si el drag es de audio)
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,7 @@ playing = Signal(False)
 preview_frame = Signal(b"")  # JPEG del preview del editor
 preview_note = Signal("")  # aviso discreto bajo el preview («transición aproximada», …)
 preview_audio = Signal(True)  # audio del preview (best-effort)
-selection = Signal(None)  # ("clip", id) | ("transition", índice) | ("music", índice) | ("text", id) | None
+selection = Signal(None)  # ("clip", id) | ("transition", índice) | ("audio", pista, clip) | ("text", id) | None
 multi_selection = Signal(frozenset())  # ids de clips seleccionados con la marquesina (B3)
 marquee_on = Signal(False)  # herramienta de selección activa (B3)
 marquee = Signal(None)  # state.Marquee | None
@@ -184,7 +185,11 @@ insp_track_gain = Signal(1.0)  # volumen del audio original (track de video; 0 =
 insp_music_gain = Signal(1.0)  # pista de música (B1)
 insp_music_duck = Signal(0.0)  # 0…1
 insp_music_cross = Signal(0.0)  # segundos de crossfade entre clips de música
-insp_music_clip_gain = Signal(1.0)  # volumen del clip de música seleccionado
+insp_music_clip_gain = Signal(1.0)  # volumen del clip de audio seleccionado
+insp_audio_fade_in = Signal(0.0)  # fundido de audio independiente del video (docs/19)
+insp_audio_fade_out = Signal(0.0)
+insp_audio_start = Signal("")  # posición del clip de audio en el timeline (texto)
+insp_audio_end = Signal("")
 insp_text = Signal("")  # texto seleccionado (B2)
 insp_text_start = Signal("")
 insp_text_end = Signal("")

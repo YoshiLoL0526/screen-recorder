@@ -33,7 +33,7 @@ import numpy as np
 from ..core import effects as fx
 from ..core import graph as graph_mod
 from ..core import timeline as tl
-from ..core.project import Clip, MediaAsset, Project, to_dict
+from ..core.project import Clip, MediaAsset, Project, to_dict, video_audio_gain
 from ..platform import ffmpeg as ffmpeg_mod
 from ..platform import paths
 from . import media
@@ -638,12 +638,12 @@ class AudioPreview:
 
         clip = segment.clip
         asset = project.asset(clip.asset_id)
-        gain = fx.gain(clip) * (0.0 if project.video.muted else project.video.gain)
+        gain = fx.gain(clip) * (video_audio_gain(project) if clip.audio_enabled else 0.0)
         if not asset.has_audio or gain <= 0:
             return self._silence(seconds, cancel)
         # fundidos sobre el tramo audible del clip (igual que `core.graph`)
         span = clip.duration - segment.local
-        fin, fout = fx.fades(clip, span)
+        fin, fout = fx.audio_fades(clip, span)
         offset = local - segment.local  # posición dentro del tramo al empezar
         try:
             container = av.open(asset.path)

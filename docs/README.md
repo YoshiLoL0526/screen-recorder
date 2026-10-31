@@ -5,9 +5,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 [**aurora-ui**](https://yoshilol0526.github.io/aurora/) (`aurora-ui>=0.9.0,<0.10.0`).
 
 > Estado: **v1.0.0 implementada** (F0–F5), **bloque A de entrega cerrado** (CI, RNF, instalador
-> y bundle ligero) y **bloque B del editor** (música/ducking, textos, selección múltiple, snap por
-> waveform, proxy y reubicar carpetas). Quedan las comprobaciones manuales de A. Los documentos
-> 01–07 son la especificación de diseño; 08–17 recogen lo implementado, con mediciones y bugs.
+> y bundle ligero), **bloque B del editor** (música/ducking, textos, selección múltiple, snap por
+> waveform, proxy y reubicar carpetas) y **fases 0/1 de audio** (modelo v3, audio separable y
+> editable). Quedan las comprobaciones manuales de A y las fases 2+. Los documentos 01–07 son la
+> especificación de diseño; 08–19 recogen lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -30,6 +31,8 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 15 | [Roadmap post-v1](15-post-v1.md) | **Lo que falta por implementar**: entrega (CI, instalador, RNF), editor (música, títulos), captura (webcam), compartir, plataforma y adopciones de Aurora. |
 | 16 | [Bloque A: cierre de la entrega](16-bloque-a-entrega.md) | CI en verde, RNF-06/07 con ventana, instalador Inno Setup, bundle sin OpenCV y las comprobaciones manuales que quedan (máquina limpia, móvil, soak y ratón). |
 | 17 | [Bloque B: editor completo](17-bloque-b-editor.md) | Música con ducking/crossfades, textos en preview/export, selección múltiple, snap por waveform, proxy 540p y reubicar carpetas. |
+| 18 | [Herramientas que faltan en el editor](18-herramientas-editor.md) | Análisis y hoja de ruta post-bloque B: audio libre, lienzo/transformación, flujo, composición y export. |
+| 19 | [Fase 0 y 1: audio editable](19-fase-0-1-audio.md) | Modelo v3, pistas absolutas, separar/adjuntar/dividir/editar audio, pistas múltiples, fundidos, export/preview y límites. |
 
 ## Orden de lectura sugerido
 

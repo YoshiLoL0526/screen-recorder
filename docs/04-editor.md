@@ -14,13 +14,13 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 
 | Área | v1 + bloque B |
 |---|---|
-| Pistas | 1 de video + hasta 2 de audio (clip + música/segunda pista). La música es secuencial y tiene ducking/crossfades. |
-| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio, eq (brillo/contraste/saturación), zoom/escala. |
+| Pistas | 1 de video + hasta 6 de audio. Las pistas pueden ser secuenciales (música) o absolutas (audio separado/voz) y tienen mute, solo, bloqueo y volumen. |
+| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala. |
 | Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
 | Textos | `TextOverlay` con intervalo, posición, tamaño, color y negrita; `drawtext` en export y PIL en preview. |
-| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio), playhead frame-accurate, waveform, filmstrip y marquesina. |
+| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio), playhead frame-accurate, waveform, filmstrip, marquesina y drags de audio. |
 | Preview | Play/pause, scrub, ±1 frame, loop de selección, resolución adaptativa, audio (mezcla completa best-effort) y proxy 540p. |
-| Proyecto | `.rsproj/project.json` versionado (schema 2), autosave, undo/redo por snapshots. |
+| Proyecto | `.rsproj/project.json` versionado (schema 3), autosave, undo/redo por snapshots. |
 | Export | MP4 H.264, presets, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)
@@ -45,9 +45,11 @@ class MediaAsset:
 
 @dataclass(frozen=True)
 class Effect:
-    kind: Literal["eq", "volume", "fade_in", "fade_out", "speed", "zoom"]
+    kind: Literal["eq", "volume", "fade_in", "fade_out",
+                  "audio_fade_in", "audio_fade_out", "speed", "zoom"]
     params: tuple[tuple[str, float], ...] = ()   # tupla → hashable
-    # eq: brightness, contrast, saturation | volume: gain | fade_*: seconds | zoom: factor
+    # eq: brightness, contrast, saturation | volume: gain | fade_*: seconds
+    # audio_fade_*: solo audio (docs/19)
 
 @dataclass(frozen=True)
 class Transition:
@@ -65,6 +67,9 @@ class Clip:
     out_: float
     speed: float = 1.0
     effects: tuple[Effect, ...] = ()
+    start: float | None = None  # solo pistas `absolute` (docs/19)
+    audio_enabled: bool = True  # solo pista de video
+    link_id: str | None = None  # audio separado → clip de video
 
     @property
     def duration(self) -> float:            # duración en el timeline
@@ -78,6 +83,10 @@ class Track:
     muted: bool = False
     gain: float = 1.0
     ducking: float = 0.0                    # 0…1, solo pistas de audio (B1)
+    mode: Literal["sequence", "absolute"] = "sequence"  # docs/19
+    name: str = ""
+    solo: bool = False
+    locked: bool = False
 
 @dataclass(frozen=True)
 class TextOverlay:                          # B2
@@ -93,11 +102,11 @@ class TextOverlay:                          # B2
 
 @dataclass(frozen=True)
 class Project:
-    schema_version: int = 2
+    schema_version: int = 3
     name: str = "Sin título"
     assets: tuple[MediaAsset, ...] = ()
     video: Track = Track("video")
-    audio: tuple[Track, ...] = ()           # pistas de audio (música / segunda voz)
+    audio: tuple[Track, ...] = ()           # pistas de audio (música / audio separado)
     texts: tuple[TextOverlay, ...] = ()     # textos quemados (B2)
     fps: int = 60                           # fps del proyecto (render)
     width: int = 1920
@@ -112,6 +121,9 @@ Invariantes que valida `core/project.py` al construir (y que los tests cubren):
   y `fps=0`.
 - `0 ≤ ducking ≤ 1`; textos con `0 ≤ start < end`, posición 0…1, tamaño 8–200 y color `#RRGGBB`.
 - IDs únicos (assets, clips y textos).
+- `Track.mode="absolute"`: `Clip.start ≥ 0`, sin solapes en la pista, sin transiciones; `link_id`
+  existe y es único (solo audio, apuntando a un clip de video). `audio_enabled` solo se usa en
+  la pista de video. Detalle en [19](19-fase-0-1-audio.md).
 
 ## Matemática del timeline (`core/timeline.py`, puro y testeado)
 
@@ -354,7 +366,7 @@ avisa si movió el corte (típico ≤ 1 s, el precio de cortar sin recodificar).
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 3,
   "name": "Demo del dashboard",
   "fps": 60, "width": 1920, "height": 1080,
   "assets": [

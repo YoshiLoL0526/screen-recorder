@@ -8,8 +8,9 @@ Convenciones:
   timeline es `(out_ - in_) / speed`.
 - `Track.transitions[k]` une el clip `k` con el `k + 1` (transición *saliente* del clip `k`).
 - El track de video es una secuencia sin huecos (timeline magnético): el audio propio de cada
-  clip va enlazado a él. Las pistas de `audio` (música/segunda voz) se modelan y el export las
-  mezcla (`core/graph.py`), pero aún no tienen UI (backlog post-v1).
+  clip va enlazado a él. Las pistas de `audio`, en cambio, pueden ser `sequence` (música, sin
+  huecos y en orden) o `absolute` (audio separado/voz: cada `Clip.start` fija su posición y
+  puede haber huecos). Ver docs/19.
 - Efectos por clip: ver `core/effects.py` (como mucho un `Effect` de cada tipo).
 """
 
@@ -22,14 +23,16 @@ from typing import Any, Literal
 
 from .errors import ProjectError
 
-SCHEMA_VERSION = 2  # v2: textos y ducking de pistas de audio (B1/B2)
+SCHEMA_VERSION = 3  # v3: audio absoluto separable (start/mode/link) — docs/19
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
 TRANSITION_KINDS = (
     "fade", "fadeblack", "fadewhite", "wipeleft", "wiperight", "slideleft", "circleopen", "dissolve",
 )
-EFFECT_KINDS = ("eq", "volume", "fade_in", "fade_out", "speed", "zoom")
+EFFECT_KINDS = ("eq", "volume", "fade_in", "fade_out", "audio_fade_in", "audio_fade_out", "speed", "zoom")
+TRACK_MODES = ("sequence", "absolute")
+AUDIO_VIDEO_TRACK_NAME = "Audio del video"
 TEXT_SIZE_MIN, TEXT_SIZE_MAX = 8, 200
 _TEXT_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # Holgura al comparar con la duración del asset (los probes redondean a µs).
@@ -63,7 +66,9 @@ class MediaAsset:
 
 @dataclass(frozen=True)
 class Effect:
-    kind: Literal["eq", "volume", "fade_in", "fade_out", "speed", "zoom"]
+    kind: Literal[
+        "eq", "volume", "fade_in", "fade_out", "audio_fade_in", "audio_fade_out", "speed", "zoom"
+    ]
     params: tuple[tuple[str, float], ...] = ()
 
     def __post_init__(self) -> None:
@@ -124,6 +129,9 @@ class Clip:
     out_: float
     speed: float = 1.0
     effects: tuple[Effect, ...] = ()
+    start: float | None = None  # solo en pistas `absolute` (s)
+    audio_enabled: bool = True  # solo con sentido en la pista de video
+    link_id: str | None = None  # clip de audio separado → clip de video enlazado
 
     def __post_init__(self) -> None:
         if self.in_ < 0:
@@ -132,6 +140,10 @@ class Clip:
             raise ProjectError(f"clip {self.id}: la salida ({self.out_}) debe ser mayor que la entrada ({self.in_})")
         if not SPEED_MIN - _EPS <= self.speed <= SPEED_MAX + _EPS:
             raise ProjectError(f"clip {self.id}: velocidad fuera de rango ({self.speed})")
+        if self.start is not None and self.start < 0:
+            raise ProjectError(f"clip {self.id}: inicio negativo ({self.start})")
+        if self.start is not None and self.start != self.start:  # NaN
+            raise ProjectError(f"clip {self.id}: inicio inválido ({self.start})")
 
     @property
     def duration(self) -> float:
@@ -151,6 +163,10 @@ class Track:
     muted: bool = False
     gain: float = 1.0
     ducking: float = 0.0  # 0…1: cuánto baja la música cuando hay voz (solo pistas de audio)
+    mode: Literal["sequence", "absolute"] = "sequence"
+    name: str = ""
+    solo: bool = False
+    locked: bool = False
 
     def __post_init__(self) -> None:
         if len(self.transitions) != max(0, len(self.clips) - 1):
@@ -159,6 +175,12 @@ class Track:
             )
         if not 0.0 <= self.ducking <= 1.0:
             raise ProjectError(f"pista {self.kind}: ducking fuera de [0, 1] ({self.ducking})")
+        if self.mode not in TRACK_MODES:
+            raise ProjectError(f"pista {self.kind}: modo desconocido ({self.mode})")
+        if self.mode != "absolute" and any(c.start is not None for c in self.clips):
+            raise ProjectError(f"pista {self.kind}: un clip con `start` exige modo absoluto")
+        if self.mode == "absolute" and any(t is not None for t in self.transitions):
+            raise ProjectError(f"pista {self.kind}: las pistas absolutas no admiten transiciones")
 
     def index_of(self, clip_id: str) -> int:
         for index, clip in enumerate(self.clips):
@@ -214,17 +236,23 @@ class Project:
     # -- validación ------------------------------------------------------------
 
     def validate(self) -> Project:
-        """Comprueba los invariantes de docs/04 y devuelve el propio proyecto (o `ProjectError`)."""
+        """Comprueba los invariantes de docs/04 y docs/19 y devuelve el proyecto (o `ProjectError`)."""
         if self.fps <= 0 or self.width <= 0 or self.height <= 0:
             raise ProjectError("fps y resolución del proyecto deben ser positivos")
         ids = [a.id for a in self.assets]
         if len(set(ids)) != len(ids):
             raise ProjectError("ids de asset duplicados")
         by_id = {a.id: a for a in self.assets}
+        if self.video.mode != "sequence":
+            raise ProjectError("la pista de video debe ser secuencial (modo absoluto es solo para audio)")
         clip_ids: list[str] = []
+        all_clips: list[tuple[Track, Clip]] = []
         for track in (self.video, *self.audio):
+            if track.kind != ("video" if track is self.video else "audio"):
+                raise ProjectError(f"pista con tipo incoherente ({track.kind})")
             for clip in track.clips:
                 clip_ids.append(clip.id)
+                all_clips.append((track, clip))
                 asset = by_id.get(clip.asset_id)
                 if asset is None:
                     raise ProjectError(f"el clip {clip.id} usa un asset inexistente ({clip.asset_id})")
@@ -232,6 +260,8 @@ class Project:
                     raise ProjectError(
                         f"clip {clip.id}: salida {clip.out_:.3f}s más allá del final del asset ({asset.duration:.3f}s)"
                     )
+            if track.mode == "absolute":
+                _validate_absolute_track(track)
             for index, transition in enumerate(track.transitions):
                 if transition is None:
                     continue
@@ -242,6 +272,17 @@ class Project:
                     )
         if len(set(clip_ids)) != len(clip_ids):
             raise ProjectError("ids de clip duplicados")
+        video_clips = {c.id: c for c in self.video.clips}
+        for track, clip in all_clips:
+            if track is self.video:
+                if clip.link_id is not None:
+                    raise ProjectError(f"clip de video {clip.id}: `link_id` solo vale en pistas de audio")
+                continue
+            if not clip.audio_enabled:
+                raise ProjectError(f"clip de audio {clip.id}: `audio_enabled` solo vale en la pista de video")
+            if clip.link_id is not None and clip.link_id not in video_clips:
+                raise ProjectError(f"clip de audio {clip.id}: enlace a un clip inexistente ({clip.link_id})")
+        # Varios segmentos de un audio dividido pueden compartir el mismo `link_id`.
         text_ids = [t.id for t in self.texts]
         if len(set(text_ids)) != len(text_ids):
             raise ProjectError("ids de texto duplicados")
@@ -254,6 +295,35 @@ def transition_limit(track: Track, index: int) -> float:
     return min(TRANSITION_MAX, min(a.duration, b.duration) / 2)
 
 
+def _validate_absolute_track(track: Track) -> None:
+    """Sin solapes dentro de una pista absoluta (los huecos sí valen)."""
+    ranges = sorted(
+        (clip.start or 0.0, (clip.start or 0.0) + clip.duration, clip.id) for clip in track.clips
+    )
+    for (start_a, end_a, id_a), (start_b, _end_b, id_b) in zip(ranges, ranges[1:]):
+        if start_b < end_a - _EPS:
+            raise ProjectError(f"clips solapados en la pista absoluta: {id_a} y {id_b}")
+
+
+def audio_solo_active(project: Project) -> bool:
+    """¿Hay alguna pista de audio en solo? Entonces aísla: lo demás (incluido el video) se silencia."""
+    return any(track.solo for track in project.audio)
+
+
+def video_audio_gain(project: Project) -> float:
+    """Ganancia efectiva del audio del video (mute/solo incluidos; ver docs/19)."""
+    if project.video.muted or project.video.gain <= 0 or audio_solo_active(project):
+        return 0.0
+    return project.video.gain
+
+
+def audio_track_audible(project: Project, track: Track) -> bool:
+    """Pista de audio audible: ni mute/ganancia cero ni silenciada por un solo de otra pista."""
+    if track.muted or track.gain <= 0:
+        return False
+    return track.solo or not audio_solo_active(project)
+
+
 # -- serialización (JSON del .rsproj) ------------------------------------------
 
 
@@ -262,6 +332,7 @@ def to_dict(project: Project) -> dict[str, Any]:
         return {
             "id": c.id, "asset_id": c.asset_id, "in_": c.in_, "out_": c.out_, "speed": c.speed,
             "effects": [{"kind": e.kind, "params": [list(p) for p in e.params]} for e in c.effects],
+            "start": c.start, "audio_enabled": c.audio_enabled, "link_id": c.link_id,
         }
 
     def track_dict(t: Track) -> dict[str, Any]:
@@ -272,6 +343,10 @@ def to_dict(project: Project) -> dict[str, Any]:
             "muted": t.muted,
             "gain": t.gain,
             "ducking": t.ducking,
+            "mode": t.mode,
+            "name": t.name,
+            "solo": t.solo,
+            "locked": t.locked,
         }
 
     return {
@@ -304,6 +379,7 @@ def from_dict(data: dict[str, Any]) -> Project:
     """Inverso de `to_dict`; `ProjectError` si falta algo o los tipos no cuadran."""
     try:
         def clip_of(d: dict[str, Any]) -> Clip:
+            start = d.get("start")
             return Clip(
                 id=str(d["id"]),
                 asset_id=str(d["asset_id"]),
@@ -314,6 +390,9 @@ def from_dict(data: dict[str, Any]) -> Project:
                     Effect(kind=e["kind"], params=tuple((str(k), float(v)) for k, v in e.get("params", ())))
                     for e in d.get("effects", ())
                 ),
+                start=None if start is None else float(start),
+                audio_enabled=bool(d.get("audio_enabled", True)),
+                link_id=None if d.get("link_id") is None else str(d["link_id"]),
             )
 
         def track_of(d: dict[str, Any], kind: str) -> Track:
@@ -327,6 +406,10 @@ def from_dict(data: dict[str, Any]) -> Project:
                 muted=bool(d.get("muted", False)),
                 gain=float(d.get("gain", 1.0)),
                 ducking=float(d.get("ducking", 0.0)),
+                mode=d.get("mode", "sequence"),
+                name=str(d.get("name", "")),
+                solo=bool(d.get("solo", False)),
+                locked=bool(d.get("locked", False)),
             )
 
         assets = tuple(

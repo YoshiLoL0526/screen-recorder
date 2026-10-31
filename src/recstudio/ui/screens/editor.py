@@ -197,6 +197,31 @@ def _effects_controls(clip):
     )
 
 
+def _audio_fade_rows(prefix: str = "insp-audio"):
+    return (
+        _row("Fundido audio ↗", select(
+            state.insp_audio_fade_in, _options(_FADES, state.insp_audio_fade_in()),
+            key=f"{prefix}-fade-in")),
+        _row("Fundido audio ↘", select(
+            state.insp_audio_fade_out, _options(_FADES, state.insp_audio_fade_out()),
+            key=f"{prefix}-fade-out")),
+    )
+
+
+def _video_audio_controls(project, clip):
+    note = (
+        "El audio del clip se separó a una pista absoluta."
+        if not clip.audio_enabled
+        else "El audio propio del video se puede separar; si no ajustas estos fundidos, hereda los del video."
+    )
+    return section(
+        "Audio del clip",
+        *(_audio_fade_rows("insp-audio")),
+        text(note, size=11, color="$muted", line_height=1.35),
+        gap=8,
+    )
+
+
 def _transition_controls(index: int | None):
     if index is None:
         return None
@@ -231,8 +256,20 @@ def inspector():
         try:
             asset = project.asset(clip.asset_id)
             name, offline = asset.name, asset.id in state.offline_assets()
+            has_audio = asset.has_audio
         except Exception:
-            name, offline = "?", True
+            name, offline, has_audio = "?", True, False
+        linked = any(c.link_id == clip.id for track in project.audio for c in track.clips)
+        audio_action = None
+        if clip.audio_enabled and has_audio:
+            audio_action = button("Separar audio", _call("detach_audio"), variant="soft",
+                                  padding=(4, 10), font_size=11.5, key="insp-detach")
+        elif not clip.audio_enabled:
+            audio_action = button(
+                "Vincular audio" if linked else "Activar audio", _call("attach_audio"), variant="soft",
+                padding=(4, 10), font_size=11.5,
+                key="insp-attach" if linked else "insp-enable-audio",
+            )
         children.append(section(
             f"Clip {index + 1} de {len(project.video.clips)}",
             text(name, size=13.5, weight=600, max_lines=2),
@@ -249,9 +286,11 @@ def inspector():
                                        "Salida = playhead", icons.STEP_FWD)),
             _row("Duración", tl.format_time(clip.duration)),
             _row("Velocidad", select(state.insp_speed, [(s, f"{s:g}×") for s in SPEED_CHOICES], key="insp-speed")),
+            audio_action and row(gap=8)[audio_action],
             gap=10,
         ))
         children.append(_effects_controls(clip))
+        children.append(_video_audio_controls(project, clip))
         if index < len(project.video.transitions):
             children.append(_transition_controls(index))
         children.append(row(gap=8)[
@@ -259,35 +298,70 @@ def inspector():
             button("Eliminar", _call("delete_selected"), variant="soft", padding=(6, 12), font_size=12.5,
                    key="insp-delete"),
         ])
-    elif selection and selection[0] == "music" and int(selection[1]) < len(project.audio):
-        track = project.audio[int(selection[1])]
+    elif (
+        selection and selection[0] == "audio" and len(selection) > 2
+        and 0 <= int(selection[1]) < len(project.audio)
+        and 0 <= int(selection[2]) < len(project.audio[int(selection[1])].clips)
+    ):
+        track_index, clip_index = int(selection[1]), int(selection[2])
+        track = project.audio[track_index]
+        clip = track.clips[clip_index]
+        start = tl.clip_starts(track)[clip_index]
+        try:
+            asset = project.asset(clip.asset_id)
+            asset_name, offline = asset.name, asset.id in state.offline_assets()
+        except Exception:
+            asset_name, offline = "?", True
         children.append(section(
-            "Música",
-            text(f"{len(track.clips)} clip(s) · {tl.format_time(tl.track_duration(track))}", size=12.5,
-                 color="$muted"),
+            f"Audio · {track.name or f'Pista {track_index + 1}'}",
+            text(asset_name, size=13.5, weight=600, max_lines=2),
+            clip.link_id and chip("enlazado al video", tone="accent"),
+            offline and button("Reubicar…", _call("relocate_asset", clip.asset_id), variant="soft",
+                               padding=(4, 10), font_size=11.5, key="insp-audio-relocate"),
+            _row("Inicio", text_input(state.insp_audio_start, key="insp-audio-start",
+                                      on_submit=_submit("submit_audio_start"), on_key=mark_input_key,
+                                      font_family="Consolas", padding=(7, 10))
+                 if track.mode == "absolute" else text(
+                     f"{tl.format_time(start)} (secuencial)", size=12, family="Consolas")),
+            _row("Fin", text_input(state.insp_audio_end, key="insp-audio-end",
+                                   on_submit=_submit("submit_audio_end"), on_key=mark_input_key,
+                                   font_family="Consolas", padding=(7, 10))),
+            _row("Duración", tl.format_time(clip.duration)),
+            _row("Pista", f"{track.name or f'Pista {track_index + 1}'} · "
+                          f"{'absoluta' if track.mode == 'absolute' else 'secuencial'}"),
+            gap=10,
+        ))
+        children.append(section(
+            "Audio",
+            _row("Volumen", select(state.insp_music_clip_gain, _options(_VOLUMES, state.insp_music_clip_gain()),
+                                   key="insp-audio-clip-gain")),
+            *_audio_fade_rows("insp-audio-clip"),
+            gap=8,
+        ))
+        children.append(section(
+            "Pista",
             _row("Volumen", select(state.insp_music_gain,
                                    _options([(0.0, "Silenciada"), *_VOLUMES[1:]],
-                                           0.0 if track.muted else track.gain),
+                                            0.0 if track.muted else track.gain),
                                    key="insp-music-gain")),
-            _row("Vol. clip", select(state.insp_music_clip_gain,
-                                     _options(_VOLUMES, state.insp_music_clip_gain()),
-                                     key="insp-music-clip-gain")),
             _row("Ducking", select(state.insp_music_duck,
                                    [(0.0, "Sin ducking"), (0.25, "Suave"), (0.5, "Medio"),
                                     (0.75, "Fuerte"), (1.0, "Máximo")], key="insp-music-duck")),
-            len(track.clips) > 1 and _row("Crossfade", select(
+            track.mode == "sequence" and len(track.clips) > 1 and _row("Crossfade", select(
                 state.insp_music_cross,
                 _options([(v, "Sin crossfade" if v == 0 else f"{v:g} s")
                           for v in (0.0, 0.25, 0.5, 1.0, 2.0)], state.insp_music_cross()),
                 key="insp-music-cross")),
-            text("Ducking baja la música cuando suena la voz o el audio del sistema.",
+            text("Ducking baja esta pista cuando suena la voz o el audio del sistema.",
                  size=11, color="$muted", line_height=1.35),
-            row(gap=8)[
-                button("Quitar música", _call("remove_music"), variant="ghost", padding=(4, 10),
-                       font_size=11.5, key="insp-music-remove"),
-            ],
-            gap=10,
+            gap=8,
         ))
+        children.append(row(gap=8)[
+            clip.link_id and button("Vincular audio", _call("attach_audio"), variant="soft",
+                                    padding=(6, 12), font_size=12.5, key="insp-audio-attach"),
+            button("Eliminar", _call("delete_selected"), variant="soft", padding=(6, 12),
+                   font_size=12.5, key="insp-audio-delete"),
+        ])
     elif selection and selection[0] == "text" and project.has_text(selection[1]):
         overlay = project.text(selection[1])
         children.append(section(
@@ -357,9 +431,37 @@ def inspector():
                 gap=6,
             ))
         children.append(section(
+            "Pistas de audio",
+            column(gap=4)[[
+                row(key=f"atrack-{i}", gap=8, align="center", padding=(5, 7), radius="$md",
+                    bg="$surface_hover")[
+                    text(track.name or f"Audio {i + 1}", size=12, grow=1, max_lines=1),
+                    text("absoluta" if track.mode == "absolute" else "secuencial", size=10.5,
+                         color="$muted"),
+                    text(f"{track.gain * 100:.0f}%", size=10.5, color="$muted", family="Consolas"),
+                    button("M", _call("toggle_audio_mute", i), variant="ghost", padding=(2, 6),
+                           font_size=10, key=f"atrack-mute-{i}",
+                           bg="$primary" if track.muted else "$surface_hover"),
+                    button("S", _call("toggle_audio_solo", i), variant="ghost", padding=(2, 6),
+                           font_size=10, key=f"atrack-solo-{i}",
+                           bg="$primary" if track.solo else "$surface_hover"),
+                    button("L", _call("toggle_audio_lock", i), variant="ghost", padding=(2, 6),
+                           font_size=10, key=f"atrack-lock-{i}",
+                           bg="$primary" if track.locked else "$surface_hover"),
+                    button("Quitar", _call("remove_audio_track", i), variant="ghost", padding=(2, 8),
+                           font_size=10.5, key=f"atrack-remove-{i}"),
+                ]
+                for i, track in enumerate(project.audio)
+            ]],
+            button("Añadir pista de audio", _call("add_audio_track"), variant="soft",
+                   padding=(5, 10), font_size=11.5, key="insp-audio-add"),
+            gap=6,
+        ))
+        children.append(section(
             "Atajos",
-            text("Espacio reproducir · ←/→ fotograma · Mayús+←/→ 1 s · S dividir · Supr eliminar · "
-                 "Ctrl+Z/Y deshacer/rehacer · +/− zoom · 0 ajustar · I inspector · Ctrl+E exportar · Esc cancelar",
+            text("Espacio reproducir · ←/→ fotograma · Mayús+←/→ 1 s · S dividir todo · "
+                 "Mayús+S dividir solo audio · Supr eliminar · Ctrl+Z/Y deshacer/rehacer · "
+                 "+/− zoom · 0 ajustar · I inspector · Ctrl+E exportar · Esc cancelar",
                  size=11.5, color="$muted", line_height=1.5),
         ))
     return column(key="ed-inspector", width=state.inspector_w(), grow=0, shrink=0, bg="$surface", radius="$lg",
@@ -398,11 +500,17 @@ def timeline_toolbar():
                     size=30, key="tl-marquee",
                     bg="$primary" if state.marquee_on() else "$surface_hover"),
         box(width=6),
-        icon_button(icons.CUT, _call("split"), tooltip="Dividir en el playhead (S)", size=30, key="tl-split"),
+        icon_button(icons.CUT, _call("split"), tooltip="Dividir todo en el playhead (S)", size=30, key="tl-split"),
+        icon_button(icons.SPLIT_AUDIO, _call("split_audio_only"),
+                    tooltip="Dividir solo audio en el playhead (Mayús+S)", size=30, key="tl-split-audio"),
+        icon_button(icons.TRACK_ADD, _call("add_audio_track"), tooltip="Añadir pista de audio",
+                    size=30, key="tl-track-add"),
+        icon_button(icons.TRACK_REMOVE, _call("remove_selected_audio_track"),
+                    tooltip="Quitar la pista del clip de audio seleccionado", size=30, key="tl-track-remove"),
         icon_button(icons.TRASH, _call("delete_selected"), tooltip="Eliminar selección (Supr)", size=30,
                     key="tl-delete", opacity=1.0 if has_selection else 0.45),
         spacer(),
-        text("Arrastra los clips para reordenar · sus bordes para recortar · la regla para moverte",
+        text("Arrastra clips y asas para mover/recortar · M/S/L en las cabeceras · la regla para moverte",
              size=11, color="$muted", max_lines=1),
     ]
 

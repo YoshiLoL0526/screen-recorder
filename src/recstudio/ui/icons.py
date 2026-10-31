@@ -60,3 +60,13 @@ PANEL = _svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.
 TEXT = _svg('<path d="M5 6.5V5h14v1.5M12 5v14M8.5 19h7"/>')
 MUSIC = _svg('<path d="M9 18V6l9-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>')
 SELECT = _svg('<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/>')
+
+# -- audio editable (fase 1, docs/19) ---------------------------------------------
+LOCK = _svg('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>')
+SOLO = _svg('<path d="M4 16v-5a8 8 0 0 1 16 0v5"/><rect x="3" y="14" width="4" height="6" rx="1.5"/>'
+            '<rect x="17" y="14" width="4" height="6" rx="1.5"/>')
+SPLIT_AUDIO = _svg('<path d="M3 12h5l2-5 3 10 2-5h6"/><path d="M17 4l3 3-3 3M20 7h-4"/>')
+TRACK_ADD = _svg('<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M12 9v6M9 12h6"/>')
+TRACK_REMOVE = _svg('<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M9 12h6"/>')
+LINK = _svg('<path d="M10 14a3.5 3.5 0 0 1 0-5l2-2a3.5 3.5 0 0 1 5 5l-1 1"/>'
+            '<path d="M14 10a3.5 3.5 0 0 1 0 5l-2 2a3.5 3.5 0 0 1-5-5l1-1"/>')

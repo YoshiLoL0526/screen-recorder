@@ -68,8 +68,14 @@ def blockers(project: Project) -> list[str]:
         reasons.append("hay clips con efectos")
     if track.muted or abs(track.gain - 1.0) > 1e-6:
         reasons.append("el volumen del audio original no es el 100 %")
+    if any(t.solo for t in project.audio):
+        reasons.append("hay un solo de audio activo")
     if any(t.clips and not t.muted for t in project.audio):
         reasons.append("tiene pistas de audio adicionales")
+    if any(not c.audio_enabled for c in track.clips):
+        reasons.append("tiene audio separado del video")
+    if any(t.mode == "absolute" and t.clips for t in project.audio):
+        reasons.append("tiene pistas de audio en posición absoluta")
     if project.texts:
         reasons.append("tiene textos sobre el video")
     by_id = {a.id: a for a in project.assets}
