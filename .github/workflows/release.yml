@@ -1,0 +1,73 @@
+# Release de Rec Studio: al subir un tag `vX.Y.Z` repite lo que valida el CI (tests, build ligero
+# con smoke e instalador con instalación silenciosa y smoke) y publica un GitHub Release con el
+# instalador, un zip portable y las notas de la sección [X.Y.Z] de CHANGELOG.md.
+#
+#   git tag v1.1.0 && git push origin v1.1.0
+#
+# `tools/release_notes.py` falla si el tag no coincide con la versión del código, así que no se
+# publica nada con un número equivocado. El instalador no va firmado (SmartScreen avisará).
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write  # crear el release y subir los archivos
+
+env:
+  PYTHONUTF8: "1"  # los scripts imprimen ✓/✗ y la consola del runner es cp1252
+
+jobs:
+  release:
+    name: build + publicar
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Entorno
+        run: uv sync --locked
+
+      - name: Versión y notas (el tag debe coincidir con el código)
+        run: uv run python tools/release_notes.py ${{ github.ref_name }} --out release-notes.md
+
+      - name: Tests
+        run: uv run pytest -q
+
+      - name: Build + smoke
+        run: uv run python tools/check_build.py
+
+      - name: Inno Setup (si el runner no lo trae)
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc) -and -not (Get-Command iscc -ErrorAction SilentlyContinue)) {
+            choco install innosetup --no-progress -y
+          }
+
+      - name: Instalador (compilar, instalar en limpio y smoke)
+        run: uv run python tools/check_installer.py
+
+      - name: Zip portable
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          Compress-Archive -Path "dist/Rec Studio" -DestinationPath "dist/RecStudio-$version-portable.zip"
+
+      - name: Publicar el release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          gh release create "${{ github.ref_name }}" `
+            "dist/installer/RecStudio-$version-setup.exe" `
+            "dist/RecStudio-$version-portable.zip" `
+            --title "Rec Studio $version" `
+            --notes-file release-notes.md `
+            --verify-tag

@@ -265,7 +265,7 @@ def test_ajustes_hacen_scroll_y_se_restablecen(ui) -> None:
 def test_cabecera_muestra_la_version(ui) -> None:
     _, _, pilot = ui
     _settle(pilot)
-    assert __version__ == "1.0.0"
+    assert __version__ == "1.1.0"
 
 
 # -- smoke test (el mismo que corre el exe empaquetado) -------------------------------------

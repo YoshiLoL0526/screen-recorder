@@ -1,6 +1,6 @@
 ; Instalador de Rec Studio (A4) sobre el bundle onedir de `aurora build`.
 ;
-; Compilar:  ISCC.exe /DMyAppVersion=1.0.0 /DMyAppVersion4=1.0.0.0 installer\rec-studio.iss
+; Compilar:  ISCC.exe /DMyAppVersion=1.1.0 /DMyAppVersion4=1.1.0.0 installer\rec-studio.iss
 ; o, mejor, `uv run python tools/check_installer.py` (lee la versión del paquete y prueba la
 ; instalación silenciosa con el smoke del exe).
 ;
@@ -8,10 +8,10 @@
 ; `{autopf}` resuelve a %LOCALAPPDATA%\Programs cuando el modo no es admin.
 
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.1.0"
 #endif
 #ifndef MyAppVersion4
-  #define MyAppVersion4 "1.0.0.0"
+  #define MyAppVersion4 "1.1.0.0"
 #endif
 
 #define MyAppName "Rec Studio"

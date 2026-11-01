@@ -6,6 +6,11 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 
 ## Sin publicar
 
+## [1.1.0] — 2026-11-01
+
+Bandeja y atajos globales, filmstrip, bloques A y B y las fases 0–3 del editor sobre la 1.0.0.
+Es el primer release publicado en GitHub (instalador y zip portable).
+
 ### Documentación
 - **[docs/21 — Fase 3: flujo de edición](docs/21-fase-3-flujo.md)**: modelo v5, reglas del pegado y
   del bloque, loop/J/K/L, export de rango, decisiones de teclas y límites (A17 por Aurora 0.9).
@@ -20,6 +25,9 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   selección múltiple, snap por waveform, proxy y reubicar carpetas, con archivos, tests y límites.
 
 ### Añadido
+- **Releases en GitHub**: `.github/workflows/release.yml` se lanza con un tag `vX.Y.Z`, repite
+  tests, build con smoke e instalador, y publica el instalador, un zip portable y estas notas
+  (`tools/release_notes.py`, que falla si el tag no coincide con la versión del código).
 - **Fase 3 del editor: flujo de edición** (docs/18 → [docs/21](docs/21-fase-3-flujo.md)):
   - **Modelo v5**: marcadores e In/Out del timeline en `project.json`, con migración v4 → v5 (los
     proyectos v1–v4 se abren idénticos).

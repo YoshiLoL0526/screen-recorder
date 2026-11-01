@@ -1,6 +1,6 @@
 [project]
 name = "screen-recorder"
-version = "1.0.0"
+version = "1.1.0"
 description = "Rec Studio: grabador de pantalla y editor de video con interfaz aurora-ui"
 readme = "README.md"
 requires-python = ">=3.12"

@@ -1,6 +1,6 @@
 # Rec Studio — grabación de pantalla + editor de video
 
-> **Estado: v1.0.0** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
+> **Estado: v1.1.0** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
 > velocidad, transiciones, undo/redo, autoguardado, preview a 30 fps), **export** (F4: MP4 con
 > FFmpeg, presets GPU/calidad/720p/sin recodificar, progreso y ETA, efectos) y **pulido** (F5:
 > layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test). El
@@ -90,6 +90,17 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 │  └─ spikes/         # scripts de F0 (mediciones originales)
 └─ tests/             # pytest: config, FFmpeg, mux real, settings, biblioteca, UI y editor
 ```
+
+## Descargar
+
+En [Releases](https://github.com/YoshiLoL0526/screen-recorder/releases/latest) están el
+instalador (`RecStudio-X.Y.Z-setup.exe`, por usuario, sin permisos de administrador) y un zip
+portable. Solo Windows 10/11 de 64 bits. El instalador no está firmado: si SmartScreen avisa,
+«Más información» → «Ejecutar de todas formas».
+
+Para publicar una versión: subir `version` en `pyproject.toml` y `src/recstudio/__init__.py`
+(más `uv lock`), pasar «Sin publicar» del CHANGELOG a `## [X.Y.Z] — fecha` y empujar el tag
+`vX.Y.Z`; `.github/workflows/release.yml` hace el resto.
 
 ## Puesta en marcha
 
