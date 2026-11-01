@@ -110,16 +110,35 @@ def snap_start(t: float, end: float, keyframes: Sequence[float]) -> float:
     return min(candidates, key=lambda k: (abs(k - t), k))
 
 
-def plan(project: Project, keyframes: Mapping[str, Sequence[float]]) -> FastCutPlan:
-    """Segmentos del corte rápido; `keyframes` va por `asset_id` (tiempos ordenados, s)."""
+def plan(
+    project: Project, keyframes: Mapping[str, Sequence[float]], span: tuple[float, float] | None = None,
+) -> FastCutPlan:
+    """Segmentos del corte rápido; `keyframes` va por `asset_id` (tiempos ordenados, s).
+
+    Con `span=(inicio, final)` (rango In/Out, fase 3) solo se copia ese tramo del timeline: cada
+    clip se recorta al rango y su inicio se imanta a un keyframe como siempre, así que el
+    principio del rango puede moverse (se avisa con `max_shift`). Sin transiciones ni velocidad
+    (lo garantizan los `blockers`), el tiempo del timeline es directamente el de la fuente.
+    """
     reasons = blockers(project)
     if reasons:
         raise ProjectError("no se puede exportar sin recodificar: " + "; ".join(reasons))
     segments = []
+    cursor = 0.0
     for clip in project.video.clips:
         asset = project.asset(clip.asset_id)
-        start = snap_start(clip.in_, clip.out_, keyframes.get(asset.id, ()))
-        segments.append(CutSegment(clip.id, asset.path, start, clip.out_, clip.in_))
+        clip_in, clip_out = clip.in_, clip.out_
+        if span is not None:
+            begin, end = max(span[0], cursor), min(span[1], cursor + clip.duration)
+            cursor += clip.duration
+            if end - begin <= 1e-6:
+                continue
+            clip_in = clip.in_ + (begin - (cursor - clip.duration))
+            clip_out = clip.in_ + (end - (cursor - clip.duration))
+        start = snap_start(clip_in, clip_out, keyframes.get(asset.id, ()))
+        segments.append(CutSegment(clip.id, asset.path, start, clip_out, clip_in))
+    if not segments:
+        raise ProjectError("el rango In/Out está vacío")
     return FastCutPlan(tuple(segments))
 
 

@@ -35,6 +35,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 18 | [Herramientas que faltan en el editor](18-herramientas-editor.md) | Análisis y hoja de ruta post-bloque B: audio libre, lienzo/transformación, flujo, composición y export. |
 | 19 | [Fase 0 y 1: audio editable](19-fase-0-1-audio.md) | Modelo v3, pistas absolutas, separar/adjuntar/dividir/editar audio, pistas múltiples, fundidos, export/preview y límites. |
 | 20 | [Fase 2: lienzo y frame](20-fase-2-frame.md) | Modelo v4, presets de lienzo, fit/fill/stretch, transformación por clip, auto-rotación, paridad preview/export, UI, tests y límites. |
+| 21 | [Fase 3: flujo de edición](21-fase-3-flujo.md) | Modelo v5 (marcadores e In/Out), portapapeles, marquesina que mueve, razor, loop, J/K/L, Q/W, export de rango, miniaturas rotadas, tests y límites. |
 
 ## Orden de lectura sugerido
 

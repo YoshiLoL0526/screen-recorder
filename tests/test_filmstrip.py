@@ -134,7 +134,7 @@ def test_una_cache_a_medias_no_se_usa_y_se_regenera(
     """El CI destapó un JPEG de 0 bytes cacheado mientras el hilo escribía (A1)."""
     monkeypatch.setattr(paths, "cache_dir", lambda: tmp_path / "cache")
     media._thumbstrips.clear()
-    folder = media._cache_dir("thumbs") / media._cache_key(video)
+    folder = media._cache_dir(media.THUMBS_DIR) / media._cache_key(video)
     folder.mkdir(parents=True)
     for index in range(media.THUMB_COUNT):
         (folder / f"{index:02d}.jpg").write_bytes(b"" if index == 7 else b"\xff\xd8\xff\xd9")

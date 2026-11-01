@@ -126,6 +126,7 @@ class EditorController:
         self._proxy_lock = threading.Lock()
         self._proxy_pending: set[str] = set()
         self._marquee_start: float | None = None
+        self._clipboard: tl.Clipboard | None = None  # portapapeles del editor (fase 3)
         self.exporter = export_mod.Exporter(self._on_export)
 
     # -- ciclo de vida ---------------------------------------------------------
@@ -215,12 +216,15 @@ class EditorController:
                 state.selection.set(None)
         elif selection and selection[0] == "text" and not project.has_text(selection[1]):
             state.selection.set(None)
-        clip_ids = {c.id for c in project.video.clips}
+        elif selection and selection[0] == "marker" and not project.has_marker(selection[1]):
+            state.selection.set(None)
+        clip_ids = {c.id for track in (project.video, *project.audio) for c in track.clips}
         if not state.multi_selection() <= clip_ids:
             state.multi_selection.set(frozenset(state.multi_selection() & clip_ids))
         total = tl.total_duration(project)
         if state.playhead() > total:
             self.seek(total)
+        self._sync_loop()
         self._sync_inspector()
 
     def _sync_meta(self) -> None:
@@ -285,6 +289,9 @@ class EditorController:
             state.insp_text_x.set(overlay.x)
             state.insp_text_y.set(overlay.y)
             state.insp_text_bold.set(overlay.bold)
+        marker = self.selected_marker()
+        if marker is not None:
+            state.insp_marker_name.set(marker.name)
 
     def _canvas_key(self, width: int, height: int) -> str:
         for key, (w, h) in CANVAS_SIZES.items():
@@ -433,6 +440,8 @@ class EditorController:
 
     def _on_player_state(self, playing: bool) -> None:
         state.playing.set(playing)
+        if not playing:
+            state.play_rate.set(1.0)
 
     # -- consultas ---------------------------------------------------------------
 
@@ -473,6 +482,12 @@ class EditorController:
         if not selection or selection[0] != "text":
             return None
         return self.project.text(selection[1]) if self.project.has_text(selection[1]) else None
+
+    def selected_marker(self):  # noqa: ANN201
+        selection = state.selection()
+        if not selection or selection[0] != "marker":
+            return None
+        return self.project.marker(selection[1]) if self.project.has_marker(selection[1]) else None
 
     def _guard_editable(self) -> bool:
         if not state.project_open():
@@ -606,12 +621,12 @@ class EditorController:
             return
         multi = state.multi_selection()
         if multi:
-            count = len(multi & {c.id for c in self.project.video.clips})
+            count = len(multi & {c.id for t in (self.project.video, *self.project.audio) for c in t.clips})
             if count == 0:
                 state.multi_selection.set(frozenset())
             else:
                 try:
-                    project = tl.ripple_delete_many(self.project, multi)
+                    project = tl.remove_items(self.project, multi)
                 except ProjectError as exc:
                     state.toast("warning", exc.message)
                     return
@@ -641,6 +656,8 @@ class EditorController:
             self.set_transition(None)
         elif selection[0] == "text":
             self.delete_text()
+        elif selection[0] == "marker":
+            self.delete_marker()
         elif selection[0] == "audio":
             audio = self.selected_audio()
             if audio is None:
@@ -709,8 +726,23 @@ class EditorController:
 
     def toggle_marquee(self) -> None:
         state.marquee_on.set(not state.marquee_on())
-        if not state.marquee_on():
+        if state.marquee_on():
+            state.razor_on.set(False)  # las herramientas son excluyentes
+        else:
             state.marquee.set(None)
+
+    def toggle_razor(self) -> None:
+        """Herramienta razor (C): un clic en un clip lo corta ahí; en la regla, todas las pistas."""
+        state.razor_on.set(not state.razor_on())
+        if state.razor_on():
+            state.marquee_on.set(False)
+            state.marquee.set(None)
+
+    def select_tool(self) -> None:
+        """V: vuelve a la herramienta normal (ni marquesina ni razor)."""
+        state.razor_on.set(False)
+        state.marquee_on.set(False)
+        state.marquee.set(None)
 
     def set_speed(self, speed: float) -> None:
         clip = self.selected_clip()
@@ -1169,23 +1201,23 @@ class EditorController:
         x0, x1 = sorted((start, current))
         t0 = tl.time_at_x(x0, state.tl_zoom())
         t1 = tl.time_at_x(x1, state.tl_zoom())
-        starts = tl.clip_starts(self.project.video)
-        chosen = {
-            clip.id for clip, start_t in zip(self.project.video.clips, starts)
-            if start_t < t1 and start_t + clip.duration > t0
-        }
+        # Por rango de tiempo y en todas las pistas: el video y el audio en posición absoluta de
+        # las pistas desbloqueadas (la música secuencial se selecciona con clic).
+        project = self.project
+        chosen: set[str] = set()
+        for track in (project.video, *project.audio):
+            if track is not project.video and (track.mode != "absolute" or track.locked):
+                continue
+            for clip, start_t in zip(track.clips, tl.clip_starts(track)):
+                if start_t < t1 and start_t + clip.duration > t0:
+                    chosen.add(clip.id)
         state.multi_selection.set(frozenset(chosen))
         state.marquee.set(state.Marquee(x0, 0.0, x1, 0.0))
 
     def end_marquee(self) -> None:
         self._marquee_start = None
         state.marquee.set(None)
-        chosen = state.multi_selection()
-        if chosen:
-            first = next((c.id for c in self.project.video.clips if c.id in chosen), None)
-            state.selection.set(("clip", first) if first else None)
-        else:
-            state.selection.set(None)
+        self._select_primary(self.project, state.multi_selection())
 
     # -- reubicar carpeta (B6) ------------------------------------------------------
 
@@ -1381,7 +1413,8 @@ class EditorController:
             self.player.pause()
             self.seek(self.player.time)
         else:
-            self.player.play(state.playhead())
+            self.player.play(state.playhead(), rate=1.0)
+        state.play_rate.set(1.0)
 
     def toggle_preview_audio(self) -> None:
         self.set_preview_audio(not state.preview_audio())
@@ -1397,6 +1430,285 @@ class EditorController:
                 audio.start(self.project, self.player.time)
         if notify:
             state.toast("info", "Audio del preview activado" if enabled else "Preview en silencio")
+
+    # -- J/K/L, loop e In/Out del timeline (fase 3) ---------------------------------------
+
+    SHUTTLE_MAX = 8.0
+
+    def shuttle(self, direction: int) -> None:
+        """L (adelante) / J (atrás): 1× y, si ya va en ese sentido, el doble (hasta 8×).
+
+        Hacia atrás no hay audio y cada frame es un seek de PyAV: el preview va a menos fps,
+        pero el reloj es exacto (ver docs/21).
+        """
+        if not self.project.video.clips:
+            return
+        player = self.player
+        if not player.playing:
+            player.play(state.playhead(), rate=1.0 if direction > 0 else -1.0)
+        elif (player.rate > 0) == (direction > 0):
+            player.set_rate(max(-self.SHUTTLE_MAX, min(self.SHUTTLE_MAX, player.rate * 2)))
+        else:
+            player.set_rate(1.0 if direction > 0 else -1.0)
+        state.play_rate.set(player.rate)
+
+    def stop_shuttle(self) -> None:
+        """K: pausa (y la próxima reproducción vuelve a 1×)."""
+        if self.player.playing:
+            self.player.pause()
+            self.seek(self.player.time)
+        state.play_rate.set(1.0)
+
+    def toggle_loop(self) -> None:
+        state.loop_on.set(not state.loop_on())
+        self._sync_loop()
+        start, end = tl.play_range(self.project)
+        if state.loop_on():
+            where = "el rango In/Out" if tl.has_range(self.project) else "todo el timeline"
+            state.toast("info", f"Loop activado: {where} ({tl.format_time(start)}–{tl.format_time(end)})")
+        else:
+            state.toast("info", "Loop desactivado")
+
+    def _sync_loop(self) -> None:
+        self.player.set_loop(tl.play_range(self.project) if state.loop_on() else None)
+
+    def set_range_in(self) -> None:
+        if not self._guard_editable():
+            return
+        self._apply("punto de entrada", tl.set_range_in(self.project, state.playhead()))
+
+    def set_range_out(self) -> None:
+        if not self._guard_editable():
+            return
+        try:
+            project = tl.set_range_out(self.project, state.playhead())
+        except ProjectError as exc:
+            state.toast("info", exc.message)
+            return
+        self._apply("punto de salida", project)
+
+    def clear_range(self) -> None:
+        if tl.has_range(self.project) and self._apply("quitar In/Out", tl.clear_range(self.project)):
+            state.toast("info", "In/Out borrados")
+
+    def go_range_in(self) -> None:
+        self.seek(tl.play_range(self.project)[0])
+
+    def go_range_out(self) -> None:
+        self.seek(tl.play_range(self.project)[1])
+
+    # -- marcadores (fase 3) -----------------------------------------------------------
+
+    def add_marker(self) -> None:
+        if not self._guard_editable():
+            return
+        try:
+            project, marker = tl.add_marker(self.project, state.playhead())
+        except ProjectError as exc:
+            existing = tl.marker_at(self.project, state.playhead(), 0.5 / self.project.fps)
+            if existing is not None:
+                self.select_marker(existing.id, seek=False)
+            state.toast("info", exc.message)
+            return
+        if self._apply("añadir marcador", project):
+            self.select_marker(marker.id, seek=False)
+
+    def select_marker(self, marker_id: str, *, seek: bool = True) -> None:
+        if not self.project.has_marker(marker_id):
+            return
+        state.multi_selection.set(frozenset())
+        state.selection.set(("marker", marker_id))
+        if seek:
+            self.seek(self.project.marker(marker_id).t)
+
+    def rename_marker(self, name: str) -> None:
+        marker = self.selected_marker()
+        if marker is None:
+            return
+        try:
+            project = tl.rename_marker(self.project, marker.id, name)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply("renombrar marcador", project)
+
+    def delete_marker(self) -> None:
+        marker = self.selected_marker()
+        if marker is not None and self._apply("eliminar marcador", tl.remove_marker(self.project, marker.id)):
+            state.selection.set(None)
+
+    def jump_marker(self, direction: int) -> None:
+        marker = tl.adjacent_marker(self.project, state.playhead(), direction)
+        if marker is None:
+            state.toast("info", "No hay más marcadores en esa dirección")
+            return
+        if self.player.playing:
+            self.player.pause()
+        self.select_marker(marker.id)
+
+    # -- portapapeles (fase 3) ---------------------------------------------------------
+
+    def _selected_ids(self) -> frozenset[str]:
+        multi = state.multi_selection()
+        if multi:
+            return frozenset(multi)
+        selection = state.selection()
+        if not selection:
+            return frozenset()
+        if selection[0] == "clip" and self.project.has_clip(selection[1]):
+            return frozenset({selection[1]})
+        if selection[0] == "text" and self.project.has_text(selection[1]):
+            return frozenset({selection[1]})
+        audio = self.selected_audio()
+        if audio is not None:
+            return frozenset({audio[2].id})
+        return frozenset()
+
+    def copy(self) -> bool:
+        ids = self._selected_ids()
+        if not ids:
+            state.toast("info", "Selecciona clips o un texto para copiar")
+            return False
+        try:
+            self._clipboard = tl.copy_items(self.project, ids)
+        except ProjectError as exc:
+            state.toast("info", exc.message)
+            return False
+        state.clipboard_count.set(len(self._clipboard.items))
+        state.toast("info", f"{len(self._clipboard.items)} elemento(s) copiado(s)")
+        return True
+
+    def cut(self) -> None:
+        if not self._guard_editable():
+            return
+        ids = self._selected_ids()
+        if not ids:
+            state.toast("info", "Selecciona clips o un texto para cortar")
+            return
+        try:
+            clipboard = tl.copy_items(self.project, ids)
+            project = tl.remove_items(self.project, ids)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("cortar", project):
+            self._clipboard = clipboard
+            state.clipboard_count.set(len(clipboard.items))
+            self.clear_selection()
+
+    def paste(self) -> None:
+        if not self._guard_editable():
+            return
+        if self._clipboard is None or self._clipboard.empty:
+            state.toast("info", "El portapapeles está vacío (Ctrl+C para copiar)")
+            return
+        try:
+            project, new_ids = tl.paste(self.project, self._clipboard, state.playhead())
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("pegar", project):
+            self._select_pasted(project, new_ids)
+
+    def duplicate(self) -> None:
+        if not self._guard_editable():
+            return
+        ids = self._selected_ids()
+        if not ids:
+            state.toast("info", "Selecciona clips o un texto para duplicar")
+            return
+        try:
+            project, new_ids = tl.duplicate(self.project, ids)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("duplicar", project):
+            self._select_pasted(project, new_ids)
+
+    def _select_pasted(self, project: Project, new_ids: tuple[str, ...]) -> None:
+        """Lo pegado queda seleccionado (varios clips ⇒ selección múltiple, para moverlos)."""
+        if len(new_ids) == 1 and project.has_text(new_ids[0]):
+            self.select_text(new_ids[0])
+            return
+        clips = frozenset(i for i in new_ids if not project.has_text(i))
+        state.multi_selection.set(clips if len(clips) > 1 else frozenset())
+        self._select_primary(project, clips)
+
+    def _select_primary(self, project: Project, ids) -> None:  # noqa: ANN001
+        """Selección primaria (inspector) = el primer clip de video de `ids` o, si no, de audio."""
+        first = next((c.id for c in project.video.clips if c.id in ids), None)
+        if first is not None:
+            state.selection.set(("clip", first))
+            return
+        for track_index, track in enumerate(project.audio):
+            for clip_index, clip in enumerate(track.clips):
+                if clip.id in ids:
+                    state.selection.set(("audio", track_index, clip_index))
+                    return
+        state.selection.set(None)
+
+    # -- razor y Q/W (fase 3) -------------------------------------------------------------
+
+    def _time_at_window_x(self, window_x: float) -> float:
+        t = tl.time_at_x(self.content_x(window_x), state.tl_zoom())
+        if state.snap_on():
+            t = tl.snap(t, tl.snap_candidates(self.project, playhead=state.playhead()), state.tl_zoom(),
+                        threshold_px=5)
+        return max(0.0, t)
+
+    def razor_at(self, window_x: float, track: int | None = None, *, everything: bool = False) -> None:
+        """Clic con la razor: corta la pista pulsada (`None` = video + su audio enlazado) o, en
+        la regla o una zona vacía (`everything`), todas las pistas desbloqueadas."""
+        if not self._guard_editable():
+            return
+        t = self._time_at_window_x(window_x)
+        if not everything and track is None and self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
+        if not everything and track is not None and self.project.audio[track].locked:
+            state.toast("warning", f"La pista «{self.project.audio[track].name or 'audio'}» está bloqueada")
+            return
+        try:
+            project = tl.split_everything(self.project, t) if everything else tl.razor(self.project, t, track)
+        except ProjectError as exc:
+            state.toast("info", exc.message)
+            return
+        if self._apply("cortar con razor", project):
+            self.seek(t)
+
+    def trim_to_playhead(self, side: str) -> None:
+        """Q (`start`) / W (`end`): recorta el clip bajo el playhead hasta el playhead.
+
+        Si hay un clip de audio seleccionado bajo el playhead se recorta ese; si no, el de video
+        (con ripple: el timeline de video es magnético).
+        """
+        if not self._guard_editable():
+            return
+        t = state.playhead()
+        audio = self.selected_audio()
+        track = None
+        if audio is not None:
+            track_index, clip_index, clip = audio
+            start = tl.clip_starts(self.project.audio[track_index])[clip_index]
+            if start <= t < start + clip.duration:
+                track = track_index
+        before = self.project
+        try:
+            project = tl.trim_to(before, t, side, track)
+        except ProjectError as exc:
+            state.toast("info", exc.message)
+            return
+        if not self._apply("recortar inicio" if side == "start" else "recortar final", project):
+            return
+        if track is None:
+            # Q: el clip conserva su inicio y lo de después se desplaza (ripple), así que el
+            # playhead salta a ese inicio, que ahora muestra el frame que estaba bajo el playhead.
+            pos = tl.locate(before, t)
+            if pos is not None:
+                if side == "start":
+                    self.seek(tl.clip_starts(project.video)[pos.index])
+                state.selection.set(("clip", pos.clip.id))
 
     # -- zoom -------------------------------------------------------------------
 
@@ -1443,6 +1755,8 @@ class EditorController:
     def begin_move(self, clip_id: str) -> None:
         if not self._guard_editable() or not self.project.has_clip(clip_id):
             return
+        if self._begin_block(clip_id):
+            return
         if self.project.video.locked:
             state.toast("warning", "La pista de video está bloqueada")
             return
@@ -1459,6 +1773,9 @@ class EditorController:
 
     def drag_move(self, dx: float) -> None:
         drag = self._drag
+        if drag is not None and drag["kind"] == "block":
+            self.drag_block(dx)
+            return
         if drag is None or drag["kind"] != "move":
             return
         drag["dx"] = dx
@@ -1529,6 +1846,8 @@ class EditorController:
     def begin_move_audio(self, track_index: int, clip_id: str) -> None:
         if not self._guard_editable():
             return
+        if self._begin_block(clip_id):
+            return
         track = self.project.audio[track_index]
         if track.locked:
             state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
@@ -1546,6 +1865,9 @@ class EditorController:
 
     def drag_move_audio(self, dx: float) -> None:
         drag = self._drag
+        if drag is not None and drag["kind"] == "block":
+            self.drag_block(dx)
+            return
         if drag is None or drag["kind"] != "audio_move":
             return
         drag["dx"] = dx
@@ -1640,12 +1962,59 @@ class EditorController:
             new_clip = new_track.clips[new_track.index_of(clip.id)]
             self.player.seek(start + new_clip.duration - 1.0 / project.fps)
 
+    # -- mover la selección múltiple en bloque (A8, fase 3) -------------------------------
+
+    def _begin_block(self, clip_id: str) -> bool:
+        """Si `clip_id` es parte de una selección múltiple, empieza a moverla en bloque."""
+        multi = state.multi_selection()
+        if clip_id not in multi or len(multi) < 2:
+            return False
+        project = self.project
+        if project.video.locked and any(c.id in multi for c in project.video.clips):
+            state.toast("warning", "La pista de video está bloqueada")
+            return True
+        for track in project.audio:
+            if track.locked and any(c.id in multi for c in track.clips):
+                state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+                return True
+        bounds = tl.selection_bounds(project, multi)
+        if bounds is None:
+            return False
+        self.cancel_drag()
+        self.store.begin("mover selección")
+        self._drag = {
+            "kind": "block", "id": clip_id, "ids": frozenset(multi), "project": project,
+            "start": bounds[0], "length": bounds[1] - bounds[0], "dx": 0.0,
+        }
+        return True
+
+    def drag_block(self, dx: float) -> None:
+        drag = self._drag
+        if drag is None or drag["kind"] != "block":
+            return
+        drag["dx"] = dx
+        if abs(dx) < _CLICK_SLOP_PX:
+            return
+        base: Project = drag["project"]
+        ids, length = drag["ids"], drag["length"]
+        ghost = drag["start"] + dx / state.tl_zoom()
+        cands = tl.snap_candidates(base, playhead=state.playhead(), exclude=ids)
+        snapped_start = self._snap(ghost, cands)
+        snapped_end = self._snap(ghost + length, cands) - length
+        ghost = max(0.0, snapped_start if snapped_start != ghost else snapped_end)
+        try:
+            project = tl.move_block(base, ids, ghost)
+        except ProjectError:
+            return  # solape de audio: el bloque se queda en la última posición válida
+        self.store.update(project)
+        state.tl_drag.set(state.TimelineDrag("block", drag["id"], ghost=round(ghost, 4), length=round(length, 4)))
+
     def end_drag(self) -> None:
         drag, self._drag = self._drag, None
         if drag is None:
             return
         state.tl_drag.set(None)
-        if drag["kind"] in ("move", "audio_move") and abs(drag.get("dx", 0.0)) < _CLICK_SLOP_PX:
+        if drag["kind"] in ("move", "audio_move", "block") and abs(drag.get("dx", 0.0)) < _CLICK_SLOP_PX:
             self.store.cancel()  # fue un clic: solo selecciona
         else:
             self.store.commit()
@@ -1733,6 +2102,9 @@ class EditorController:
             if state.multi_selection() or state.selection() is not None:
                 self.clear_selection()
                 return True
+            if state.razor_on() or state.marquee_on():
+                self.select_tool()
+                return True
             return None
         if e.matches("mod+z"):
             self.undo()
@@ -1753,6 +2125,15 @@ class EditorController:
         if e.matches("mod+i"):
             self.open_import()
             return True
+        # Portapapeles (fase 3): en un campo enfocado copian/pegan texto, no clips.
+        for combo, action in (("mod+c", self.copy), ("mod+x", self.cut), ("mod+v", self.paste),
+                              ("mod+d", self.duplicate), ("mod+l", self.toggle_loop),
+                              ("alt+x", self.clear_range)):
+            if e.matches(combo):
+                if from_input or not state.project_open():
+                    return None
+                action()
+                return True
         if e.matches("mod+e"):
             self.open_export()
             return True
@@ -1791,9 +2172,22 @@ class EditorController:
         if e.matches("m"):
             self.toggle_preview_audio()
             return True
-        if e.matches("i"):
+        if e.matches("p"):
             self.toggle_inspector()
             return True
+        # Fase 3 (docs/21): In/Out, marcadores, J/K/L, Q/W y herramientas.
+        for combo, action in (
+            ("i", self.set_range_in), ("o", self.set_range_out),
+            ("shift+i", self.go_range_in), ("shift+o", self.go_range_out),
+            ("b", self.add_marker), ("up", lambda: self.jump_marker(-1)),
+            ("down", lambda: self.jump_marker(1)),
+            ("j", lambda: self.shuttle(-1)), ("k", self.stop_shuttle), ("l", lambda: self.shuttle(1)),
+            ("q", lambda: self.trim_to_playhead("start")), ("w", lambda: self.trim_to_playhead("end")),
+            ("c", self.toggle_razor), ("v", self.select_tool),
+        ):
+            if e.matches(combo):
+                action()
+                return True
         if plain and e.text in ("+", "="):
             self.zoom_in()
             return True
@@ -1821,6 +2215,7 @@ class EditorController:
             state.export_name.set(self.project.name)
         blockers = tuple(keyframes_mod.blockers(self.project))
         state.export_blockers.set(blockers)
+        state.export_range.set("range" if tl.has_range(self.project) else "all")
         if blockers and state.export_preset() == "copia":
             state.export_preset.set("rapido")
         state.export_open.set(True)
@@ -1846,12 +2241,19 @@ class EditorController:
             state.toast("warning", "«Sin recodificar» no es posible: " + "; ".join(state.export_blockers()))
             return
         name = state.export_name().strip() or project.name
+        span = self.export_span()
         out = export_mod.unique_output(state.exports_dir(), name)
         self.settings.export_preset = preset
         try:
-            self.exporter.start(project, preset, out)
+            self.exporter.start(project, preset, out, span=span)
         except RecStudioError as exc:
             state.toast("danger", exc.message)
+
+    def export_span(self) -> tuple[float, float] | None:
+        """Rango a exportar: `None` = todo el timeline; con «Rango In/Out», el de `play_range`."""
+        if state.export_range() != "range" or not tl.has_range(self.project):
+            return None
+        return tl.play_range(self.project)
 
     def cancel_export(self) -> None:
         self.exporter.cancel()

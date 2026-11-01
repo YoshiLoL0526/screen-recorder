@@ -109,12 +109,13 @@ library_reload = Signal(0)  # contador: cambiarlo fuerza recarga
 class TimelineDrag:
     """Lo que el timeline dibuja durante un drag (el modelo ya va actualizado en el store)."""
 
-    kind: str  # move | trim_l | trim_r | audio_move | audio_trim_l | audio_trim_r
+    kind: str  # move | trim_l | trim_r | audio_move | audio_trim_l | audio_trim_r | block
     clip_id: str
     ghost: float = 0.0  # move: inicio del fantasma (s)
     shift_index: int = -1  # trim_l: desde este clip se dibuja desplazado `shift` s…
     shift: float = 0.0  # …para que el borde siga al ratón hasta soltar (luego se cierra el hueco)
     track_index: int = -1  # pista de audio del clip (si el drag es de audio)
+    length: float = 0.0  # block: duración del bloque de la selección múltiple (fase 3)
 
 
 @dataclass(frozen=True)
@@ -148,9 +149,15 @@ playing = Signal(False)
 preview_frame = Signal(b"")  # JPEG del preview del editor
 preview_note = Signal("")  # aviso discreto bajo el preview («transición aproximada», …)
 preview_audio = Signal(True)  # audio del preview (best-effort)
-selection = Signal(None)  # ("clip", id) | ("transition", índice) | ("audio", pista, clip) | ("text", id) | None
-multi_selection = Signal(frozenset())  # ids de clips seleccionados con la marquesina (B3)
-marquee_on = Signal(False)  # herramienta de selección activa (B3)
+# ("clip", id) | ("transition", índice) | ("audio", pista, clip) | ("text", id) | ("marker", id) | None
+selection = Signal(None)
+# ids seleccionados con la marquesina (B3): clips de video y de audio absoluto (fase 3, docs/21)
+multi_selection = Signal(frozenset())
+marquee_on = Signal(False)  # herramienta de selección activa (B3); excluyente con `razor_on`
+razor_on = Signal(False)  # herramienta razor (C): un clic corta donde se pulsa (fase 3)
+loop_on = Signal(False)  # loop de reproducción del rango In/Out (o de todo el timeline)
+play_rate = Signal(1.0)  # velocidad de reproducción (J/K/L): 2, 4, 8 o negativa hacia atrás
+clipboard_count = Signal(0)  # elementos en el portapapeles del editor (0 = vacío)
 marquee = Signal(None)  # state.Marquee | None
 tl_zoom = Signal(60.0)  # px por segundo
 tl_scroll = Signal(0.0)  # desplazamiento horizontal del timeline (px)
@@ -158,7 +165,7 @@ tl_view_w = Signal(1000.0)  # ancho visible del timeline (px)
 snap_on = Signal(True)
 tl_tracks_extra = Signal(0.0)  # alto extra de las pistas (divisor preview/timeline, F5)
 inspector_w = Signal(290.0)  # ancho del inspector (divisor preview/inspector, F5)
-inspector_open = Signal(True)  # inspector visible (I) — oculto, el preview usa todo el ancho
+inspector_open = Signal(True)  # inspector visible (P) — oculto, el preview usa todo el ancho
 tl_drag = Signal(None)  # TimelineDrag | None
 waveforms = Signal(0)  # versión: sube cada vez que llega un waveform nuevo
 thumbs = Signal(0)  # versión: sube cada vez que llegan miniaturas del filmstrip
@@ -217,6 +224,7 @@ insp_text_color = Signal("#FFFFFF")
 insp_text_x = Signal(0.5)
 insp_text_y = Signal(0.82)
 insp_text_bold = Signal(False)
+insp_marker_name = Signal("")  # nombre del marcador seleccionado (fase 3)
 proxies = Signal(0)  # versión: sube cuando termina un proxy de preview (B5)
 
 export_open = Signal(False)  # modal «Exportar»
@@ -224,6 +232,7 @@ export_name = Signal("")  # nombre del archivo (sin extensión)
 export_preset = Signal("rapido")
 export_progress = Signal(None)  # services.export.ExportProgress | None
 export_blockers = Signal(())  # motivos por los que no se puede «sin recodificar»
+export_range = Signal("all")  # all | range (rango In/Out del timeline, fase 3)
 
 
 def toast(kind: str, text: str) -> None:

@@ -18,10 +18,10 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 | Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop). |
 | Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
 | Textos | `TextOverlay` con intervalo, posición, tamaño, color y negrita; `drawtext` en export y PIL en preview. |
-| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio), playhead frame-accurate, waveform, filmstrip, marquesina y drags de audio. |
-| Preview | Play/pause, scrub, ±1 frame, loop de selección, resolución adaptativa, audio (mezcla completa best-effort) y proxy 540p. |
-| Proyecto | `.rsproj/project.json` versionado (schema 4), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables. |
-| Export | MP4 H.264, presets, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
+| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio + marcadores + In/Out), playhead frame-accurate, waveform, filmstrip, marquesina que mueve en bloque, razor, marcadores, In/Out, portapapeles (copiar/cortar/pegar/duplicar), Q/W y drags de audio. |
+| Preview | Play/pause, scrub, ±1 frame, J/K/L (2×–8×, marcha atrás sin audio), loop del rango In/Out o del timeline, resolución adaptativa, audio (mezcla completa best-effort) y proxy 540p. |
+| Proyecto | `.rsproj/project.json` versionado (schema 5), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores e In/Out. |
+| Export | MP4 H.264, presets, todo el timeline o el rango In/Out, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)
 
@@ -113,8 +113,14 @@ class TextOverlay:                          # B2
     bold: bool = False
 
 @dataclass(frozen=True)
+class Marker:                               # fase 3, docs/21
+    id: str
+    t: float                                # segundos del timeline (frame exacto)
+    name: str = ""
+
+@dataclass(frozen=True)
 class Project:
-    schema_version: int = 4
+    schema_version: int = 5
     name: str = "Sin título"
     assets: tuple[MediaAsset, ...] = ()
     video: Track = Track("video")
@@ -125,6 +131,9 @@ class Project:
     height: int = 1080
     background: str = "#000000"             # color del lienzo (#RRGGBB)
     default_fit: Literal["fit", "fill", "stretch"] = "fit"
+    markers: tuple[Marker, ...] = ()        # fase 3: ordenados por tiempo
+    range_in: float | None = None           # In/Out del timeline (no del clip)
+    range_out: float | None = None
 ```
 
 Invariantes que valida `core/project.py` al construir (y que los tests cubren):
@@ -136,7 +145,7 @@ Invariantes que valida `core/project.py` al construir (y que los tests cubren):
 - `0 ≤ ducking ≤ 1`; textos con `0 ≤ start < end`, posición 0…1, tamaño 8–200 y color `#RRGGBB`.
 - `Project.background` es `#RRGGBB` y `default_fit` es `fit`/`fill`/`stretch`; `Transform` valida
   escala 0.25–4, posición 0…1, rotación 0/90/180/270 y crop `0 ≤ l < r ≤ 1`, `0 ≤ t < b ≤ 1`.
-- IDs únicos (assets, clips y textos).
+- IDs únicos (assets, clips, textos y marcadores); `range_out > range_in` si están los dos.
 - `Track.mode="absolute"`: `Clip.start ≥ 0`, sin solapes en la pista, sin transiciones; `link_id`
   existe y apunta a un clip de video (varios trozos de un audio dividido pueden compartirlo) y
   `audio_enabled` solo se usa en la pista de video. Detalle en [19](19-fase-0-1-audio.md).
@@ -186,12 +195,23 @@ def set_project_fit(p: Project, fit: str) -> Project: ...
 def set_project_background(p: Project, color: str) -> Project: ...
 def set_transform(p: Project, clip_id: str, **changes) -> Project: ...
 def reset_transform(p: Project, clip_id: str) -> Project: ...
+
+# fase 3 (docs/21)
+def add_marker(p: Project, t: float, name: str = "") -> tuple[Project, Marker]: ...
+def set_range_in(p: Project, t: float) -> Project: ...      # y set_range_out, clear_range, play_range
+def razor(p: Project, t: float, track: int | None = None) -> Project: ...
+def split_everything(p: Project, t: float) -> Project: ...
+def trim_to(p: Project, t: float, side: str, track: int | None = None) -> Project: ...  # Q/W
+def copy_items(p: Project, ids) -> Clipboard: ...
+def paste(p: Project, clipboard: Clipboard, t: float) -> tuple[Project, tuple[str, ...]]: ...
+def duplicate(p: Project, ids) -> tuple[Project, tuple[str, ...]]: ...
+def move_block(p: Project, ids, ghost: float) -> Project: ...
 ```
 
 Reglas finas:
 
 - **Snap** en píxeles (no en segundos): candidatos = bordes de clips y transiciones, playhead,
-  `0`, y segundos enteros si el zoom es bajo. Umbral 8 px convertido a segundos con el zoom
+  `0`, marcadores, In/Out (fase 3) y segundos enteros si el zoom es bajo. Umbral 8 px convertido a segundos con el zoom
   actual (así el imán se siente igual a cualquier escala).
 - **Frame accuracy**: el playhead vive en *frames enteros* de `project.fps`; `split` corta en
   frontera de frame. `t_frame = round(t * fps) / fps`.

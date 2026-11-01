@@ -23,7 +23,7 @@ from typing import Any, Literal
 
 from .errors import ProjectError
 
-SCHEMA_VERSION = 4  # v4: lienzo, fondo y transformación por clip (docs/20)
+SCHEMA_VERSION = 5  # v5: marcadores e In/Out del timeline (docs/21)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -135,6 +135,19 @@ class TextOverlay:
     @property
     def seconds(self) -> float:
         return self.end - self.start
+
+
+@dataclass(frozen=True)
+class Marker:
+    """Marcador del timeline (fase 3, docs/21): un instante con nombre, dibujado en la regla."""
+
+    id: str
+    t: float
+    name: str = ""
+
+    def __post_init__(self) -> None:
+        if self.t != self.t or self.t < 0:  # NaN o negativo
+            raise ProjectError(f"marcador {self.id}: tiempo inválido ({self.t})")
 
 
 @dataclass(frozen=True)
@@ -261,6 +274,9 @@ class Project:
     height: int = 1080
     background: str = DEFAULT_BACKGROUND  # color del lienzo (#RRGGBB)
     default_fit: Literal["fit", "fill", "stretch"] = "fit"
+    markers: tuple[Marker, ...] = ()  # ordenados por tiempo (fase 3)
+    range_in: float | None = None  # In/Out del timeline (loop y export de rango); None = sin punto
+    range_out: float | None = None
 
     # -- consultas -------------------------------------------------------------
 
@@ -293,6 +309,15 @@ class Project:
 
     def has_text(self, text_id: str) -> bool:
         return any(t.id == text_id for t in self.texts)
+
+    def marker(self, marker_id: str) -> Marker:
+        for marker in self.markers:
+            if marker.id == marker_id:
+                return marker
+        raise ProjectError(f"no existe el marcador {marker_id}")
+
+    def has_marker(self, marker_id: str) -> bool:
+        return any(m.id == marker_id for m in self.markers)
 
     # -- validación ------------------------------------------------------------
 
@@ -351,6 +376,17 @@ class Project:
         text_ids = [t.id for t in self.texts]
         if len(set(text_ids)) != len(text_ids):
             raise ProjectError("ids de texto duplicados")
+        marker_ids = [m.id for m in self.markers]
+        if len(set(marker_ids)) != len(marker_ids):
+            raise ProjectError("ids de marcador duplicados")
+        for value in (self.range_in, self.range_out):
+            if value is not None and (value != value or value < 0):
+                raise ProjectError(f"punto In/Out inválido ({value})")
+        if (
+            self.range_in is not None and self.range_out is not None
+            and not self.range_out > self.range_in
+        ):
+            raise ProjectError("el punto de salida debe ir después del de entrada")
         return self
 
 
@@ -449,6 +485,9 @@ def to_dict(project: Project) -> dict[str, Any]:
             }
             for t in project.texts
         ],
+        "markers": [{"id": m.id, "t": m.t, "name": m.name} for m in project.markers],
+        "range_in": project.range_in,
+        "range_out": project.range_out,
     }
 
 
@@ -529,6 +568,14 @@ def from_dict(data: dict[str, Any]) -> Project:
             )
             for t in data.get("texts", ())
         )
+        markers = tuple(
+            sorted(
+                (Marker(id=str(m["id"]), t=float(m["t"]), name=str(m.get("name", "")))
+                 for m in data.get("markers", ())),
+                key=lambda m: (m.t, m.id),
+            )
+        )
+        range_in, range_out = data.get("range_in"), data.get("range_out")
         return Project(
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
             name=str(data.get("name", "Sin título")),
@@ -541,6 +588,9 @@ def from_dict(data: dict[str, Any]) -> Project:
             height=int(data.get("height", 1080)),
             background=str(data.get("background", DEFAULT_BACKGROUND)),
             default_fit=str(data.get("default_fit", "fit")),  # type: ignore[arg-type]
+            markers=markers,
+            range_in=None if range_in is None else float(range_in),
+            range_out=None if range_out is None else float(range_out),
         )
     except ProjectError:
         raise

@@ -259,15 +259,22 @@ Se registran en la raíz (`on_key`) y se delegan por pantalla; `e.matches("mod+s
 | `←` / `→` | ±1 frame | Editor |
 | `Shift+←/→` | ±1 s | Editor |
 | `Home` / `End` | Ir al inicio / final | Editor |
-| `S` | Dividir (split) en el playhead | Editor |
+| `S` / `Shift+S` | Dividir todas las pistas / solo el audio en el playhead | Editor |
 | `Del` / `Backspace` | Eliminar clip y cerrar hueco (ripple) | Editor |
+| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` / `Ctrl+D` | Copiar / cortar / pegar en el playhead / duplicar (docs/21) | Editor |
+| `C` / `V` | Herramienta razor / selección | Editor |
+| `I` / `O` · `Shift+I/O` · `Alt+X` | Entrada / salida del timeline · ir a ellas · quitarlas | Editor |
+| `B` · `↑` / `↓` | Marcador en el playhead · marcador anterior / siguiente | Editor |
+| `J` / `K` / `L` | Atrás / pausa / adelante (repetir dobla la velocidad) | Editor |
+| `Q` / `W` | Recortar inicio / final del clip hasta el playhead | Editor |
+| `P` | Mostrar / ocultar el inspector | Editor |
 | `Ctrl+Z` / `Ctrl+Y` | Deshacer / rehacer | Global |
 | `Ctrl+S` | Guardar proyecto | Editor |
 | `Ctrl+I` | Importar medios | Editor |
 | `Ctrl+E` | Exportar… | Editor |
 | `+` / `-` / `0` | Zoom + / − / ajustar | Editor |
 | `M` | Silenciar preview | Editor |
-| `L` | Loop de la selección | Editor |
+| `Ctrl+L` | Loop del rango In/Out (o de todo el timeline) | Editor |
 | `Esc` | Cancelar drag / cerrar modal | Global |
 | `Ctrl+1..4` | Ir a Grabar/Biblioteca/Editor/Ajustes | Global |
 | `F12` | Inspector de Aurora (dev) | Dev (via `aurora dev --inspector`) |

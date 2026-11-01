@@ -80,9 +80,9 @@ def main() -> int:
         pilot.drag("split-timeline", dy=140, steps=6)
         pilot.resize(1920, 1080)
         shot("editor-1920")
-        pilot.press("i")
+        pilot.press("p")
         shot("editor-1920-sin-inspector")
-        pilot.press("i")
+        pilot.press("p")
         pilot.resize(1280, 800)
 
         state.screen.set("settings")

@@ -14,6 +14,9 @@
   y como todo lo que hay a la izquierda del timeline tiene ancho fijo, `TL_X0` la convierte a
   x del contenido. (Así sí hay «clic en la regla → saltar ahí», que F0 daba por imposible.)
 - Culling: se dibuja y se generan cajas solo para el rango visible ± un ancho de vista.
+- Fase 3 (docs/21): la regla dibuja el rango In/Out y los marcadores (cada uno con su caja
+  clicable); con la razor (`state.razor_on`) las cajas de los clips cortan donde se pulsa en vez
+  de mover, y el canvas (regla o zona vacía) corta todas las pistas.
 """
 
 from __future__ import annotations
@@ -61,6 +64,9 @@ FILMSTRIP_MAX = 60  # tope de imágenes por frame (además del culling por vista
 _CHAR_W = 0.56  # ancho medio de carácter / tamaño de fuente (elipsis manual en el canvas)
 
 _TICKS = (0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800)
+MARKER_COLOR = "#F5B851"
+MARKER_W = 12  # caja clicable de cada marcador en la regla
+RANGE_FILL = "#7C5CFF40"  # banda del rango In/Out en la regla
 
 
 @dataclass(frozen=True)
@@ -199,6 +205,34 @@ def _draw_ruler(c: Canvas, zoom: float, x0: float, x1: float, content_h: float) 
         t = round(t + step, 6)
 
 
+def _draw_range_and_markers(c: Canvas, project: Project, zoom: float, x0: float, x1: float,
+                            content_h: float, selected_marker: str | None) -> None:
+    """Rango In/Out (banda en la regla + líneas) y marcadores (bandera + línea fina)."""
+    if tl.has_range(project):
+        start, end = tl.play_range(project)
+        xa, xb = start * zoom, end * zoom
+        if xb >= x0 and xa <= x1:
+            c.rect(xa, 0, max(2.0, xb - xa), RULER_H, fill=RANGE_FILL)
+            for x, label in ((xa, "In"), (xb, "Out")):
+                if (label == "In" and project.range_in is None) or (label == "Out" and project.range_out is None):
+                    continue
+                c.line(x, 0, x, content_h, stroke="$primary", stroke_width=1.5, dash=(6, 4))
+                c.text(x + 3 if label == "In" else x - 3, RULER_H - 12, label, size=9, weight=700,
+                       color="$primary", align="left" if label == "In" else "right")
+    for marker in project.markers:
+        x = marker.t * zoom
+        if x < x0 - MARKER_W or x > x1 + MARKER_W:
+            continue
+        selected = marker.id == selected_marker
+        c.line(x, RULER_H, x, content_h, stroke=MARKER_COLOR, stroke_width=1.5 if selected else 1,
+               dash=None if selected else (2, 4))
+        c.polygon([(x - 5, 1), (x + 5, 1), (x + 5, 8), (x, 13), (x - 5, 8)],
+                  fill=MARKER_COLOR, stroke="$primary" if selected else MARKER_COLOR,
+                  stroke_width=1.5 if selected else 1)
+        if zoom >= 30 and marker.name:
+            c.text(x + 7, 1, _ellipsis(marker.name, 120, 9.5), size=9.5, color=MARKER_COLOR, weight=600)
+
+
 def _waveform_points(peaks: np.ndarray, x: float, w: float, top: float, h: float, t0: float, t1: float, gain: float):
     columns = max(2, int(w / 2))
     part = media.waveform_slice(peaks, t0, t1, columns)
@@ -265,6 +299,8 @@ def _draw_tracks(c: Canvas) -> None:
     for row in lay.rows:
         c.rect(0, row.top - 3, c.width, row.height + 6, fill="$track_bg" if row.index % 2 == 0 else "$track_alt")
     _draw_ruler(c, zoom, max(0.0, x0), x1, lay.content_h)
+    _draw_range_and_markers(c, project, zoom, x0, x1, lay.content_h,
+                            selection[1] if selection and selection[0] == "marker" else None)
 
     clips = project.video.clips
     geo = Geometry(project, drag)
@@ -344,7 +380,7 @@ def _draw_tracks(c: Canvas) -> None:
             except Exception:
                 continue
             is_offline = clip.asset_id in offline
-            selected = selected_track and selected_audio[1] == clip_index
+            selected = (selected_track and selected_audio[1] == clip_index) or clip.id in multi
             fill = "$clip_audio" if audible else "$surface_hover"
             c.rect(x + 1, row.top, w - 2, row.height, radius=5, fill=fill)
             c.rect(x + 1, row.top, w - 2, row.height, radius=5,
@@ -410,6 +446,12 @@ def _draw_tracks(c: Canvas) -> None:
         c.polygon([(boundary, y - 6), (boundary + 6, y), (boundary, y + 6), (boundary - 6, y)],
                   fill="$transition" if transition is not None or selected else "$surface_hover",
                   stroke="$primary" if selected else "$clip_edge", stroke_width=1.5 if selected else 1)
+
+    # Fantasma del bloque de la selección múltiple (fase 3): cubre todas las pistas.
+    if drag is not None and drag.kind == "block" and drag.length > 0:
+        gx, gw = drag.ghost * zoom, max(2.0, drag.length * zoom)
+        c.rect(gx, VIDEO_TOP - 3, gw, lay.content_h - VIDEO_TOP - 5, radius=6, fill="#7C5CFF22",
+               stroke="$primary", stroke_width=1.5, dash=(6, 4))
 
     # Fantasma del clip que se arrastra (encima de todo).
     if drag is not None and drag.kind == "move" and project.has_clip(drag.clip_id):
@@ -549,6 +591,10 @@ def _canvas_drag(e) -> None:  # noqa: ANN001
     editor = _editor()
     if editor is None:
         return
+    if state.razor_on():  # regla o zona vacía: corta todas las pistas en ese punto
+        if e.phase == "start":
+            editor.razor_at(e.x, everything=True)
+        return
     if state.marquee_on():
         if e.phase == "start":
             editor.begin_marquee(e.x)
@@ -559,6 +605,25 @@ def _canvas_drag(e) -> None:  # noqa: ANN001
             editor.end_marquee()
         return
     editor.scrub_to_window_x(e.x)
+
+
+def _razor_drag(track_index: int | None):
+    """Con la razor, el clic (fase `start` del drag, que trae la x de ventana) corta la pista."""
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is not None and e.phase == "start":
+            editor.razor_at(e.x, track_index)
+
+    return handler
+
+
+def _marker_click(marker_id: str):
+    def handler() -> None:
+        editor = _editor()
+        if editor is not None:
+            editor.select_marker(marker_id)
+
+    return handler
 
 
 def _select_audio(track_index: int, clip_index: int) -> None:
@@ -661,11 +726,17 @@ def timeline_layer():
         if marquee is not None else None
     )
 
+    razor = state.razor_on()
     boxes = []
     for index, clip in enumerate(project.video.clips):
         start, _ = geo.span(project, index)
         x, w = start * zoom, max(4.0, clip.duration * zoom)
         if x > x1 or x + w < x0:
+            continue
+        if razor:
+            boxes.append(box(key=f"clip-{clip.id}", position="absolute", left=x, top=VIDEO_TOP, width=w,
+                             height=video_h, radius=6, bg="#00000000", bg_hover="#FF547018",
+                             cursor="crosshair", on_drag=_razor_drag(None)))
             continue
         boxes.append(
             box(
@@ -701,8 +772,10 @@ def timeline_layer():
             handlers = {} if locked else {"on_drag": _audio_clip_drag(row.index, clip.id)}
             if locked:
                 handlers["on_click"] = lambda ti=row.index, ci=index: _select_audio(ti, ci)
+            elif razor:
+                handlers = {"on_drag": _razor_drag(row.index)}
             handles = []
-            if not locked:
+            if not locked and not razor:
                 handles = [
                     box(key=f"audio-trim-l-{clip.id}", position="absolute", left=0, top=0,
                         width=min(HANDLE_W, w / 3), height=row.height, radius=4, bg="#00000000",
@@ -716,7 +789,8 @@ def timeline_layer():
             boxes.append(
                 box(key=f"audio-{clip.id}", position="absolute", left=x, top=row.top,
                     width=w, height=row.height, radius=5, bg="#00000000",
-                    bg_hover="#FFFFFF0D", cursor="default" if locked else "grab",
+                    bg_hover="#FFFFFF0D",
+                    cursor="default" if locked else ("crosshair" if razor else "grab"),
                     tooltip=tooltip_audio(track, clip), **handlers)[handles]
             )
     for index, transition in enumerate(project.video.transitions):
@@ -750,8 +824,20 @@ def timeline_layer():
             )
         )
 
+    # Marcadores: una caja pequeña en la regla (clic = seleccionar y saltar ahí). Solo tapan su
+    # bandera; el resto de la regla sigue haciendo scrub.
+    for marker in project.markers:
+        mx = marker.t * zoom
+        if mx < x0 - MARKER_W or mx > x1 + MARKER_W:
+            continue
+        boxes.append(box(key=f"marker-{marker.id}", position="absolute", left=mx - MARKER_W / 2, top=0,
+                         width=MARKER_W, height=14, radius=3, bg="#00000000", bg_hover="#F5B85155",
+                         cursor="pointer", tooltip=f"{marker.name} · {tl.format_time(marker.t)}",
+                         on_click=_marker_click(marker.id)))
+
     return box(key="tl-layer", width=width, height=content_h, shrink=0)[
-        canvas(_draw_tracks, key="tl-canvas", width=width, height=content_h, on_drag=_canvas_drag),
+        canvas(_draw_tracks, key="tl-canvas", width=width, height=content_h, on_drag=_canvas_drag,
+               cursor="crosshair" if razor else "default"),
         thumbs,
         labels,
         marquee_box,

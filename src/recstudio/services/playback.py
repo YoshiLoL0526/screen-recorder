@@ -8,8 +8,10 @@
   decodifica también el entrante (otro decoder, aunque sea el mismo asset) y aproxima el efecto
   en numpy, y aplica los efectos del clip (`core/effects.py`). El render definitivo es el de
   FFmpeg (`core/graph.py`).
-- `Player`: hilo con reloj `perf_counter`: `t = t_inicio + (ahora − t_wall_0)`; si un frame
-  tarda más que el tick se descartan ticks (nunca se acumula retraso).
+- `Player`: hilo con reloj `perf_counter`: `t = t_inicio + (ahora − t_wall_0) · velocidad`; si un
+  frame tarda más que el tick se descartan ticks (nunca se acumula retraso). La velocidad puede
+  ser negativa (J, hacia atrás: cada frame es un seek, así que va a menos fps y sin audio) y el
+  loop repite el rango In/Out o todo el timeline (fase 3, docs/21).
 - `AudioPreview`: audio *best-effort* por `sounddevice`; si falla o se queda sin datos, silencio.
 """
 
@@ -797,6 +799,8 @@ class Player:
         self._dirty = False
         self._t0 = 0.0
         self._wall0 = 0.0
+        self._rate = 1.0  # velocidad del reloj (J/K/L); el audio solo suena a 1×
+        self._loop: tuple[float, float] | None = None  # rango que se repite (None = sin loop)
         self._stop = False
         self._thread: threading.Thread | None = None
         self.rendered = 0
@@ -830,8 +834,41 @@ class Player:
     def time(self) -> float:
         with self._cond:
             if self._playing:
-                return self._t0 + (time.perf_counter() - self._wall0)
+                return self._clock_locked()
             return self._t
+
+    @property
+    def rate(self) -> float:
+        return self._rate
+
+    @property
+    def loop(self) -> tuple[float, float] | None:
+        return self._loop
+
+    def _clock_locked(self) -> float:
+        return self._t0 + (time.perf_counter() - self._wall0) * self._rate
+
+    def set_loop(self, loop: tuple[float, float] | None) -> None:
+        """Rango `(inicio, final)` que se repite al reproducir (`None` desactiva el loop)."""
+        with self._cond:
+            if loop is not None and not loop[1] > loop[0]:
+                loop = None
+            self._loop = None if loop is None else (float(loop[0]), float(loop[1]))
+            self._cond.notify_all()
+
+    def set_rate(self, rate: float) -> None:
+        """Cambia la velocidad sin saltar (re-ancla el reloj en el instante actual)."""
+        with self._cond:
+            rate = float(rate)
+            if rate == 0 or rate == self._rate:
+                return
+            if self._playing:
+                self._t0 = self._clock_locked()
+                self._wall0 = time.perf_counter()
+            self._rate = rate
+            if self._playing:
+                self._restart_audio_locked()
+            self._cond.notify_all()
 
     def set_project(self, project: Project) -> None:
         with self._cond:
@@ -856,16 +893,25 @@ class Player:
                 self._dirty = True
             self._cond.notify_all()
 
-    def play(self, t: float | None = None) -> None:
+    def play(self, t: float | None = None, rate: float | None = None) -> None:
         with self._cond:
             if self._playing:
                 return
             total = tl.total_duration(self._project)
             if total <= 0:
                 return
+            if rate:
+                self._rate = float(rate)
             start = self._t if t is None else t
-            if start >= total - 1e-3:
+            frame = 1.0 / max(1, self._project.fps)
+            if self._loop is not None:
+                begin, end = self._loop
+                if not begin - 1e-6 <= start < end - frame / 2:
+                    start = begin if self._rate > 0 else max(begin, end - frame)
+            elif self._rate > 0 and start >= total - 1e-3:
                 start = 0.0  # al final: vuelve a empezar
+            elif self._rate < 0 and start <= 1e-3:
+                start = max(0.0, total - frame)  # hacia atrás desde el principio: desde el final
             self._t0 = start
             self._wall0 = time.perf_counter()
             self._playing = True
@@ -878,8 +924,9 @@ class Player:
         with self._cond:
             if not self._playing:
                 return
-            self._t = self._t0 + (time.perf_counter() - self._wall0)
+            self._t = max(0.0, self._clock_locked())
             self._playing = False
+            self._rate = 1.0  # la siguiente reproducción vuelve a 1× (K)
             self._dirty = True
             self._cond.notify_all()
         if self.audio is not None:
@@ -887,9 +934,13 @@ class Player:
         self._on_state(False)
 
     def _restart_audio_locked(self) -> None:
-        if self.audio is not None and self._playing:
-            project, t = self._project, self._t0
-            threading.Thread(target=self.audio.start, args=(project, t), daemon=True, name="audio-restart").start()
+        if self.audio is None or not self._playing:
+            return
+        if self._rate != 1.0:  # a otra velocidad (o hacia atrás) el preview va mudo
+            threading.Thread(target=self.audio.stop, daemon=True, name="audio-stop").start()
+            return
+        project, t = self._project, self._t0
+        threading.Thread(target=self.audio.start, args=(project, t), daemon=True, name="audio-restart").start()
 
     # -- hilo --
 
@@ -928,13 +979,24 @@ class Player:
                     return
                 project = self._project
                 if self._playing:
-                    t = self._t0 + (time.perf_counter() - self._wall0)
+                    t = self._clock_locked()
                     total = tl.total_duration(project)
-                    finished = t >= total
-                    if finished:
-                        t = max(0.0, total - 1.0 / max(1, project.fps))
+                    frame = 1.0 / max(1, project.fps)
+                    begin, end = self._loop if self._loop is not None else (0.0, total)
+                    end = min(end, total)
+                    wrapped = self._rate > 0 and t >= end or self._rate < 0 and t < begin
+                    finished = False
+                    if wrapped and self._loop is not None and end > begin:
+                        # Loop: vuelve al otro extremo del rango y re-ancla el reloj (y el audio).
+                        t = begin if self._rate > 0 else max(begin, end - frame)
+                        self._t0, self._wall0 = t, time.perf_counter()
+                        self._restart_audio_locked()
+                    elif wrapped:
+                        finished = True
+                        t = max(0.0, total - frame) if self._rate > 0 else 0.0
                         self._t = t
                         self._playing = False
+                        self._rate = 1.0
                         self._dirty = False
                     mode = "end" if finished else "play"
                 else:

@@ -1,9 +1,10 @@
 # 18 — Herramientas que faltan en el editor
 
-> Análisis a **2026-10-31**, sobre la v1.0.0 + bloques A y B. Las **fases 0, 1 y 2 ya están
-> implementadas** (modelo v3 con audio absoluto, audio editable y modelo v4 con lienzo/
-> transformación; resultados en [19 — Fase 0 y 1](19-fase-0-1-audio.md) y
-> [20 — Fase 2](20-fase-2-frame.md)). El resto del documento conserva el análisis y la
+> Análisis a **2026-10-31**, sobre la v1.0.0 + bloques A y B. Las **fases 0, 1, 2 y 3 ya están
+> implementadas** (modelo v3 con audio absoluto, audio editable, modelo v4 con lienzo/
+> transformación y modelo v5 con el flujo de edición; resultados en
+> [19 — Fase 0 y 1](19-fase-0-1-audio.md), [20 — Fase 2](20-fase-2-frame.md) y
+> [21 — Fase 3](21-fase-3-flujo.md)). El resto del documento conserva el análisis y la
 > hoja de ruta propuesta.
 >
 > Complementa [04 — Editor](04-editor.md), [12 — F3](12-f3-editor.md), [13 — F4](13-f4-export.md),
@@ -140,17 +141,17 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | A4 | Posición absoluta y huecos en pistas de audio/overlay | ✅ | `Clip.start` + `Track.mode` (docs/19) | — | — |
 | A5 | Cabeceras de pista con mute/solo/bloqueo/volumen | ✅ | Cabeceras del timeline y sección de pistas del inspector | — | — |
 | A6 | Editar clips de música: mover, recortar, dividir, borrar | ✅ | Drags de cuerpo/asas, `trim_audio`, `remove_audio` | — | — |
-| A7 | Copiar/pegar/duplicar clips | ⛔ | No hay portapapeles ni `Ctrl+D` | P1 | S |
-| A8 | Mover una selección múltiple en bloque | ⛔ | La marquesina solo borra (docs/17) | P1 | M |
+| A7 | Copiar/pegar/duplicar clips | ✅ | `Ctrl+C/X/V/D` con video, audio y textos; `tl.copy_items/paste/duplicate` (docs/21) | — | — |
+| A8 | Mover una selección múltiple en bloque | ✅ | Arrastrar un clip de la selección mueve el bloque (`tl.move_block`, docs/21) | — | — |
 | A9 | Ripple trim, roll, slip, slide, insert/overwrite | ⛔ | Solo trim simple y ripple delete | P2 | L |
-| A10 | Marcadores y capítulos | ⛔ | No hay modelo ni dibujo en la regla | P1 | S–M |
-| A11 | Loop e in/out de reproducción | ⛔ | docs/04 lo promete; no está en `Player` ni en el transporte | P1 | S–M |
+| A10 | Marcadores y capítulos | ✅ (marcadores; capítulos en el MP4, no) | `Project.markers`, `B`, ↑/↓, regla e inspector (docs/21) | P2 | S |
+| A11 | Loop e in/out de reproducción | ✅ | `I`/`O`, `Ctrl+L` y `Player.set_loop` (docs/21) | — | — |
 | A12 | Scroll vertical cuando hay muchas pistas | ✅ (alternativa) | El panel crece con las pistas y se limita a 6 nuevas; el scroll anidado de Aurora 0.9 no se pudo usar (docs/19) | — | — |
 | A13 | Drag & drop desde el Explorador | ⛔ | `on_drop` de Aurora disponible (docs/05) | P1 | S |
 | A14 | Panel de medios del proyecto | ⛔ | Los assets solo se ven en el inspector de cada clip | P2 | M |
 | A15 | Menú contextual (clic derecho) | ⛔ | `on_context_menu` de Aurora disponible, sin usar | P2 | S–M |
-| A16 | Herramienta razor visible (cortar donde se pulsa) | ⛔ | Hoy solo `S` en el playhead | P1 | S–M |
-| A17 | Zoom que mantenga el playhead/selección a la vista | ◐ | Hay zoom y «ajustar», pero no `scroll_to` (docs/05) | P1 | S |
+| A16 | Herramienta razor visible (cortar donde se pulsa) | ✅ | Botón y `C`; por pista o en todas (docs/21) | — | — |
+| A17 | Zoom que mantenga el playhead/selección a la vista | ◐ | Aurora 0.9 no permite fijar el scroll horizontal (spike en docs/21) | P1 | S |
 
 ### 3.2 Audio
 
@@ -217,7 +218,7 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | E3 | Panel de medios y reemplazo de asset online | ⛔ | Solo «reubicar» cuando falta el archivo | P2 | M |
 | E4 | Importar imágenes al timeline | ⛔ | Solo videos y audio de música | P2 | M |
 | E5 | Export personalizado (resolución, bitrate, fps, códec) | ⛔ | Cuatro presets cerrados | P1 | M |
-| E6 | Exportar un rango / la selección | ⛔ | Siempre todo el timeline | P1 | M |
+| E6 | Exportar un rango / la selección | ✅ (rango In/Out) | Opción del modal; render y corte rápido (docs/21) | — | — |
 | E7 | Exportar solo audio | ⛔ | Siempre MP4 con video | P2 | S–M |
 | E8 | GIF/WebM optimizado | ⛔ | Backlog D1 | P1 | M |
 | E9 | Presets sociales (9:16, 1:1, 4:5) | ⛔ | Depende de C1/C2 | P2 | S |
@@ -228,7 +229,7 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 
 | # | Función | Estado | Qué falta / dónde | Prio | Tam |
 |---|---|---|---|---|---|
-| F1 | Loop de reproducción | ⛔ | Igual que A11 | P1 | S–M |
+| F1 | Loop de reproducción | ✅ | Igual que A11 (docs/21) | — | — |
 | F2 | Pantalla completa / segunda ventana de preview | ⛔ | `App.window` de Aurora; docs/05 | P3 | M |
 | F3 | Recordar tamaño/posición/maximizado | ⛔ | `remember="rec-studio"` de Aurora | P2 | S |
 | F4 | Atajos configurables | ⛔ | Atajos fijos en `EditorController.on_key` | P3 | M |
@@ -451,14 +452,18 @@ export coinciden; el proyecto reabre igual.
 «fit» con fondo; un texto conserva su posición relativa; un video rotado 90° se endereza; el
 export vertical coincide con el preview; el corte rápido se bloquea si hay transformación. ✅
 
-### Fase 3 — Flujo de edición (M)
+### Fase 3 — Flujo de edición (M) — ✅ implementada
 
-- Copiar/pegar/duplicar; razor; marquesina que mueve; marcadores; loop e in/out; export de rango.
-- Panel de medios y drag & drop (si no se ha hecho antes).
+> Resultado y decisiones: [21 — Fase 3](21-fase-3-flujo.md).
+
+- Copiar/pegar/duplicar; razor; marquesina que mueve; marcadores; loop e in/out; export de rango. ✅
+- J/K/L (marcha atrás sin audio y a menos fps) y Q/W. ✅ Zoom que sigue al playhead (A17): ⛔ por
+  Aurora 0.9.
+- Panel de medios y drag & drop: pendientes (A13/A14).
 
 **Criterio:** copiar dos clips y pegarlos en el playhead; duplicar con `Ctrl+D`; cortar con razor
 en el punto pulsado; marcar y reproducir en loop; exportar solo el rango marcado; todo con undo
-único y sin romper el snap.
+único y sin romper el snap. ✅
 
 ### Fase 4 — Composición y texto (L)
 
@@ -495,7 +500,7 @@ aceptables; el progreso/ETA/cancelar siguen funcionando.
 > **Resueltas en la fase 1:** «picar» audio con pista absoluta (decisión 2) y alcance del audio
 > libre (decisión 5, primera iteración). **Resuelta en la fase 2:** «resizar el frame» se hizo con
 > lienzo **y** transformación por clip (decisión 1, ver [20](20-fase-2-frame.md)). Las decisiones
-> 3 (pistas de video) y 4 (keyframes) siguen abiertas para las fases 3–4.
+> 3 (pistas de video) y 4 (keyframes) siguen abiertas para la fase 4.
 
 1. **«Resizar el frame»**: ¿cambiar el lienzo del proyecto (resolución/aspecto), transformar el
    clip (escala/posición/crop), o ambos? La recomendación es **ambos**, empezando por el lienzo.
@@ -512,10 +517,9 @@ aceptables; el progreso/ETA/cancelar siguen funcionando.
 
 ## 8. Primer corte recomendado
 
-> **Hecho:** fases 0, 1 y 2 (modelo absoluto + audio editable + lienzo/transformación). Ver
-> [19 — Fase 0 y 1](19-fase-0-1-audio.md) y [20 — Fase 2](20-fase-2-frame.md). Lo siguiente es la
-> fase 3 (flujo de edición: portapapeles, razor, marquesina que mueve, marcadores, loop y rango de
-> export).
+> **Hecho:** fases 0, 1, 2 y 3 (modelo absoluto + audio editable + lienzo/transformación + flujo
+> de edición). Ver [19 — Fase 0 y 1](19-fase-0-1-audio.md), [20 — Fase 2](20-fase-2-frame.md) y
+> [21 — Fase 3](21-fase-3-flujo.md). Lo siguiente es la fase 4 (composición y texto).
 
 Si hay que elegir una sola entrega después de este análisis:
 

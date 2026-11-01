@@ -24,6 +24,7 @@ from .project import (
     SPEED_MIN,
     TRANSITION_MIN,
     Clip,
+    Marker,
     MediaAsset,
     Project,
     TextOverlay,
@@ -1001,19 +1002,520 @@ def snap(t: float, candidates: list[float] | tuple[float, ...], zoom: float, thr
 
 
 def snap_candidates(
-    p: Project, *, playhead: float | None = None, exclude: str | None = None, zoom: float | None = None
+    p: Project, *, playhead: float | None = None, exclude=None, zoom: float | None = None,  # noqa: ANN001
 ) -> list[float]:
-    """Bordes de clips (video y audio, menos los de `exclude`), playhead, 0 y segundos enteros."""
+    """Bordes de clips (video y audio, menos los de `exclude`: un id o varios), playhead,
+    marcadores, In/Out, 0 y segundos enteros."""
+    excluded = {exclude} if isinstance(exclude, str) else set(exclude or ())
     candidates = {0.0}
     for track in (p.video, *p.audio):
         starts = clip_starts(track)
         for clip, start in zip(track.clips, starts):
-            if clip.id == exclude:
+            if clip.id in excluded:
                 continue
             candidates.add(start)
             candidates.add(start + clip.duration)
     if playhead is not None:
         candidates.add(playhead)
+    # Marcadores e In/Out (fase 3): el imán engancha también a ellos.
+    candidates.update(m.t for m in p.markers)
+    candidates.update(v for v in (p.range_in, p.range_out) if v is not None)
     if zoom is not None and zoom < 40:
         candidates.update(float(s) for s in range(int(project_extent(p)) + 1))
     return sorted(candidates)
+
+
+# -- flujo de edición (fase 3, docs/21) ----------------------------------------------
+#
+# Marcadores, In/Out del timeline, razor, Q/W, portapapeles y movimiento en bloque. Todas son
+# funciones puras: la UI aplica cada una con un único `store.apply` (un solo undo).
+
+
+def add_marker(p: Project, t: float, name: str = "") -> tuple[Project, Marker]:
+    """Añade un marcador en `t` (redondeado a frame). Uno por fotograma como mucho."""
+    t = frame_round(max(0.0, float(t)), p.fps)
+    if any(abs(m.t - t) < 0.5 / p.fps for m in p.markers):
+        raise ProjectError("ya hay un marcador en ese fotograma")
+    label = str(name).strip() or f"Marcador {len(p.markers) + 1}"
+    marker = Marker(id=new_id("k"), t=round(t, 6), name=label)
+    markers = tuple(sorted((*p.markers, marker), key=lambda m: (m.t, m.id)))
+    return replace(p, markers=markers), marker
+
+
+def rename_marker(p: Project, marker_id: str, name: str) -> Project:
+    current = p.marker(marker_id)
+    label = str(name).strip()
+    if not label:
+        raise ProjectError("el marcador necesita un nombre")
+    if label == current.name:
+        return p
+    return replace(p, markers=tuple(replace(m, name=label) if m.id == marker_id else m for m in p.markers))
+
+
+def remove_marker(p: Project, marker_id: str) -> Project:
+    p.marker(marker_id)  # valida que existe
+    return replace(p, markers=tuple(m for m in p.markers if m.id != marker_id))
+
+
+def marker_at(p: Project, t: float, tolerance: float) -> Marker | None:
+    """Marcador más cercano a `t` si está a menos de `tolerance` segundos."""
+    if not p.markers:
+        return None
+    best = min(p.markers, key=lambda m: abs(m.t - t))
+    return best if abs(best.t - t) <= tolerance else None
+
+
+def adjacent_marker(p: Project, t: float, direction: int) -> Marker | None:
+    """Siguiente (`direction > 0`) o anterior marcador respecto a `t` (medio frame de holgura)."""
+    eps = 0.5 / p.fps
+    if direction > 0:
+        return next((m for m in p.markers if m.t > t + eps), None)
+    return next((m for m in reversed(p.markers) if m.t < t - eps), None)
+
+
+def set_range_in(p: Project, t: float) -> Project:
+    """Punto de entrada del timeline (I). Si queda después de la salida, la salida se quita."""
+    t = round(frame_round(max(0.0, min(float(t), total_duration(p))), p.fps), 6)
+    out = p.range_out
+    if out is not None and out <= t + 1e-9:
+        out = None
+    if (p.range_in, p.range_out) == (t, out):
+        return p
+    return replace(p, range_in=t, range_out=out)
+
+
+def set_range_out(p: Project, t: float) -> Project:
+    """Punto de salida del timeline (O). Si queda antes de la entrada, la entrada se quita."""
+    t = round(frame_round(max(0.0, min(float(t), total_duration(p))), p.fps), 6)
+    if t <= 0:
+        raise ProjectError("el punto de salida debe estar después del inicio del timeline")
+    start = p.range_in
+    if start is not None and start >= t - 1e-9:
+        start = None
+    if (p.range_in, p.range_out) == (start, t):
+        return p
+    return replace(p, range_in=start, range_out=t)
+
+
+def clear_range(p: Project) -> Project:
+    if p.range_in is None and p.range_out is None:
+        return p
+    return replace(p, range_in=None, range_out=None)
+
+
+def has_range(p: Project) -> bool:
+    return p.range_in is not None or p.range_out is not None
+
+
+def play_range(p: Project) -> tuple[float, float]:
+    """Rango efectivo In/Out acotado al timeline (sin puntos, o si queda vacío: todo)."""
+    total = total_duration(p)
+    start = min(p.range_in or 0.0, total)
+    end = total if p.range_out is None else min(p.range_out, total)
+    if end - start < 1.0 / p.fps - 1e-9:
+        return 0.0, total
+    return start, end
+
+
+def razor(p: Project, t: float, track=None) -> Project:  # noqa: ANN001
+    """Herramienta razor sobre una pista: el video (`None`, con su audio enlazado, como `S`) o
+    una pista de audio (índice), cuyos trozos conservan el enlace como en `split_audio`."""
+    index = _audio_index(p, track)
+    if index is None:
+        _ensure_unlocked(p.video)
+        return split_all(p, t)
+    project, _left, _right = _split_track_impl(p, index, frame_round(t, p.fps), keep_link=True)
+    return project
+
+
+def split_everything(p: Project, t: float) -> Project:
+    """Razor sobre la regla: corta el video (con su audio enlazado) y todas las pistas de audio
+    desbloqueadas que cruzan `t`. Un solo resultado (un solo undo)."""
+    t = frame_round(t, p.fps)
+    project = p
+    cuts = 0
+    if not p.video.locked and locate(p, t) is not None:
+        try:
+            project = split_all(project, t)
+            cuts += 1
+        except ProjectError:
+            pass
+    for track_index in range(len(project.audio)):
+        if project.audio[track_index].locked:
+            continue
+        for clip_id in [c.id for c in project.audio[track_index].clips]:
+            track = project.audio[track_index]
+            if not _spans(track, track.index_of(clip_id), t):
+                continue
+            try:
+                project, _left, _right = _split_track_impl(project, track_index, t, keep_link=True)
+                cuts += 1
+            except ProjectError:  # el trozo ya empieza en `t` (lo cortó el audio enlazado)
+                pass
+    if not cuts:
+        raise ProjectError("no hay nada que cortar en ese punto")
+    return project
+
+
+def trim_to(p: Project, t: float, side: str, track=None) -> Project:  # noqa: ANN001
+    """Q (`side="start"`) / W (`"end"`): recorta el clip bajo `t` hasta `t`.
+
+    En el video (`track=None`) el timeline es magnético, así que recortar por la izquierda hace
+    ripple: lo de después se desplaza. En una pista de audio absoluta el borde contrario queda
+    fijo (`trim_audio`).
+    """
+    if side not in ("start", "end"):
+        raise ProjectError(f"lado desconocido: {side!r}")
+    t = frame_round(t, p.fps)
+    frame = 1.0 / p.fps
+    index = _audio_index(p, track)
+    target = _track_of(p, index)
+    _ensure_unlocked(target)
+    hit = next(
+        ((clip, start) for clip, start in zip(target.clips, clip_starts(target))
+         if start <= t < start + clip.duration),
+        None,
+    )
+    if hit is None:
+        raise ProjectError("no hay ningún clip bajo el playhead")
+    clip, start = hit
+    local = t - start
+    if (side == "start" and local < frame - 1e-9) or (side == "end" and clip.duration - local < frame - 1e-9):
+        raise ProjectError("el playhead está en el borde del clip: no hay nada que recortar")
+    source = clip.in_ + local * clip.speed
+    new_in, new_out = (source, clip.out_) if side == "start" else (clip.in_, source)
+    if index is None:
+        return trim(p, clip.id, new_in, new_out)
+    return trim_audio(p, index, clip.id, new_in, new_out)
+
+
+# -- portapapeles (A7) ---------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ClipboardItem:
+    kind: str  # video | audio | text
+    offset: float  # segundos desde el inicio del primer elemento copiado
+    clip: Clip | None = None
+    track_index: int = -1  # pista de audio de origen
+    track_mode: str = "absolute"
+    text: TextOverlay | None = None
+    transition: Transition | None = None  # video: con el siguiente clip copiado, si eran contiguos
+
+
+@dataclass(frozen=True)
+class Clipboard:
+    items: tuple[ClipboardItem, ...] = ()
+    assets: tuple[MediaAsset, ...] = ()
+    span: float = 0.0  # del primer inicio al último final (s)
+
+    @property
+    def empty(self) -> bool:
+        return not self.items
+
+
+def selection_bounds(p: Project, ids) -> tuple[float, float] | None:  # noqa: ANN001
+    """`(inicio, final)` en el timeline de los clips/textos con esos ids (o `None`)."""
+    ids = set(ids)
+    spans: list[tuple[float, float]] = []
+    for track in (p.video, *p.audio):
+        for clip, start in zip(track.clips, clip_starts(track)):
+            if clip.id in ids:
+                spans.append((start, start + clip.duration))
+    spans += [(t.start, t.end) for t in p.texts if t.id in ids]
+    if not spans:
+        return None
+    return min(s for s, _ in spans), max(e for _, e in spans)
+
+
+def copy_items(p: Project, ids) -> Clipboard:  # noqa: ANN001
+    """Copia clips de video, de audio y textos (por id). Conserva efectos, transformación,
+    velocidad, las transiciones entre clips de video contiguos y los enlaces audio↔video."""
+    ids = set(ids)
+    entries: list[tuple[float, ClipboardItem]] = []
+    starts = clip_starts(p.video)
+    video = [(i, c) for i, c in enumerate(p.video.clips) if c.id in ids]
+    for position, (i, clip) in enumerate(video):
+        following = video[position + 1][0] if position + 1 < len(video) else None
+        transition = p.video.transitions[i] if following == i + 1 else None
+        entries.append((starts[i], ClipboardItem("video", 0.0, clip=clip, transition=transition)))
+    for track_index, track in enumerate(p.audio):
+        for clip, start in zip(track.clips, clip_starts(track)):
+            if clip.id in ids:
+                entries.append((start, ClipboardItem(
+                    "audio", 0.0, clip=clip, track_index=track_index, track_mode=track.mode,
+                )))
+    for overlay in p.texts:
+        if overlay.id in ids:
+            entries.append((overlay.start, ClipboardItem("text", 0.0, text=overlay)))
+    if not entries:
+        raise ProjectError("no hay nada seleccionado que copiar")
+    bounds = selection_bounds(p, ids)
+    assert bounds is not None
+    anchor = bounds[0]
+    items = tuple(replace(item, offset=round(start - anchor, 6)) for start, item in entries)
+    used = {item.clip.asset_id for item in items if item.clip is not None}
+    assets = tuple(a for a in p.assets if a.id in used)
+    return Clipboard(items=items, assets=assets, span=round(bounds[1] - anchor, 6))
+
+
+def _sequence_index(track: Track, t: float) -> int:
+    """Hueco de una pista secuencial más cercano a `t` (cuántos clips tienen el centro antes)."""
+    starts = clip_starts(track)
+    return sum(1 for s, c in zip(starts, track.clips) if s + c.duration / 2 < t)
+
+
+def paste(p: Project, clipboard: Clipboard, t: float) -> tuple[Project, tuple[str, ...]]:
+    """Pega el portapapeles en `t` (el playhead). Devuelve `(proyecto, ids nuevos)`.
+
+    - Video (secuencial y magnético): se insertan juntos en el hueco más cercano a `t`; lo que
+      había después se desplaza. Entre sí conservan sus transiciones; con los vecinos, corte.
+    - Audio en pista absoluta: en `t` + su desfase (el audio enlazado a un video pegado se
+      alinea con ese video). Si se solapa con otro clip de la pista, la operación falla entera.
+      En pista secuencial (música) se inserta en el hueco más cercano.
+    - Textos: en `t` + su desfase, acotados al timeline.
+
+    Ids nuevos para todo. Un audio solo queda enlazado si su video se pegó a la vez; un video
+    cuyo audio separado no viaja con él recupera su audio propio (`audio_enabled=True`).
+    """
+    if clipboard.empty:
+        raise ProjectError("el portapapeles está vacío")
+    project = p
+    fps = project.fps
+    asset_map: dict[str, str] = {}
+    for asset in clipboard.assets:
+        if any(a.id == asset.id for a in project.assets):
+            asset_map[asset.id] = asset.id
+            continue
+        by_path = project.asset_for_path(asset.path)
+        if by_path is not None:
+            asset_map[asset.id] = by_path.id
+            continue
+        project = replace(project, assets=(*project.assets, asset))
+        asset_map[asset.id] = asset.id
+    t = frame_round(max(0.0, float(t)), fps)
+    videos = [item for item in clipboard.items if item.kind == "video" and item.clip is not None]
+    linked_in_clipboard = {
+        item.clip.link_id for item in clipboard.items
+        if item.kind == "audio" and item.clip is not None and item.clip.link_id
+    }
+    new_ids: list[str] = []
+    link_map: dict[str, str] = {}
+    video_start: dict[str, float] = {}  # id del video original → inicio del pegado
+    video_offset: dict[str, float] = {}
+    anchor = t
+    if videos:
+        track = project.video
+        _ensure_unlocked(track)
+        index = _sequence_index(track, t)
+        starts = clip_starts(track)
+        insert_t = starts[index] if index < len(starts) else track_duration(track)
+        anchor = insert_t - videos[0].offset
+        clips = list(track.clips)
+        transitions = list(track.transitions)
+        for k, item in enumerate(videos):
+            clip = item.clip
+            assert clip is not None
+            new = replace(
+                clip, id=new_id("c"), asset_id=asset_map.get(clip.asset_id, clip.asset_id),
+                link_id=None, start=None,
+                audio_enabled=clip.audio_enabled or clip.id not in linked_in_clipboard,
+            )
+            link_map[clip.id] = new.id
+            video_offset[clip.id] = item.offset
+            _insert_at(clips, transitions, index + k, new)
+            new_ids.append(new.id)
+        for k, item in enumerate(videos[:-1]):
+            if item.transition is not None:
+                transitions[index + k] = item.transition
+        project = replace(project, video=fit_transitions(
+            replace(track, clips=tuple(clips), transitions=tuple(transitions))
+        ))
+        pasted_starts = clip_starts(project.video)
+        for k, item in enumerate(videos):
+            video_start[item.clip.id] = pasted_starts[index + k]  # type: ignore[union-attr]
+    track_map: dict[int, int] = {}
+    for item in clipboard.items:
+        if item.kind != "audio" or item.clip is None:
+            continue
+        source_index = item.track_index
+        if source_index not in track_map:
+            if 0 <= source_index < len(project.audio) and project.audio[source_index].mode == item.track_mode:
+                track_map[source_index] = source_index
+            else:
+                project, track_map[source_index] = add_audio_track(project, mode=item.track_mode)
+        target_index = track_map[source_index]
+        track = project.audio[target_index]
+        _ensure_unlocked(track)
+        original_link = item.clip.link_id
+        link = link_map.get(original_link) if original_link else None
+        if link is not None:
+            start = video_start[original_link] + (item.offset - video_offset[original_link])
+        else:
+            start = anchor + item.offset
+        start = frame_round(max(0.0, start), fps)
+        new = replace(
+            item.clip, id=new_id("a"), asset_id=asset_map.get(item.clip.asset_id, item.clip.asset_id),
+            link_id=link, audio_enabled=True,
+        )
+        if track.mode == "absolute":
+            new = replace(new, start=round(start, 6))
+            if _absolute_overlap(track, start, new.duration):
+                label = track.name or f"Audio {target_index + 1}"
+                raise ProjectError(f"el audio pegado se solaparía con otro clip de «{label}»")
+            ordered = _ordered_absolute_clips([*track.clips, new])
+            project = _with_track_index(project, target_index, replace(
+                track, clips=ordered, transitions=tuple(None for _ in range(len(ordered) - 1))
+            ))
+        else:
+            new = replace(new, start=None)
+            seq_clips, seq_transitions = list(track.clips), list(track.transitions)
+            _insert_at(seq_clips, seq_transitions, _sequence_index(track, start), new)
+            project = _with_track_index(project, target_index, replace(
+                track, clips=tuple(seq_clips), transitions=tuple(seq_transitions)
+            ))
+        new_ids.append(new.id)
+    texts = [item for item in clipboard.items if item.kind == "text" and item.text is not None]
+    if texts:
+        total = total_duration(project)
+        if total <= 0:
+            raise ProjectError("el timeline está vacío: no hay dónde pegar el texto")
+        min_len = max(0.2, 1.0 / fps)
+        for item in texts:
+            overlay = item.text
+            assert overlay is not None
+            start = min(max(0.0, anchor + item.offset), max(0.0, total - min_len))
+            end = min(total, start + overlay.seconds)
+            pasted = replace(overlay, id=new_id("t"), start=round(start, 4), end=round(end, 4))
+            project = replace(project, texts=(*project.texts, pasted))
+            new_ids.append(pasted.id)
+    return project, tuple(new_ids)
+
+
+def duplicate(p: Project, ids) -> tuple[Project, tuple[str, ...]]:  # noqa: ANN001
+    """Ctrl+D: copia y pega justo detrás de la selección (el video, tras su último clip)."""
+    clipboard = copy_items(p, ids)
+    ids = set(ids)
+    starts = clip_starts(p.video)
+    video_ends = [s + c.duration for s, c in zip(starts, p.video.clips) if c.id in ids]
+    if video_ends:
+        target = max(video_ends)
+    else:
+        bounds = selection_bounds(p, ids)
+        assert bounds is not None
+        target = bounds[1]
+    return paste(p, clipboard, target)
+
+
+def remove_items(p: Project, ids) -> Project:  # noqa: ANN001
+    """Borra clips de video (ripple, con su audio enlazado), clips de audio y textos de una vez."""
+    ids = set(ids)
+    project = ripple_delete_many(p, [c.id for c in p.video.clips if c.id in ids])
+    for track_index in range(len(project.audio)):
+        for clip_id in [c.id for c in project.audio[track_index].clips if c.id in ids]:
+            project = remove_audio(project, track_index, clip_id)
+    if any(t.id in ids for t in project.texts):
+        project = replace(project, texts=tuple(t for t in project.texts if t.id not in ids))
+    return project
+
+
+# -- mover en bloque (A8) ----------------------------------------------------------------
+
+
+def move_many(p: Project, clip_ids, to_index: int) -> Project:  # noqa: ANN001
+    """Mueve varios clips de video juntos a `to_index` (índice del primero entre los que quedan).
+
+    Los clips quedan contiguos y en su orden; conservan las transiciones que había entre clips
+    seleccionados que ya eran vecinos. Con los nuevos vecinos, corte limpio.
+    """
+    _ensure_unlocked(p.video)
+    ids = set(clip_ids)
+    order = [i for i, c in enumerate(p.video.clips) if c.id in ids]
+    if not order:
+        return p
+    moved = [p.video.clips[i] for i in order]
+    inner = [
+        p.video.transitions[i] if order[j + 1] == i + 1 else None
+        for j, i in enumerate(order[:-1])
+    ]
+    clips = list(p.video.clips)
+    transitions = list(p.video.transitions)
+    for i in reversed(order):
+        _remove_at(clips, transitions, i)
+    to_index = max(0, min(int(to_index), len(clips)))
+    result_order = [c.id for c in clips[:to_index]] + [c.id for c in moved] + [c.id for c in clips[to_index:]]
+    if result_order == [c.id for c in p.video.clips]:
+        return p  # mismo orden: nada que hacer (y no se pierde ninguna transición)
+    for k, clip in enumerate(moved):
+        _insert_at(clips, transitions, to_index + k, clip)
+    for k, transition in enumerate(inner):
+        if transition is not None:
+            transitions[to_index + k] = transition
+    return _with_track(p, clips, transitions)
+
+
+def block_drop_index(p: Project, clip_ids, ghost_start: float) -> int:  # noqa: ANN001
+    """Hueco (entre los clips que no se mueven) donde cae un bloque de video que empieza en
+    `ghost_start`: el hueco cuyo inicio queda más cerca del inicio del fantasma."""
+    ids = set(clip_ids)
+    gaps = [0.0]
+    for clip in p.video.clips:
+        if clip.id not in ids:
+            gaps.append(gaps[-1] + clip.duration)
+    return min(range(len(gaps)), key=lambda i: (abs(gaps[i] - ghost_start), i))
+
+
+def shift_audio_many(p: Project, clip_ids, delta: float) -> Project:  # noqa: ANN001
+    """Desplaza `delta` s los clips de audio **absolutos** con esos ids (los secuenciales no se
+    mueven en bloque). Falla si alguno se solaparía con un clip no seleccionado."""
+    ids = set(clip_ids)
+    moved = [
+        clip
+        for track in p.audio if track.mode == "absolute"
+        for clip in track.clips if clip.id in ids
+    ]
+    if not moved or abs(delta) < 1e-9:
+        return p
+    delta = max(float(delta), -min(float(c.start or 0.0) for c in moved))  # nunca antes de 0
+    project = p
+    for track_index, track in enumerate(p.audio):
+        if track.mode != "absolute" or not any(c.id in ids for c in track.clips):
+            continue
+        _ensure_unlocked(track)
+        others = [c for c in track.clips if c.id not in ids]
+        rest = replace(track, clips=tuple(others), transitions=tuple(None for _ in range(max(0, len(others) - 1))))
+        updated: list[Clip] = list(others)
+        for clip in track.clips:
+            if clip.id not in ids:
+                continue
+            start = round(frame_round(float(clip.start or 0.0) + delta, p.fps), 6)
+            if _absolute_overlap(rest, start, clip.duration):
+                raise ProjectError("el bloque se solaparía con otro clip de audio")
+            updated.append(replace(clip, start=start))
+        ordered = _ordered_absolute_clips(updated)
+        project = _with_track_index(project, track_index, replace(
+            track, clips=ordered, transitions=tuple(None for _ in range(len(ordered) - 1))
+        ))
+    return project
+
+
+def move_block(p: Project, clip_ids, ghost_start: float) -> Project:  # noqa: ANN001
+    """Arrastre de la selección múltiple: el bloque (video + audio absoluto) empieza en
+    `ghost_start`. El video se reordena (magnético) y el audio se desplaza lo mismo que el video
+    (o, sin video, lo que diga el fantasma). Un solo resultado ⇒ un solo undo."""
+    ids = set(clip_ids)
+    bounds = selection_bounds(p, ids)
+    if bounds is None:
+        return p
+    block_start = bounds[0]
+    video_ids = [c.id for c in p.video.clips if c.id in ids]
+    project = p
+    if video_ids:
+        first = video_ids[0]
+        old_video_start = clip_starts(p.video)[p.video.index_of(first)]
+        ghost_video = ghost_start + (old_video_start - block_start)
+        project = move_many(p, video_ids, block_drop_index(p, video_ids, ghost_video))
+        delta = clip_starts(project.video)[project.video.index_of(first)] - old_video_start
+    else:
+        delta = ghost_start - block_start
+    return shift_audio_many(project, ids, delta)

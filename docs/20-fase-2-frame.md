@@ -200,8 +200,8 @@ explícitamente en ambos (horaria: `transpose=1/2` según el caso y `np.rot90` e
 
 El proxy 540p se genera con `-noautorotate` y una clave de caché que incluye la rotación
 (`…-r90.mp4`), para que el preview aplique la rotación una sola vez y no reutilice proxies viejos
-generados con auto-rotación. Los pósters y el filmstrip siguen mostrando la orientación codificada
-(limitación menor; no afecta al render).
+generados con auto-rotación. Los pósters y el filmstrip mostraban la orientación codificada; se
+enderezan desde la fase 3 ([21](21-fase-3-flujo.md)), con la caché invalidada.
 
 ## Preview (`services/playback.py`)
 
@@ -273,8 +273,8 @@ admitiéndolo.
 
 ## Límites y pendientes
 
-- El filmstrip y los pósters de assets rotados siguen mostrando la orientación codificada (el
-  preview y el export sí enderezan).
+- ~~El filmstrip y los pósters de assets rotados muestran la orientación codificada.~~ Resuelto en
+  la fase 3 ([21](21-fase-3-flujo.md)).
 - No hay arrastre/recorte interactivo sobre el preview (fase 2 lo deja como controles numéricos).
 - Solo hay un fondo de color sólido; el fondo desenfocado (blur) y la imagen de fondo quedan para
   más adelante (C8 parcial).

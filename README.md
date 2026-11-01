@@ -11,7 +11,9 @@
 > carpetas — ver [docs/17](docs/17-bloque-b-editor.md). Las **fases 0/1/2 del editor** añaden
 > audio absoluto separable/editable, lienzo configurable, transformación del frame y
 > auto-rotación — ver [docs/19](docs/19-fase-0-1-audio.md) y
-> [docs/20](docs/20-fase-2-frame.md). Ver también
+> [docs/20](docs/20-fase-2-frame.md). La **fase 3** añade el flujo de edición: copiar/pegar/
+> duplicar, marquesina que mueve, razor, marcadores, In/Out con loop, J/K/L, Q/W y export de un
+> rango — ver [docs/21](docs/21-fase-3-flujo.md). Ver también
 > [docs/12](docs/12-f3-editor.md), [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md)
 > y el [CHANGELOG](CHANGELOG.md).
 

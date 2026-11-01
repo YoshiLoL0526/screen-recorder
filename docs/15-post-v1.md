@@ -3,8 +3,8 @@
 > Estado a **2026-10-31**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
 > filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.9), los
 > **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md))
-> y las **fases 0, 1 y 2 del editor** ([19 — Fase 0 y 1](19-fase-0-1-audio.md),
-> [20 — Fase 2](20-fase-2-frame.md)).
+> y las **fases 0, 1, 2 y 3 del editor** ([19 — Fase 0 y 1](19-fase-0-1-audio.md),
+> [20 — Fase 2](20-fase-2-frame.md), [21 — Fase 3](21-fase-3-flujo.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -28,6 +28,7 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Bandeja, atajos globales F9/F10 y «seguir grabando al cerrar» | `ui/tray.py`, `platform/hotkeys.py` |
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Lienzo configurable, transformación del frame y auto-rotación | `core/project.py`, `core/transform.py`, `core/graph.py`, `services/playback.py`, inspector (docs/20) |
+| Flujo de edición: portapapeles, marquesina que mueve, razor, marcadores, In/Out, loop, J/K/L, Q/W y export de rango | `core/timeline.py`, `core/graph.py`, `core/keyframes.py`, `services/playback.py`, `ui/editor_controller.py`, `ui/timeline.py` (docs/21) |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
 **288 tests** en verde y `tools/check_build.py` OK (bundle de **255 MB** en local con
@@ -77,9 +78,10 @@ limpia sigue pendiente (A2), igual que el móvil, el soak y el ratón (A6–A8).
 ## Bloque B — Editor: lo hecho
 
 El editor ya tiene todo lo de v1 y ahora también música, textos, selección múltiple, snap de audio,
-proxy, reubicar carpetas, **audio separable/editable** (fases 0 y 1) y **lienzo/transformación del
-frame** (fase 2). Resultados y decisiones en [17 — Bloque B](17-bloque-b-editor.md),
-[19 — Fase 0 y 1](19-fase-0-1-audio.md) y [20 — Fase 2](20-fase-2-frame.md).
+proxy, reubicar carpetas, **audio separable/editable** (fases 0 y 1), **lienzo/transformación del
+frame** (fase 2) y el **flujo de edición** (fase 3). Resultados y decisiones en
+[17 — Bloque B](17-bloque-b-editor.md), [19 — Fase 0 y 1](19-fase-0-1-audio.md),
+[20 — Fase 2](20-fase-2-frame.md) y [21 — Fase 3](21-fase-3-flujo.md).
 
 ### B1 — Pista de música, ducking y crossfades de audio (✅ · L)
 
@@ -151,10 +153,26 @@ Resultados y decisiones completas en [20 — Fase 2](20-fase-2-frame.md).
 - **Corte rápido** bloqueado con lienzo distinto, fondo/fit no histórico, transformación o
   auto-rotación.
 
-> Las herramientas del editor que aún faltan (flujo de edición, composición y export) se analizan
-> en [18 — Herramientas del editor](18-herramientas-editor.md). **La fase 3 (flujo de edición) es
-> la siguiente**: portapapeles/duplicar, razor, marquesina que mueve, marcadores, loop e in/out y
-> export de rango.
+### B9 — Flujo de edición: fase 3 (✅ · M)
+
+Resultados y decisiones completas en [21 — Fase 3](21-fase-3-flujo.md).
+
+- **Modelo v5**: `Project.markers`, `range_in`, `range_out`; migración v4 → v5 y proyectos v1–v4
+  idénticos al abrir.
+- **Portapapeles**: `Ctrl+C/X/V/D` para video, audio y textos (también en selección múltiple),
+  pegando en el playhead con transformación, efectos y enlace audio↔video; un undo por operación.
+- **Marquesina que mueve** el bloque (un undo, respeta bloqueos y snap) y **razor** visible (`C`),
+  excluyente con la marquesina, por pista o en todas.
+- **Marcadores** (`B`, ↑/↓, regla, inspector, snap), **In/Out** del timeline (`I`/`O`; el
+  inspector pasa a `P`), **loop** (`Ctrl+L`) en el `Player` y **J/K/L** con velocidad creciente.
+- **Q/W** recortan hasta el playhead (ripple en video) y el **export de rango** funciona en render
+  y en corte rápido sin tocar los golden.
+- Filmstrip y pósters de assets rotados enderezados. **A17** (zoom que sigue al playhead) queda
+  bloqueado por Aurora 0.9.
+
+> Las herramientas del editor que aún faltan (composición y export) se analizan en
+> [18 — Herramientas del editor](18-herramientas-editor.md). **La fase 4 (composición y texto) es
+> la siguiente**: PiP/overlay, subtítulos y keyframes.
 
 ---
 
@@ -271,8 +289,8 @@ Si hay que elegir un orden (y no simplemente el orden del documento):
    smoke del exe, pero no el flujo CU-1→CU-5 con monitor y audio.
 2. **A6 + A7 + A8** — cerrar las comprobaciones manuales del bloque A (móvil, soak de 30 min y
    sensación del timeline); los procedimientos están en [docs/16](16-bloque-a-entrega.md).
-3. **Fase 3 del editor** — flujo de edición (copiar/pegar/duplicar, razor, marquesina que mueve,
-   marcadores, loop e in/out, export de rango).
+3. **Fase 4 del editor** — composición y texto (PiP/overlay, subtítulos, keyframes); la fase 3
+   (flujo de edición) ya está hecha ([21](21-fase-3-flujo.md)).
 4. **C1** — webcam PiP, el siguiente salto de producto.
 5. **D1** — GIF/WebM para compartir en un clic.
 6. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de

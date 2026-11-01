@@ -21,10 +21,11 @@ saliente hasta su final y el entrante empieza en `t_local = duración de la tran
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import effects as fx
+from . import timeline as tl
 from . import transform as tx
 from .errors import ProjectError
 from .project import Clip, Project, Track, audio_track_audible, video_audio_gain
@@ -120,6 +121,41 @@ def timeline_frames(project: Project) -> tuple[list[int], list[int], int]:
     frames = [clip_frames(c, fps) for c in track.clips]
     overlaps = [transition_frames(track, i, frames, fps) for i in range(len(track.transitions))]
     return frames, overlaps, sum(frames) - sum(overlaps)
+
+
+def range_frames(project: Project, start: float, end: float) -> tuple[int, int]:
+    """Frames `[a, b)` del timeline compuesto para exportar el rango `start`–`end` (s).
+
+    Se redondea a frame y se acota a los frames reales del timeline (`timeline_frames`), así el
+    rango es un número entero de frames y coincide con lo que se ve en el preview.
+    """
+    total = timeline_frames(project)[2]
+    a = max(0, min(total, int(round(start * project.fps))))
+    b = max(0, min(total, int(round(end * project.fps))))
+    if b - a < 1:
+        raise ProjectError("el rango In/Out está vacío: marca una entrada antes de la salida")
+    return a, b
+
+
+def crop_tail(project: Project, end: float) -> Project:
+    """Quita los clips de video que empiezan en `end` o después (no se ven en el rango).
+
+    Es solo una optimización del export de rango (FFmpeg no tiene que abrir ni decodificar lo
+    que hay detrás). Lo anterior a `end` no se toca, así que el graph de esa parte es idéntico.
+    Un audio separado cuyo video desaparece pierde el enlace (sigue sonando donde estaba).
+    """
+    track = project.video
+    starts = tl.clip_starts(track)
+    keep = sum(1 for s in starts if s < end - 1e-9)
+    if keep >= len(track.clips) or keep == 0:
+        return project
+    dropped = {c.id for c in track.clips[keep:]}
+    video = replace(track, clips=track.clips[:keep], transitions=track.transitions[: keep - 1])
+    audio = tuple(
+        replace(t, clips=tuple(replace(c, link_id=None) if c.link_id in dropped else c for c in t.clips))
+        for t in project.audio
+    )
+    return replace(project, video=video, audio=audio)
 
 
 def atempo_chain(speed: float) -> list[str]:
@@ -479,14 +515,24 @@ def build(
     encoder: str = "libx264",
     exe: str = "ffmpeg",
     progress: bool = True,
+    span: tuple[float, float] | None = None,
 ) -> GraphSpec:
-    """Comando de render completo. `ProjectError` si el proyecto no se puede exportar así."""
+    """Comando de render completo. `ProjectError` si el proyecto no se puede exportar así.
+
+    `span=(inicio, final)` exporta solo ese rango del timeline (fase 3, docs/21): el graph es el
+    mismo y al final se recorta el video compuesto con `trim` por frames y el audio con `atrim`
+    a los mismos instantes. Sin `span` el comando es idéntico al de siempre (golden de F4).
+    """
     if preset.video == "copy":
         raise ProjectError("el preset «sin recodificar» no usa filter graph (ver core.keyframes)")
-    track = project.video
-    if not track.clips:
+    if not project.video.clips:
         raise ProjectError("el timeline está vacío: no hay nada que exportar")
     project.validate()
+    window: tuple[int, int] | None = None
+    if span is not None:
+        window = range_frames(project, *span)
+        project = crop_tail(project, window[1] / project.fps)
+    track = project.video
     fps = project.fps
     size = output_size(project, preset)
     frames, overlaps, total_frames = timeline_frames(project)
@@ -548,6 +594,18 @@ def build(
             project, inputs, chains, first_extra_input=len(track.clips), total_frames=total_frames,
             frames=frames, overlaps=overlaps,
         )
+
+    # -- rango In/Out: recorte final por frames (mismo número entero de frames que el preview) --
+    if window is not None:
+        a, b = window
+        chains.append(f"[{video_out}]trim=start_frame={a}:end_frame={b},setpts=PTS-STARTPTS[vrange]")
+        video_out = "vrange"
+        if audio_out:
+            chains.append(
+                f"[{audio_out}]atrim=start={num(a / fps)}:end={num(b / fps)},asetpts=PTS-STARTPTS[arange]"
+            )
+            audio_out = "arange"
+        total_frames = b - a
 
     filter_complex = ";".join(chains)
     args: list[str] = [exe, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *inputs,

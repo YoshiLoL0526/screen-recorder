@@ -77,8 +77,8 @@ def _preset_card(preset: graph.ExportPreset, selected: bool, blocked: tuple[str,
     ]
 
 
-def _summary(project, preset: graph.ExportPreset) -> str:
-    total = tl.total_duration(project)
+def _summary(project, preset: graph.ExportPreset, span: tuple[float, float] | None = None) -> str:
+    total = tl.total_duration(project) if span is None else span[1] - span[0]
     if preset.video == "copy":
         return f"{tl.format_time(total)} · resolución y códec originales (sin pérdida)"
     w, h = graph.output_size(project, preset)
@@ -126,6 +126,28 @@ def _progress_block(progress):
     ]
 
 
+def _range_choice(project, use_range: bool):
+    """«Todo el timeline» o «Rango In/Out» (fase 3). Sin In/Out solo se explica cómo marcarlo."""
+    if not tl.has_range(project):
+        return text("Exporta todo el timeline. Marca In/Out (I y O) para exportar solo un tramo.",
+                    size=11.5, color="$muted", key="export-range-hint")
+    start, end = tl.play_range(project)
+
+    def option(value: str, label: str, active: bool):
+        return box(key=f"export-range-{value}", padding=(6, 12), radius="$md", cursor="pointer",
+                   bg="$surface_pressed" if active else "$surface_hover", border_width=1,
+                   border_color="$primary" if active else "$border",
+                   on_click=lambda: state.export_range.set(value))[
+            text(label, size=12.5, weight=600 if active else 500)
+        ]
+
+    return row(gap=8, align="center", key="export-range")[
+        text("Exportar", size=12, color="$muted"),
+        option("all", "Todo el timeline", not use_range),
+        option("range", f"Rango In/Out · {tl.format_time(start)}–{tl.format_time(end)}", use_range),
+    ]
+
+
 @component
 def export_modal():
     if not state.export_open():
@@ -138,6 +160,9 @@ def export_modal():
     running = progress is not None and progress.active
     finished = progress is not None and progress.state == "done"
     close = _call("close_export")
+    has_range = tl.has_range(project)
+    use_range = has_range and state.export_range() == "range"
+    span = tl.play_range(project) if use_range else None
 
     if running:
         actions = [button("Cancelar export", _call("cancel_export"), variant="soft", key="export-cancel"),
@@ -174,10 +199,11 @@ def export_modal():
                     icon_button(icons.FOLDER, _call("reveal_export"), tooltip="Abrir la carpeta", size=24),
                 ],
             ],
+            not running and not finished and _range_choice(project, use_range),
             not running and not finished and column(gap=6)[
                 [_preset_card(p, p.id == preset_id, blocked) for p in graph.PRESETS]
             ],
-            not finished and text(_summary(project, preset), size=11.5, color="$muted", key="export-summary"),
+            not finished and text(_summary(project, preset, span), size=11.5, color="$muted", key="export-summary"),
             _progress_block(progress),
             row(justify="end", gap=10)[actions],
         ],

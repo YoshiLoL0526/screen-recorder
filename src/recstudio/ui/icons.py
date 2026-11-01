@@ -68,5 +68,14 @@ SOLO = _svg('<path d="M4 16v-5a8 8 0 0 1 16 0v5"/><rect x="3" y="14" width="4" h
 SPLIT_AUDIO = _svg('<path d="M3 12h5l2-5 3 10 2-5h6"/><path d="M17 4l3 3-3 3M20 7h-4"/>')
 TRACK_ADD = _svg('<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M12 9v6M9 12h6"/>')
 TRACK_REMOVE = _svg('<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M9 12h6"/>')
+# -- flujo de edición (fase 3, docs/21) -------------------------------------------
+RAZOR = _svg('<path d="M12 3v18"/><path d="M8.5 6.5L12 3l3.5 3.5"/><rect x="5" y="9" width="5" height="8" rx="1.5"/>'
+             '<rect x="14" y="9" width="5" height="8" rx="1.5"/>')
+MARKER = _svg('<path d="M7 20V4.5h10l-2.5 4 2.5 4H7"/>')
+LOOP = _svg('<path d="M17 4.5l2.5 2.5L17 9.5"/><path d="M19.5 7H8.5a4 4 0 0 0-4 4v1"/>'
+            '<path d="M7 19.5L4.5 17 7 14.5"/><path d="M4.5 17h11a4 4 0 0 0 4-4v-1"/>')
+MARK_IN = _svg('<path d="M9 5v14M9 5h5M9 19h5"/>')
+MARK_OUT = _svg('<path d="M15 5v14M15 5h-5M15 19h-5"/>')
+
 LINK = _svg('<path d="M10 14a3.5 3.5 0 0 1 0-5l2-2a3.5 3.5 0 0 1 5 5l-1 1"/>'
             '<path d="M14 10a3.5 3.5 0 0 1 0 5l-2 2a3.5 3.5 0 0 1-5-5l1-1"/>')

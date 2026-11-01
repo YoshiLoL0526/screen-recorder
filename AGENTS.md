@@ -17,15 +17,16 @@ bandeja del sistema y atajos globales (`ui/tray.py`, `platform/hotkeys.py`), fil
 RNF-06/07, instalador Inno Setup y bundle sin OpenCV; ver `docs/16`) y **bloque B del editor**
 (música/ducking, textos, selección múltiple, snap por waveform, proxy y reubicar carpetas; ver
 `docs/17`), **fases 0/1 de audio** (modelo v3, audio absoluto editable) y **fase 2** (modelo v4,
-lienzo configurable, transformación por clip y auto-rotación; ver `docs/19` y `docs/20`). Lo
-siguiente es la fase 3 del editor y el resto del backlog de `docs/15` (A2/A6/A7/A8 manuales y
-bloque C).
+lienzo configurable, transformación por clip y auto-rotación; ver `docs/19` y `docs/20`) y
+**fase 3** (modelo v5, flujo de edición: portapapeles, marquesina que mueve, razor, marcadores,
+In/Out, loop, J/K/L, Q/W y export de rango; ver `docs/21`). Lo siguiente es la fase 4 del editor
+y el resto del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 288 tests; la integración usa FFmpeg real
+uv run pytest                                   # 320 tests; la integración usa FFmpeg real
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -123,6 +124,16 @@ depender de monitor, GPU ni audio reales del runner.
 - La marquesina (B3) es un modo explícito (`state.marquee_on`): el canvas deja de hacer scrub y
   selecciona por rango de tiempo. `state.multi_selection` es la fuente de la selección múltiple;
   `state.selection` sigue siendo la selección primaria que alimenta el inspector.
+- Fase 3 (`docs/21`): la razor (`state.razor_on`) es otro modo explícito, **excluyente** con la
+  marquesina. Arrastrar un clip que está en `multi_selection` mueve el bloque (`tl.move_block`,
+  drag `block`). El inspector se oculta con **`P`**; `I`/`O` son In/Out del timeline
+  (`Project.range_in/out`, distintos de `mark_in`/`mark_out` del clip) y `B` añade marcador (`M`
+  es el audio del preview). Los atajos con Ctrl/Alt devuelven `None` si la tecla viene de un
+  campo (`from_input`), para no romper copiar/pegar texto. Pegar/mover video **no** desplaza el
+  audio absoluto que no va en la selección. El export de rango es un `trim` final sobre el graph
+  completo (`graph.build(span=…)`); sin `span` la salida es byte a byte la de siempre.
+- Miniaturas: el filmstrip vive en `thumbs2/` y los pósters en `…-{alto}-u.jpg` desde que se
+  enderezan los assets rotados (`media.upright_rgb`); si cambias su contenido, cambia la clave.
 - Layout (F5): todo contenedor `grow=1` cuyo contenido puede no caber (imágenes, pantallas
   largas) lleva `height=0` (columna) o `width=0` (fila); si no, crece y empuja controles fuera
   de la ventana. El alto útil de la ventana es `state.view_h` (lo da el `on_resize` de la

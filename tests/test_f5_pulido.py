@@ -216,7 +216,7 @@ def test_inspector_redimensionable_y_ocultable(ui, video: Path) -> None:
     pilot.drag("split-inspector", dx=-3000, steps=5)  # tope: el preview conserva su ancho mínimo
     _settle(pilot)
     assert pilot.rect("ed-preview")[2] >= tlui.PREVIEW_MIN_W - 1
-    pilot.press("i")
+    pilot.press("p")  # «P» desde la fase 3 (la «I» es el punto de entrada)
     _settle(pilot)
     assert pilot.rect("ed-inspector") is None and not state.inspector_open()
     assert pilot.rect("ed-preview")[2] > preview0 + 200

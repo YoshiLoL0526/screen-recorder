@@ -3,7 +3,8 @@
     column[ toolbar, row(grow=1)[ column[preview, transporte], ┃, inspector ], ━, timeline ]
 
 Los divisores (┃ ━) se arrastran (F5): ┃ cambia el ancho del inspector y ━ el alto de las pistas
-del timeline (y con ello el del preview). El inspector se oculta con `I` o el botón de panel.
+del timeline (y con ello el del preview). El inspector se oculta con `P` o el botón de panel
+(desde la fase 3 la `I`/`O` marcan la entrada y la salida del timeline, ver docs/21).
 
 Cada panel es un `@component` que lee solo sus `Signal`: el preview (30 Hz) y el playhead no
 reconstruyen el inspector ni el canvas del timeline.
@@ -97,7 +98,7 @@ def editor_toolbar():
         icon_button(icons.REDO, _call("redo"), tooltip=f"Rehacer: {redo} (Ctrl+Y)" if redo else "Nada que rehacer",
                     size=32, key="ed-redo", opacity=1.0 if redo else 0.45),
         icon_button(icons.PANEL, _call("toggle_inspector"),
-                    tooltip=("Ocultar" if state.inspector_open() else "Mostrar") + " el inspector (I)", size=32,
+                    tooltip=("Ocultar" if state.inspector_open() else "Mostrar") + " el inspector (P)", size=32,
                     key="ed-panel", bg="$surface_pressed" if state.inspector_open() else "$surface_hover"),
         box(width=8),
         icon_button(icons.MUSIC, _call("browse_music"), tooltip="Añadir música", size=32, key="ed-music"),
@@ -137,6 +138,12 @@ def preview_panel():
     ]
 
 
+def _rate_label(rate: float) -> str:
+    if rate == 1.0:
+        return ""
+    return f"◀ {abs(rate):g}×" if rate < 0 else f"{rate:g}× ▶"
+
+
 @component
 def transport():
     project = state.editor_project()
@@ -145,6 +152,9 @@ def transport():
     total = tl.total_duration(project)
     audio = state.preview_audio()
     frame = tl.frame_index(t, project.fps)
+    loop = state.loop_on()
+    rate = state.play_rate() if playing else 1.0
+    has_range = tl.has_range(project)
     return row(key="ed-transport", gap=6, align="center", shrink=0)[
         icon_button(icons.TO_START, _call("go_start"), tooltip="Inicio (Inicio)", size=32, key="tp-start"),
         icon_button(icons.STEP_BACK, _call("step", -1), tooltip="−1 fotograma (←)", size=32, key="tp-back"),
@@ -155,6 +165,16 @@ def transport():
         box(width=10),
         text(tl.format_time(t), key="tp-time", size=15, weight=700, family="Consolas", letter_spacing=0.2),
         text(f"/ {tl.format_time(total)}", size=13, color="$muted", family="Consolas"),
+        rate != 1.0 and chip(_rate_label(rate), tone="accent"),
+        box(width=6),
+        icon_button(icons.MARK_IN, _call("set_range_in"), tooltip="Punto de entrada del timeline (I)",
+                    size=28, key="tp-in", bg="$surface_pressed" if project.range_in is not None else "$surface_hover"),
+        icon_button(icons.MARK_OUT, _call("set_range_out"), tooltip="Punto de salida del timeline (O)",
+                    size=28, key="tp-out", bg="$surface_pressed" if project.range_out is not None else "$surface_hover"),
+        icon_button(icons.LOOP, _call("toggle_loop"),
+                    tooltip=("Loop: " + ("activado" if loop else "desactivado")
+                             + (" · rango In/Out" if has_range else " · todo el timeline") + " (Ctrl+L)"),
+                    size=28, key="tp-loop", bg="$primary" if loop else "$surface_hover"),
         spacer(),
         text(f"fotograma {frame} · {project.fps} fps", size=11.5, color="$muted", family="Consolas"),
         icon_button(icons.SPEAKER if audio else icons.MUTE, _call("toggle_preview_audio"),
@@ -441,6 +461,24 @@ def inspector():
                    font_size=11.5, key="insp-text-delete"),
             gap=10,
         ))
+    elif selection and selection[0] == "marker" and project.has_marker(selection[1]):
+        marker = project.marker(selection[1])
+        children.append(section(
+            "Marcador",
+            _row("Nombre", text_input(state.insp_marker_name, key="insp-marker-name",
+                                      on_submit=_submit("rename_marker"), on_key=mark_input_key,
+                                      padding=(7, 10))),
+            _row("Tiempo", tl.format_time(marker.t)),
+            row(gap=8)[
+                button("Ir al marcador", _call("select_marker", marker.id), variant="soft", padding=(6, 12),
+                       font_size=12.5, key="insp-marker-go"),
+                button("Eliminar", _call("delete_marker"), variant="soft", padding=(6, 12),
+                       font_size=12.5, key="insp-marker-delete"),
+            ],
+            text("↑/↓ salta al marcador anterior/siguiente · B añade uno en el playhead · el imán engancha "
+                 "a los marcadores.", size=11, color="$muted", line_height=1.35),
+            gap=10,
+        ))
     elif selection and selection[0] == "transition" and selection[1] < len(project.video.transitions):
         children.append(_transition_controls(int(selection[1])))
         children.append(text("Las transiciones se previsualizan de forma aproximada; el export usa xfade de FFmpeg.",
@@ -520,9 +558,13 @@ def inspector():
         ))
         children.append(section(
             "Atajos",
-            text("Espacio reproducir · ←/→ fotograma · Mayús+←/→ 1 s · S dividir todo · "
-                 "Mayús+S dividir solo audio · Supr eliminar · Ctrl+Z/Y deshacer/rehacer · "
-                 "+/− zoom · 0 ajustar · I inspector · Ctrl+E exportar · Esc cancelar",
+            text("Espacio reproducir · J/K/L atrás/pausa/adelante (2×, 4×, 8×) · ←/→ fotograma · "
+                 "Mayús+←/→ 1 s · S dividir todo · Mayús+S dividir solo audio · Q/W recortar hasta "
+                 "el playhead · C razor · V selección · Ctrl+C/X/V/D copiar/cortar/pegar/duplicar · "
+                 "I/O entrada/salida · Mayús+I/O ir a ellas · Alt+X quitar In/Out · Ctrl+L loop · "
+                 "B marcador · ↑/↓ marcadores · Supr eliminar · Ctrl+Z/Y deshacer/rehacer · "
+                 "+/− zoom · 0 ajustar · M audio del preview · P inspector · Ctrl+E exportar · "
+                 "Esc cancelar",
                  size=11.5, color="$muted", line_height=1.5),
         ))
     return column(key="ed-inspector", width=state.inspector_w(), grow=0, shrink=0, bg="$surface", radius="$lg",
@@ -575,6 +617,8 @@ def timeline_toolbar():
     zoom = state.tl_zoom()
     snap_on = state.snap_on()
     has_selection = state.selection() is not None
+    project = state.editor_project()
+    start, end = tl.play_range(project)
     return row(gap=6, align="center", shrink=0)[
         icon_button(icons.ZOOM_OUT, _call("zoom_out"), tooltip="Alejar (−)", size=30, key="tl-zoom-out"),
         icon_button(icons.ZOOM_IN, _call("zoom_in"), tooltip="Acercar (+)", size=30, key="tl-zoom-in"),
@@ -584,9 +628,16 @@ def timeline_toolbar():
                     tooltip="Imán: " + ("activado" if snap_on else "desactivado"), size=30, key="tl-snap",
                     bg="$primary" if snap_on else "$surface_hover"),
         icon_button(icons.SELECT, _call("toggle_marquee"),
-                    tooltip="Selección múltiple: arrastra sobre el timeline",
+                    tooltip="Selección múltiple: arrastra sobre el timeline (luego arrastra un clip "
+                            "para mover el bloque)",
                     size=30, key="tl-marquee",
                     bg="$primary" if state.marquee_on() else "$surface_hover"),
+        icon_button(icons.RAZOR, _call("toggle_razor"),
+                    tooltip="Razor (C): clic en un clip para cortarlo ahí; en la regla, todas las pistas",
+                    size=30, key="tl-razor",
+                    bg="$primary" if state.razor_on() else "$surface_hover"),
+        icon_button(icons.MARKER, _call("add_marker"), tooltip="Añadir marcador en el playhead (B)",
+                    size=30, key="tl-marker"),
         box(width=6),
         icon_button(icons.CUT, _call("split"), tooltip="Dividir todo en el playhead (S)", size=30, key="tl-split"),
         icon_button(icons.SPLIT_AUDIO, _call("split_audio_only"),
@@ -597,9 +648,12 @@ def timeline_toolbar():
                     tooltip="Quitar la pista del clip de audio seleccionado", size=30, key="tl-track-remove"),
         icon_button(icons.TRASH, _call("delete_selected"), tooltip="Eliminar selección (Supr)", size=30,
                     key="tl-delete", opacity=1.0 if has_selection else 0.45),
+        tl.has_range(project) and text(f"In/Out {tl.format_time(start)}–{tl.format_time(end)}", key="tl-range",
+                                       size=11, color="$primary", family="Consolas", max_lines=1, shrink=0),
         spacer(),
-        text("Arrastra clips y asas para mover/recortar · M/S/L en las cabeceras · la regla para moverte",
-             size=11, color="$muted", max_lines=1),
+        text("Razor activa: clic para cortar · V o Esc para salir" if state.razor_on() else
+             "Arrastra clips y asas para mover/recortar · M/S/L en las cabeceras · la regla para moverte",
+             size=11, color="$primary" if state.razor_on() else "$muted", max_lines=1),
     ]
 
 

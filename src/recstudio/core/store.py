@@ -233,6 +233,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v2_v3(data)
     if version < 4:
         data = _migrate_v3_v4(data)
+    if version < 5:
+        data = _migrate_v4_v5(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -290,6 +292,15 @@ def _migrate_v3_v4(data: dict[str, Any]) -> dict[str, Any]:
         migrated["video"] = track(migrated["video"])
     if "audio" in migrated:
         migrated["audio"] = [track(t) for t in migrated["audio"]]
+    return migrated
+
+
+def _migrate_v4_v5(data: dict[str, Any]) -> dict[str, Any]:
+    """v4 → v5: marcadores e In/Out del timeline. Un proyecto antiguo no tenía ninguno."""
+    migrated = {**data}
+    migrated.setdefault("markers", [])
+    migrated.setdefault("range_in", None)
+    migrated.setdefault("range_out", None)
     return migrated
 
 

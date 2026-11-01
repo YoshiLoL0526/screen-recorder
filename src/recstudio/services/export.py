@@ -129,7 +129,11 @@ class Exporter:
     def busy(self) -> bool:
         return not self._done.is_set()
 
-    def start(self, project: Project, preset_id: str, out_path: str | Path) -> None:
+    def start(
+        self, project: Project, preset_id: str, out_path: str | Path,
+        span: tuple[float, float] | None = None,
+    ) -> None:
+        """Lanza el export; `span=(inicio, final)` exporta solo ese rango del timeline (fase 3)."""
         if self.busy:
             raise ProjectError("ya hay un export en curso")
         preset = G.preset_by_id(preset_id)
@@ -138,7 +142,7 @@ class Exporter:
         self._started = time.perf_counter()
         self._emit(ExportProgress("preparing", out_path=str(out_path), message="Preparando…"))
         self._thread = threading.Thread(
-            target=self._run, args=(project, preset, Path(out_path)), daemon=True, name="export"
+            target=self._run, args=(project, preset, Path(out_path), span), daemon=True, name="export"
         )
         self._thread.start()
 
@@ -168,7 +172,10 @@ class Exporter:
             except Exception:  # la UI nunca tumba el export
                 pass
 
-    def _run(self, project: Project, preset: G.ExportPreset, out_path: Path) -> None:
+    def _run(
+        self, project: Project, preset: G.ExportPreset, out_path: Path,
+        span: tuple[float, float] | None = None,
+    ) -> None:
         partial = partial_path(out_path)
         workdir = Path(tempfile.mkdtemp(prefix="export-", dir=paths.temp_root()))
         base = ExportProgress("preparing", out_path=str(out_path))
@@ -178,9 +185,11 @@ class Exporter:
                 raise MediaError("faltan archivos del proyecto: " + ", ".join(missing))
             out_path.parent.mkdir(parents=True, exist_ok=True)
             if preset.video == "copy":
-                base, expected, has_audio = self._run_copy(project, out_path, partial, workdir, base)
+                base, expected, has_audio = self._run_copy(project, out_path, partial, workdir, base, span)
             else:
-                base, expected, has_audio = self._run_render(project, preset, out_path, partial, workdir, base)
+                base, expected, has_audio = self._run_render(
+                    project, preset, out_path, partial, workdir, base, span
+                )
             self._check_cancel()
             self._emit(replace(base, state="verifying", fraction=1.0, eta_s=None, message="Verificando…"))
             self._verify(partial, expected, has_audio, tolerance=self._tolerance)
@@ -206,7 +215,7 @@ class Exporter:
 
     # -- render con filter graph -----------------------------------------------------
 
-    def _run_render(self, project, preset, out_path, partial, workdir, base):  # noqa: ANN001, ANN202
+    def _run_render(self, project, preset, out_path, partial, workdir, base, span=None):  # noqa: ANN001, ANN202
         exe = F.ffmpeg_exe()
         try:
             available = F.probe_encoders()
@@ -214,7 +223,7 @@ class Exporter:
             available = {"libx264": True}
         encoder = G.resolve_encoder(preset, available)
         while True:
-            spec = G.build(project, preset, partial, encoder=encoder, exe=exe)
+            spec = G.build(project, preset, partial, encoder=encoder, exe=exe, span=span)
             base = replace(base, encoder=encoder, duration=spec.duration, message="")
             self._tolerance = max(DURATION_TOLERANCE, 2.0 / spec.fps)
             try:
@@ -229,14 +238,14 @@ class Exporter:
 
     # -- corte rápido ---------------------------------------------------------------------
 
-    def _run_copy(self, project, out_path, partial, workdir, base):  # noqa: ANN001, ANN202
+    def _run_copy(self, project, out_path, partial, workdir, base, span=None):  # noqa: ANN001, ANN202
         exe = F.ffmpeg_exe()
         frames = {}
         for asset in project.assets:
             if any(c.asset_id == asset.id for c in project.video.clips):
                 self._check_cancel()
                 frames[asset.id] = media.keyframes(asset.path)
-        plan = K.plan(project, frames)
+        plan = K.plan(project, frames, span)
         total = plan.duration
         shift = plan.max_shift
         note = f" · inicios movidos hasta {shift:.2f} s (keyframes)" if shift > 0.5 / project.fps else ""
@@ -255,7 +264,8 @@ class Exporter:
         list_file.write_text(K.concat_list(files), encoding="utf-8")
         self._run_ffmpeg(K.concat_cmd(exe, list_file, partial), workdir / "concat.log", total,
                          replace(base, message=f"Uniendo segmentos{note}"), 0.8, 0.2)
-        has_audio = any(project.asset(c.asset_id).has_audio for c in project.video.clips)
+        used = {s.clip_id for s in plan.segments}
+        has_audio = any(project.asset(c.asset_id).has_audio for c in project.video.clips if c.id in used)
         return replace(base, message=f"Sin recodificar{note}"), total, has_audio
 
     # -- proceso ----------------------------------------------------------------------

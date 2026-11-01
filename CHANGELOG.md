@@ -7,6 +7,8 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## Sin publicar
 
 ### Documentación
+- **[docs/21 — Fase 3: flujo de edición](docs/21-fase-3-flujo.md)**: modelo v5, reglas del pegado y
+  del bloque, loop/J/K/L, export de rango, decisiones de teclas y límites (A17 por Aurora 0.9).
 - **[docs/15 — Roadmap post-v1](docs/15-post-v1.md)**: fuente de verdad de lo que falta, por bloques
   (entrega y distribución, editor, captura, compartir, plataforma y adopciones de Aurora), con estado,
   tamaño y criterio de aceptación de cada pieza, más una priorización recomendada. `docs/06` conserva
@@ -18,6 +20,22 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   selección múltiple, snap por waveform, proxy y reubicar carpetas, con archivos, tests y límites.
 
 ### Añadido
+- **Fase 3 del editor: flujo de edición** (docs/18 → [docs/21](docs/21-fase-3-flujo.md)):
+  - **Modelo v5**: marcadores e In/Out del timeline en `project.json`, con migración v4 → v5 (los
+    proyectos v1–v4 se abren idénticos).
+  - **Portapapeles**: `Ctrl+C`/`Ctrl+X`/`Ctrl+V`/`Ctrl+D` para clips de video, de audio y textos,
+    también con selección múltiple; pega en el playhead conservando transformación, efectos y el
+    enlace audio↔video, con un solo undo.
+  - **Marquesina que mueve**: arrastrar un clip de la selección mueve el bloque (un undo, respeta
+    pistas bloqueadas y snap).
+  - **Razor** (`C`, botón en la barra del timeline): corta donde se pulsa, en una pista o en todas
+    desde la regla; excluyente con la marquesina (`V` vuelve a selección).
+  - **Marcadores** (`B`): banderas en la regla, ↑/↓ para saltar, renombrar/borrar en el inspector
+    y snap.
+  - **In/Out y loop**: `I`/`O` marcan el rango del timeline, `Ctrl+L` reproduce en bucle el rango
+    (o todo) y el modal de export ofrece **exportar solo el rango** (render y corte rápido).
+  - **J/K/L** con velocidad creciente (hasta 8×, marcha atrás sin audio) y **Q/W** para recortar
+    hasta el playhead.
 - **Bloque B del editor** (docs/15 → docs/17):
   - **Música**: importar audio, pista M en el timeline, volumen de pista y de clip, **ducking**
     (`sidechaincompress` con la voz del video) y **crossfades** (`acrossfade`). El preview
@@ -66,6 +84,7 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   - 16 tests nuevos en `tests/test_desktop.py` (hook con backend falso, menú, cierre de ventana y avisos).
 
 ### Cambiado
+- **El inspector se oculta con `P`** (antes `I`, que ahora marca la entrada del timeline). El proyecto pasa a **schema v5**.
 - **Proyecto schema v2**: `Track.ducking` y `Project.texts`; los `.rsproj` v1 se abren y se
   migran al guardar (los de una versión más nueva siguen abriéndose en solo lectura).
 - **CI en verde y más completo** (`40701857907`): 208 tests, build ligero + smoke del exe e
@@ -101,6 +120,7 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   candidatos en docs/05 y docs/15.
 
 ### Corregido
+- **Filmstrip y pósters de videos rotados** (móvil, 90/270°): se enderezan como en el preview; la caché cambia de clave (`thumbs2/`, `…-u.jpg`) para no servir las miniaturas viejas.
 - **Carrera en la cache de miniaturas** (el test que tumbaba el CI): la UI leía el JPEG mientras
   el hilo lo escribía y la tira quedaba cacheada con 0 bytes. Ahora se publica con tmp +
   `os.replace` y `cached_thumbstrip` valida el SOI de JPEG; tiene test de regresión.

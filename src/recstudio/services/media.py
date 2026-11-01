@@ -33,12 +33,36 @@ _lock = threading.Lock()
 _waveforms: dict[str, np.ndarray] = {}
 _thumbstrips: dict[str, tuple[bytes, ...]] = {}
 _proxy_cache: dict[tuple[str, int, int], Path | None] = {}
+# Carpeta de la cache de miniaturas: «thumbs2» desde la fase 3 (las de «thumbs» se generaron sin
+# enderezar los videos rotados de móvil; al cambiar de carpeta se regeneran solas).
+THUMBS_DIR = "thumbs2"
 
 
 def _cache_key(path: Path) -> str:
     stat = path.stat()
     raw = f"{path.resolve()}|{stat.st_size}|{int(stat.st_mtime)}".encode()
     return hashlib.sha1(raw).hexdigest()[:20]
+
+
+def upright_rgb(rgb: np.ndarray, rotation: int) -> np.ndarray:
+    """Endereza un frame decodificado con la rotación de visualización del asset (`frame.rotation`,
+    antihoraria). Misma convención que la auto-rotación del preview (`playback.rotate_rgb` con
+    `clockwise=False`) y que la de FFmpeg en el export."""
+    rotation = normalize_rotation(rotation)
+    if rotation == 0:
+        return rgb
+    return np.ascontiguousarray(np.rot90(rgb, {90: 1, 180: 2, 270: -1}[rotation]))
+
+
+def _upright_frame(frame, height: int) -> np.ndarray:  # noqa: ANN001
+    """RGB del frame enderezado y con `height` px de alto **de visualización** (ancho par)."""
+    rotation = normalize_rotation(frame.rotation or 0)
+    sideways = rotation in (90, 270)
+    shown_w, shown_h = (frame.height, frame.width) if sideways else (frame.width, frame.height)
+    width = max(2, round(shown_w * height / shown_h))
+    width -= width % 2
+    dec_w, dec_h = (height, width) if sideways else (width, height)
+    return upright_rgb(frame.to_ndarray(format="rgb24", width=dec_w, height=dec_h), rotation)
 
 
 def _cache_dir(kind: str) -> Path:
@@ -369,7 +393,7 @@ def poster(path: str | Path, *, at_s: float = 1.0, height: int = 180) -> bytes:
     from PIL import Image
 
     path = Path(path)
-    file = _cache_dir("posters") / f"{_cache_key(path)}-{height}.jpg"
+    file = _cache_dir("posters") / f"{_cache_key(path)}-{height}-u.jpg"  # «-u»: enderezado
     if file.exists():
         return file.read_bytes()
     try:
@@ -385,8 +409,7 @@ def poster(path: str | Path, *, at_s: float = 1.0, height: int = 180) -> bytes:
         frame = next(container.decode(stream), None)
         if frame is None:
             raise MediaError(f"«{path.name}» no tiene frames")
-        width = max(2, round(frame.width * height / frame.height))
-        rgb = frame.to_ndarray(format="rgb24", width=width - width % 2, height=height)
+        rgb = _upright_frame(frame, height)
     except av.FFmpegError as exc:
         raise MediaError(f"no se pudo decodificar «{path.name}»: {exc}") from exc
     finally:
@@ -431,7 +454,7 @@ def cached_thumbstrip(path: str | Path) -> tuple[bytes, ...] | None:
     if thumbs is not None:
         return thumbs
     try:
-        folder = _cache_dir("thumbs") / _cache_key(Path(path))
+        folder = _cache_dir(THUMBS_DIR) / _cache_key(Path(path))
     except OSError:
         return None
     files = [folder / f"{i:02d}.jpg" for i in range(THUMB_COUNT)]
@@ -474,7 +497,7 @@ def thumbstrip(path: str | Path) -> tuple[bytes, ...]:
     if cached is not None:
         return cached
     try:
-        folder = _cache_dir("thumbs") / _cache_key(path)
+        folder = _cache_dir(THUMBS_DIR) / _cache_key(path)
     except OSError as exc:
         raise MediaError(f"no se pudo escribir la cache de miniaturas: {exc}") from exc
     try:
@@ -495,9 +518,7 @@ def thumbstrip(path: str | Path) -> tuple[bytes, ...]:
             frame = _frame_at(container, stream, target, origin)
             if frame is None:
                 break
-            width = max(2, round(frame.width * THUMB_H / frame.height))
-            width -= width % 2
-            rgb = frame.to_ndarray(format="rgb24", width=width, height=THUMB_H)
+            rgb = _upright_frame(frame, THUMB_H)
             buffer = io.BytesIO()
             Image.fromarray(rgb).save(buffer, "JPEG", quality=78)
             data = buffer.getvalue()

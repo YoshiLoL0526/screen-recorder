@@ -50,7 +50,7 @@ def base_project(*, fit: str = "fit", background: str = "#000000") -> Project:
 
 
 def test_modelo_v4_defaults_y_validacion() -> None:
-    assert SCHEMA_VERSION == 4
+    assert SCHEMA_VERSION >= 4  # v5 (docs/21) conserva los defaults de v4
     project = Project()
     assert (project.background, project.default_fit) == ("#000000", "fit")
     transform = Transform()
@@ -106,7 +106,7 @@ def test_roundtrip_v4_y_migracion_v3() -> None:
         for clip in track["clips"]:
             clip.pop("transform")
     migrated, read_only = store_mod.migrate(legacy)
-    assert not read_only and migrated["schema_version"] == 4
+    assert not read_only and migrated["schema_version"] == SCHEMA_VERSION
     assert migrated["background"] == "#000000" and migrated["default_fit"] == "fit"
     assert migrated["video"]["clips"][0]["transform"] is None
     old = from_dict(migrated)
