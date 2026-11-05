@@ -15,7 +15,10 @@ from __future__ import annotations
 from aurora import box, button, column, component, image, row, scroll, select, spacer, text, text_input
 
 from ... import state
+from ...core import canvas_edit as ce
 from ...core import timeline as tl
+from ...core import transform as tx
+from ...core.errors import ProjectError
 from ...core.project import TRANSITION_KINDS
 from ..components import chip, icon_button, label_control, mark_input_key, section
 from .. import icons
@@ -112,25 +115,128 @@ def editor_toolbar():
 # -- preview y transporte -----------------------------------------------------------
 
 
+_CANVAS_HANDLE = 12.0
+_HANDLE_LABELS = {
+    "tl": "esquina superior izquierda",
+    "tr": "esquina superior derecha",
+    "bl": "esquina inferior izquierda",
+    "br": "esquina inferior derecha",
+}
+
+
+def _measure_preview(e) -> None:  # noqa: ANN001
+    """Mide el hueco del preview con `on_resize`; solo escribe si cambia (evita bucles)."""
+    area = state.PreviewArea(int(round(e.width)), int(round(e.height)))
+    state.preview_area.set(area)
+
+
+def _canvas_drag(kind: str, handle: str | None = None):
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_canvas_drag(kind, handle)
+        elif e.phase == "move":
+            editor.drag_canvas(e.dx, e.dy)
+        else:
+            editor.drag_canvas(e.dx, e.dy)
+            editor.end_canvas_drag()
+
+    return handler
+
+
+def _canvas_layer(project, stage_w: int, stage_h: int):  # noqa: ANN001, ANN202
+    """Caja y asas del clip seleccionado sobre el escenario (feature A, docs/23).
+
+    Solo aparece con un clip de video seleccionado y el preview en pausa. La caja es la del
+    clip seleccionado aunque el playhead esté mostrando otro (el inspector sigue siendo la
+    referencia numérica). Durante la reproducción se oculta para no editar a ciegas sobre un
+    frame que cambia. Las asas se anclan a la esquina real del clip, pero sus centros se meten
+    dentro del escenario si el clip sobresale, para que sigan siendo pulsables.
+    """
+    selection = state.selection()
+    if not selection or selection[0] != "clip" or state.playing() or state.project_read_only():
+        return None
+    clip_id = selection[1]
+    if not project.has_clip(clip_id):
+        return None
+    clip = project.clip(clip_id)
+    try:
+        lay = tx.layout(project, clip, (stage_w, stage_h))
+    except ProjectError:
+        return None
+    if ce.visible_rect(lay) is None:
+        return None
+    children = [
+        box(
+            key="canvas-body",
+            position="absolute",
+            left=lay.x,
+            top=lay.y,
+            width=lay.out_width,
+            height=lay.out_height,
+            bg="#00000000",
+            border_width=2,
+            border_color="$primary",
+            radius=2,
+            cursor="grab",
+            tooltip="Arrastra para mover el clip en el lienzo",
+            label="Mover el clip en el lienzo",
+            on_drag=_canvas_drag("move"),
+        )
+    ]
+    for name, (cx, cy) in ce.handle_centres(lay, _CANVAS_HANDLE).items():
+        children.append(box(
+            key=f"canvas-handle-{name}",
+            position="absolute",
+            left=cx - _CANVAS_HANDLE / 2,
+            top=cy - _CANVAS_HANDLE / 2,
+            width=_CANVAS_HANDLE,
+            height=_CANVAS_HANDLE,
+            radius=3,
+            bg="$primary",
+            border_width=1,
+            border_color="#FFFFFF",
+            cursor=ce.HANDLE_CURSORS[name],
+            tooltip=f"Arrastra para escalar desde la {_HANDLE_LABELS[name]}",
+            label=f"Redimensionar desde la {_HANDLE_LABELS[name]}",
+            on_drag=_canvas_drag("scale", name),
+        ))
+    return children
+
+
 @component
 def preview_panel():
     frame = state.preview_frame()
     note = state.preview_note()
-    has_clips = bool(state.editor_project().video.clips)
-    # El hueco lo decide el layout (`width/height=0` + `grow`), nunca el tamaño de la imagen; y
-    # `fit="contain"` la centra en él: sin esto, al agrandar la ventana el frame se quedaba
-    # pegado a la izquierda y sin aprovechar el espacio.
-    body = (
-        column(grow=1, height=0, align="center", justify="center")[
-            image(frame, fit="contain", grow=1, height=0, width="100%", key="ed-preview-img")
-        ]
-        if frame
-        else column(grow=1, align="center", justify="center", gap=6)[
+    project = state.editor_project()
+    has_clips = bool(project.video.clips)
+    area = state.preview_area()
+    stage_w, stage_h = ce.fit_stage(project.width, project.height, area.width, area.height)
+    # El hueco lo decide el layout (`width/height=0` + `grow`), nunca el contenido, y se mide
+    # con `on_resize`. Con la medida, el frame se pinta en un escenario de tamaño fijo con el
+    # aspecto del proyecto y la capa de cajas absolutas se alinea con él (feature A, docs/23).
+    # Mientras no hay medida (primer frame) se usa el `fit="contain"` de siempre.
+    if frame:
+        content = (
+            box(key="ed-stage", width=stage_w, height=stage_h, shrink=0, bg=project.background,
+                overflow="hidden", radius=2)[
+                image(frame, fit="fill", width="100%", height="100%", key="ed-preview-img"),
+                _canvas_layer(project, stage_w, stage_h),
+            ]
+            if stage_w > 1 and stage_h > 1
+            else image(frame, fit="contain", grow=1, height=0, width="100%", key="ed-preview-img")
+        )
+        body = column(grow=1, height=0, align="center", justify="center", key="ed-preview-body",
+                      on_resize=_measure_preview)[content]
+    else:
+        body = column(grow=1, height=0, align="center", justify="center", gap=6,
+                      key="ed-preview-body", on_resize=_measure_preview)[
             text("Sin imagen" if has_clips else "El timeline está vacío", size=14, weight=600, color="$muted"),
             text("Importa un video (Ctrl+I) para empezar" if not has_clips else "decodificando…",
                  size=12, color="$muted"),
         ]
-    )
     return column(key="ed-preview", grow=1, height=0, min_height=160, bg="#000000", radius="$lg",
                   border_width=1, border_color="$border", padding=6, gap=4)[
         body,

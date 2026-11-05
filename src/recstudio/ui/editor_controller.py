@@ -17,6 +17,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from .. import state
+from ..core import canvas_edit as ce
 from ..core import effects as fx
 from ..core import graph as graph_mod
 from ..core import keyframes as keyframes_mod
@@ -117,6 +118,7 @@ class EditorController:
             audio=playback_mod.AudioPreview(),
         )
         self._drag: dict | None = None
+        self._canvas_drag: dict | None = None  # mover/escalar sobre el preview (docs/23)
         self._closing = threading.Event()
         self._io_lock = threading.Lock()  # abrir/guardar/importar: de uno en uno
         self._wave_lock = threading.Lock()
@@ -440,7 +442,9 @@ class EditorController:
 
     def _on_player_state(self, playing: bool) -> None:
         state.playing.set(playing)
-        if not playing:
+        if playing:
+            self.end_canvas_drag()  # la capa se oculta al reproducir: cierra el gesto en curso
+        else:
             state.play_rate.set(1.0)
 
     # -- consultas ---------------------------------------------------------------
@@ -839,6 +843,80 @@ class EditorController:
         crop = list(current.crop)
         crop[int(side)] = value
         self.set_transform(crop=tuple(crop))
+
+    # -- edición directa sobre el canvas del preview (feature A, docs/23) -------------
+
+    def _canvas_stage(self) -> tuple[int, int]:
+        area = state.preview_area()
+        return ce.fit_stage(self.project.width, self.project.height, area.width, area.height)
+
+    def begin_canvas_drag(self, kind: str, handle: str | None = None) -> None:
+        """Empieza a mover (`kind="move"`) o escalar (`"scale"` + `handle`) sobre el preview."""
+        if not self._guard_editable():
+            return
+        clip = self.selected_clip()
+        if clip is None or self.player.playing:
+            return
+        if kind == "scale" and handle not in ce.HANDLES:
+            return
+        if self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
+        stage = self._canvas_stage()
+        if stage[0] <= 1 or stage[1] <= 1:
+            return  # el preview aún no se ha medido (primer frame)
+        self.cancel_drag()
+        self.store.begin(
+            "mover clip en el lienzo" if kind == "move" else "redimensionar clip en el lienzo"
+        )
+        self._canvas_drag = {
+            "kind": "canvas_move" if kind == "move" else "canvas_scale",
+            "id": clip.id,
+            "project": self.project,
+            "stage": stage,
+            "handle": handle,
+            "dx": 0.0,
+            "dy": 0.0,
+        }
+
+    def drag_canvas(self, dx: float, dy: float) -> None:
+        drag = self._canvas_drag
+        if drag is None:
+            return
+        drag["dx"], drag["dy"] = float(dx), float(dy)
+        if abs(dx) < _CLICK_SLOP_PX and abs(dy) < _CLICK_SLOP_PX:
+            return
+        base: Project = drag["project"]
+        clip = base.clip(drag["id"])
+        if drag["kind"] == "canvas_move":
+            transform = ce.move_transform(base, clip, drag["stage"], dx, dy)
+        else:
+            transform = ce.scale_transform(base, clip, drag["stage"], drag["handle"], dx, dy)
+        # Se parte siempre del proyecto del `begin`: deltas acumulados, sin deriva por el clamp.
+        self.store.update(tl.set_transform(base, clip.id, **ce.as_changes(transform)))
+
+    def end_canvas_drag(self) -> None:
+        drag, self._canvas_drag = self._canvas_drag, None
+        if drag is None:
+            return
+        moved = (
+            abs(drag.get("dx", 0.0)) >= _CLICK_SLOP_PX
+            or abs(drag.get("dy", 0.0)) >= _CLICK_SLOP_PX
+        )
+        if moved:
+            self.store.commit()
+        else:
+            self.store.cancel()  # un clic sin movimiento no crea undo
+        self._sync_meta()
+
+    def _cancel_canvas_drag(self) -> bool:
+        if self._canvas_drag is None:
+            return False
+        self._canvas_drag = None
+        self.store.cancel()
+        self._sync_meta()
+        self.player.seek(state.playhead())
+        return True
 
     def set_track_gain(self, value: float) -> None:
         """Volumen del audio original de todos los clips (0 = silenciado)."""
@@ -2024,6 +2102,8 @@ class EditorController:
 
     def cancel_drag(self) -> bool:
         """Esc: deshace el drag en curso (vuelve al snapshot del `begin`)."""
+        if self._cancel_canvas_drag():
+            return True
         drag, self._drag = self._drag, None
         if drag is None:
             return False
