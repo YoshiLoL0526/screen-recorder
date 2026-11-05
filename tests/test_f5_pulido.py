@@ -174,9 +174,14 @@ def test_preview_del_editor_aprovecha_la_ventana(ui, video: Path) -> None:
     assert state.view_h() == 1080 - 52  # lo mide el `on_resize` de la navegación
     big = pilot.rect("ed-preview")
     assert big[2] > small[2] + 500 and big[3] > small[3] + 200
-    # la imagen ocupa todo el panel (antes se quedaba con su tamaño y pegada a la izquierda)
+    # El escenario conserva el aspecto del proyecto (feature A, docs/23): llena el eje
+    # limitante (el alto en un panel ancho) y queda centrado en el otro. Antes la imagen se
+    # quedaba con su tamaño y pegada a la izquierda; ahora aprovecha el panel sin deformarse.
     img = pilot.rect("ed-preview-img")
-    assert img[2] >= big[2] - 16 and img[3] >= big[3] - 16
+    assert img[3] >= big[3] - 16
+    assert img[2] <= big[2] and img[0] >= big[0] - 1
+    assert img[0] + img[2] <= big[0] + big[2] + 1
+    assert abs(img[2] / img[3] - 1280 / 720) < 0.02
 
 
 def test_divisor_del_timeline_redimensiona_preview_y_pistas(ui, video: Path) -> None:

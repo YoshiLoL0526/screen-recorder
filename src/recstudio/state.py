@@ -129,6 +129,19 @@ class Marquee:
 
 
 @dataclass(frozen=True)
+class PreviewArea:
+    """Hueco útil del preview medido con `on_resize` (píxeles lógicos).
+
+    El escenario del lienzo (feature A, docs/23) se calcula a partir de este tamaño y del
+    aspecto del proyecto. Se redondea a píxeles enteros para que el `Signal` no se reescriba
+    por fracciones de layout y no realimente el bucle de reconstrucción.
+    """
+
+    width: int = 0
+    height: int = 0
+
+
+@dataclass(frozen=True)
 class RecentProject:
     path: str  # project.json
     name: str
@@ -148,6 +161,7 @@ playhead = Signal(0.0)  # segundos (frontera de frame en pausa)
 playing = Signal(False)
 preview_frame = Signal(b"")  # JPEG del preview del editor
 preview_note = Signal("")  # aviso discreto bajo el preview («transición aproximada», …)
+preview_area = Signal(PreviewArea())  # hueco medido del preview (feature A, docs/23)
 preview_audio = Signal(True)  # audio del preview (best-effort)
 # ("clip", id) | ("transition", índice) | ("audio", pista, clip) | ("text", id) | ("marker", id) | None
 selection = Signal(None)
