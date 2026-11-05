@@ -20,6 +20,7 @@ from .. import state
 from ..core import canvas_edit as ce
 from ..core import effects as fx
 from ..core import elements as element_mod
+from ..core import global_effects
 from ..core import graph as graph_mod
 from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
@@ -108,6 +109,14 @@ AUDIO_EFFECT_FIELDS = (
     (state.insp_audio_fade_in, "audio_fade_in", "seconds", 0.0, "fundido de audio de entrada"),
     (state.insp_audio_fade_out, "audio_fade_out", "seconds", 0.0, "fundido de audio de salida"),
 )
+# Efectos globales del proyecto: (signal, efecto, parámetro, valor neutro, etiqueta de undo).
+GLOBAL_EFFECT_FIELDS = (
+    (state.glob_brightness, "eq", "brightness", 0.0, "brillo global"),
+    (state.glob_contrast, "eq", "contrast", 1.0, "contraste global"),
+    (state.glob_saturation, "eq", "saturation", 1.0, "saturación global"),
+    (state.glob_blur, "blur", "radius", 0.0, "blur global"),
+    (state.glob_vignette, "vignette", "strength", 0.0, "viñeta global"),
+)
 
 
 def _nearest_fps(fps: float) -> int:
@@ -174,6 +183,11 @@ class EditorController:
             signal.subscribe(live(lambda value, k=kind, n=name, lb=label: self._on_insp_effect(k, n, lb, value)))
         for signal, kind, name, _neutral, label in AUDIO_EFFECT_FIELDS:
             signal.subscribe(live(lambda value, k=kind, n=name, lb=label: self._on_insp_audio_effect(k, lb, value)))
+        for signal, kind, name, neutral, label in GLOBAL_EFFECT_FIELDS:
+            signal.subscribe(live(
+                lambda value, k=kind, n=name, nu=neutral, lb=label: self._on_global_effect(k, n, nu, lb, value)
+            ))
+        state.glob_grayscale.subscribe(live(self._on_global_grayscale))
         state.insp_track_gain.subscribe(live(self._on_insp_track_gain))
         state.insp_music_gain.subscribe(live(self._on_insp_music_gain))
         state.insp_music_duck.subscribe(live(self._on_insp_music_duck))
@@ -270,6 +284,13 @@ class EditorController:
         state.proj_fit.set(project.default_fit)
         state.proj_background.set(project.background)
         state.proj_bg_hex.set(project.background)
+        eq = global_effects.color_eq(project) or fx.EQ_DEFAULTS
+        state.glob_brightness.set(eq["brightness"])
+        state.glob_contrast.set(eq["contrast"])
+        state.glob_saturation.set(eq["saturation"])
+        state.glob_blur.set(global_effects.blur_radius(project))
+        state.glob_vignette.set(global_effects.vignette_strength(project))
+        state.glob_grayscale.set(global_effects.grayscale_on(project))
         clip = self.selected_clip()
         if clip is not None:
             state.insp_in.set(tl.format_time(clip.in_))
@@ -381,6 +402,20 @@ class EditorController:
         if abs(fx.param(target, kind, "seconds", 0.0) - float(value)) < 1e-6:
             return
         self.set_audio_effect(kind, label, seconds=float(value))
+
+    def _on_global_effect(
+        self, kind: str, name: str, neutral: float, label: str, value: float
+    ) -> None:
+        """Select de «Efectos globales»: ignora el eco de `_sync_inspector`."""
+        if not state.project_open():
+            return
+        current = fx.param_in(self.project.effects, kind, name, neutral)
+        if abs(current - float(value)) < 1e-6:
+            return
+        self.set_global_effect(kind, label, **{name: float(value)})
+
+    def _on_global_grayscale(self, enabled: bool) -> None:
+        self.set_global_grayscale(bool(enabled))
 
     def _on_insp_audio_start(self, text: str) -> None:
         if self.selected_audio() is None:
@@ -907,6 +942,32 @@ class EditorController:
         if clip is None or not clip.effects:
             return
         self._apply("quitar efectos", fx.clear_effects(self.project, clip.id))
+
+    # -- efectos globales del proyecto (feature D, docs/26) -------------------------
+
+    def set_global_effect(self, kind: str, label: str | None = None, **params: float) -> None:
+        try:
+            project = global_effects.set_effect(self.project, kind, **params)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        if project != self.project:
+            self._apply(label or kind, project)
+        else:
+            self._sync_inspector()  # p. ej. un valor acotado: el select vuelve al real
+
+    def set_global_grayscale(self, enabled: bool) -> None:
+        project = global_effects.set_grayscale(self.project, bool(enabled))
+        if project != self.project:
+            self._apply("blanco y negro" if enabled else "color original", project)
+        else:
+            self._sync_inspector()
+
+    def reset_global_effects(self) -> None:
+        if not self.project.effects:
+            return
+        self._apply("restablecer efectos globales", global_effects.clear_effects(self.project))
 
     # -- lienzo y transformación (fase 2) -----------------------------------------
 

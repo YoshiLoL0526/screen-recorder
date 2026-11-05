@@ -253,6 +253,14 @@ insp_el_blur = Signal(0.0)  # radio 0…50 px del lienzo
 insp_el_color = Signal("#FF5470")  # figuras
 insp_el_fit = Signal("fit")  # imágenes: fit | fill | stretch
 preview_box = Signal((0.0, 0.0))  # tamaño medido del lienzo del preview (para la caja de selección)
+
+# Efectos globales del proyecto (feature D, docs/26): se editan en «Proyecto» sin selección.
+glob_brightness = Signal(0.0)  # eq global
+glob_contrast = Signal(1.0)
+glob_saturation = Signal(1.0)
+glob_blur = Signal(0.0)  # radio en px del lienzo
+glob_vignette = Signal(0.0)  # 0…1
+glob_grayscale = Signal(False)
 proxies = Signal(0)  # versión: sube cuando termina un proxy de preview (B5)
 
 export_open = Signal(False)  # modal «Exportar»

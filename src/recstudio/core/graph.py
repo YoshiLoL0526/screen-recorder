@@ -590,7 +590,7 @@ def build(
     video_out = flush()
 
     # -- efectos globales: al video ya compuesto (antes de elementos y textos) -----------
-    video_out = global_effects.apply_graph(project, video_out, chains)
+    video_out = global_effects.apply_graph(project, video_out, chains, output_height=size[1])
 
     # -- elementos superpuestos (v6): debajo de los textos -------------------------------
     video_out, _overlay_input = overlays.apply_graph(
