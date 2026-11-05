@@ -5,10 +5,13 @@
 > separadas por defecto pero vinculadas, **(C)** elementos superpuestos (figuras, imágenes y
 > efectos como blur) y **(D)** efectos globales sobre todo el video.
 >
-> La **base v6** ya está implementada en `main`: `SCHEMA_VERSION = 6`, `Project.elements`,
+> La **base v6** está implementada en `main`: `SCHEMA_VERSION = 6`, `Project.elements`,
 > `Project.effects`, `Element`, `MediaAsset.kind` y los hooks `core/overlays.py` +
-> `core/global_effects.py` (no-op). Cada feature se desarrolla en su propio worktree y se mezcla
-> al final; este documento fija qué toca cada una para que los merges no se pisen.
+> `core/global_effects.py`. Las cuatro features se desarrollaron en worktrees independientes y se
+> integraron después; resultados en [23 — Canvas](23-canvas-resize.md),
+> [24 — Pistas A/V](24-pistas-av.md), [25 — Elementos](25-elementos.md) y
+> [26 — Efectos globales](26-efectos-globales.md). Este documento conserva el contrato y el
+> reparto de archivos que se usó para que los merges no se pisaran.
 
 ## Diagnóstico de partida
 

@@ -6,6 +6,23 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 
 ## Sin publicar
 
+### Añadido
+- **Features v6 del editor** (plan en [docs/22](docs/22-plan-features-editor.md); modelo v6 con
+  migración v5 → v6):
+  - **Canvas interactivo** (docs/23): mover y redimensionar el clip seleccionado directamente
+    sobre el preview, con caja/asas, ancla opuesta, un undo por gesto y `Esc` para cancelar.
+  - **Audio del video separado y enlazado por defecto** (docs/24): al importar se crea la pista
+    «Audio del video»; mover/recortar/dividir/cambiar velocidad mantiene la sincronía y hay
+    comandos para desvincular y volver a vincular sin perder el audio editado.
+  - **Elementos superpuestos** (docs/25): figuras (rectángulo, elipse, triángulo) e imágenes con
+    intervalo, posición/tamaño, rotación, opacidad, z-order y blur; composición idéntica en preview
+    y export, con PNG de figuras/blur en cache atómica.
+  - **Efectos globales** (docs/26): brillo/contraste/saturación, blur, viñeta y blanco y negro
+    sobre todo el video compuesto, antes de elementos y textos; sin efectos el filter graph queda
+    byte a byte como antes.
+- **392 tests** y `aurora check`/`aurora tree` sin avisos; `tools/f3_editor_test.py --no-shots` y
+  `tools/f4_export_test.py --skip-long --no-shots` verificados tras la integración.
+
 ### Cambiado
 - **aurora-ui actualizado de 0.9.0 a 0.10.0** (`>=0.10.0,<0.11.0`). La API que usa la app no
   cambió, pero 0.10 valida props/handlers al crear el elemento y avisa de controles sin nombre

@@ -19,14 +19,19 @@ RNF-06/07, instalador Inno Setup y bundle sin OpenCV; ver `docs/16`) y **bloque 
 `docs/17`), **fases 0/1 de audio** (modelo v3, audio absoluto editable) y **fase 2** (modelo v4,
 lienzo configurable, transformación por clip y auto-rotación; ver `docs/19` y `docs/20`) y
 **fase 3** (modelo v5, flujo de edición: portapapeles, marquesina que mueve, razor, marcadores,
-In/Out, loop, J/K/L, Q/W y export de rango; ver `docs/21`). Lo siguiente es la fase 4 del editor
-y el resto del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
+In/Out, loop, J/K/L, Q/W y export de rango; ver `docs/21`) y las **features v6** (modelo 6):
+canvas interactivo (`core/canvas_edit.py`, `ui/screens/editor.py`; `docs/23`), audio del video
+separado y enlazado por defecto (`core/timeline.py`, `ui/editor_controller.py`; `docs/24`),
+elementos superpuestos (`core/elements.py`, `core/overlays.py`, `services/element_assets.py`;
+`docs/25`) y efectos globales (`core/global_effects.py`, `core/color.py`; `docs/26`), con el plan
+en `docs/22`. Lo siguiente es el resto de la fase 4 (PiP de video, subtítulos, keyframes) y el
+backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 324 tests; la integración usa FFmpeg real
+uv run pytest                                   # 392 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -58,6 +63,13 @@ depender de monitor, GPU ni audio reales del runner.
 - Dirección de dependencias única: `ui → services → core` y `services → platform → core`.
   `core/` es puro (sin aurora, sin PyAV, sin SO) y se testea sin ventana; `platform/` encapsula
   Windows (captura, WASAPI, FFmpeg).
+- Composición v6: el modelo es `Element`/`Project.elements` (imágenes y figuras) y
+  `Project.effects` (globales). El **orden es fijo** y compartido por preview y export: video
+  compuesto → efectos globales (`core/global_effects.py`) → elementos (`core/overlays.py`) →
+  textos. `core/color.py` concentra las curvas de color compartidas; `core/transform.py` y
+  `core/elements.py` son la única geometría de clip y de elemento, respectivamente. Las figuras y
+  el blur se materializan como PNG RGBA en `services/element_assets.py` (cache atómica); el core
+  nunca rasteriza ni toca disco.
 - La UI nunca bloquea: nada de IO/subprocess en handlers. Lo asíncrono comunica por `Signal`
   (único canal cross-thread) o `app.spawn()`. Todo el estado de la app vive en
   `src/recstudio/state.py`.
@@ -121,6 +133,14 @@ depender de monitor, GPU ni audio reales del runner.
   revisar los golden de `tests/test_f4_graph.py`. El concat del corte rápido necesita
   `-auto_convert 0` o los keyframes dejan de ser idénticos. Preview y graph comparten las
   curvas de `core/effects.py` (lo exportado = lo visto).
+- v6 (`docs/22`–`26`): al importar un video con audio se separa a «Audio del video» y el clip de
+  video queda con `audio_enabled=False`; el audio enlazado se recoloca con
+  `tl.sync_linked_audio` en mover/recortar/dividir/cambiar velocidad y **no** se mueve por su
+  cuenta (hay que desvincularlo). El preview mide el panel (`state.preview_area`) y pinta un
+  escenario con aspecto de proyecto; `state.preview_box` es el tamaño de ese escenario y las cajas
+  de clip/elemento viven dentro (`ui/screens/editor.py`). El blur de elementos se hornea en el PNG
+  (Pillow) y el de efectos globales se escala al alto de salida; sin efectos/elementos el graph es
+  byte a byte el histórico. Los PNG de elementos se escriben con tmp + `os.replace`.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -179,7 +199,9 @@ depender de monitor, GPU ni audio reales del runner.
 - `docs/09`–`14`: resultados de F1, F2, F1.1+F2.1, F3, F4 y F5 (bugs, mediciones, aprendizajes
   de UI). `docs/16-bloque-a-entrega.md`: CI, RNF-06/07, instalador, bundle ligero y las pruebas
   manuales pendientes. `docs/17-bloque-b-editor.md`: música/ducking, textos, selección múltiple,
-  snap por waveform, proxy y reubicar carpetas. **`docs/15-post-v1.md` es el backlog vivo**: qué
-  falta, por bloques, con estado y criterio de aceptación. `CHANGELOG.md` resume cada versión.
+  snap por waveform, proxy y reubicar carpetas. `docs/22-plan-features-editor.md` es el plan de la
+  composición v6 y `docs/23`–`26` sus resultados (canvas, pistas A/V, elementos y efectos
+  globales). **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
+  criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
   `build/`, `dist/`, `.venv`, `__pycache__` y `tools/spikes/out/` están ignorados: no son fuente.

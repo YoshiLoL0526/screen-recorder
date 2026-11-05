@@ -12,15 +12,17 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 
 ## Alcance funcional (editor)
 
-| Área | v1 + bloque B |
+| Área | v1 + bloques + fases 0–3 + features v6 |
 |---|---|
-| Pistas | 1 de video + hasta 6 de audio. Las pistas pueden ser secuenciales (música) o absolutas (audio separado/voz) y tienen mute, solo, bloqueo y volumen. |
-| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop). |
+| Pistas | 1 de video + hasta 6 de audio. Las pistas pueden ser secuenciales (música) o absolutas (audio separado/voz) y tienen mute, solo, bloqueo y volumen. Al importar, el audio del video se separa a «Audio del video» y queda enlazado (`link_id`). |
+| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop). Se mueven/redimensionan sobre el canvas del preview (docs/23). |
 | Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
 | Textos | `TextOverlay` con intervalo, posición, tamaño, color y negrita; `drawtext` en export y PIL en preview. |
+| Elementos | `Element` (imagen, rectángulo, elipse, triángulo) con intervalo, posición/tamaño normalizados, rotación, opacidad, z-order, fit y blur; composición en preview y export (docs/25). |
+| Efectos globales | `Project.effects`: color, blur, viñeta y blanco y negro sobre el video compuesto, antes de elementos y textos (docs/26). |
 | Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio + marcadores + In/Out), playhead frame-accurate, waveform, filmstrip, marquesina que mueve en bloque, razor, marcadores, In/Out, portapapeles (copiar/cortar/pegar/duplicar), Q/W y drags de audio. |
-| Preview | Play/pause, scrub, ±1 frame, J/K/L (2×–8×, marcha atrás sin audio), loop del rango In/Out o del timeline, resolución adaptativa, audio (mezcla completa best-effort) y proxy 540p. |
-| Proyecto | `.rsproj/project.json` versionado (schema 5), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores e In/Out. |
+| Preview | Play/pause, scrub, ±1 frame, J/K/L (2×–8×, marcha atrás sin audio), loop del rango In/Out o del timeline, resolución adaptativa, audio (mezcla completa best-effort), proxy 540p y edición directa del clip/elemento sobre el lienzo. |
+| Proyecto | `.rsproj/project.json` versionado (schema 6), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores, In/Out, elementos y efectos globales. |
 | Export | MP4 H.264, presets, todo el timeline o el rango In/Out, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)
@@ -42,14 +44,16 @@ class MediaAsset:
     has_audio: bool
     audio_channels: int = 2
     rotation: int = 0          # 0/90/180/270; lo lee `media.probe` de PyAV
+    kind: Literal["video", "audio", "image"] = "video"  # v6: imágenes de elementos
 
 @dataclass(frozen=True)
 class Effect:
     kind: Literal["eq", "volume", "fade_in", "fade_out",
-                  "audio_fade_in", "audio_fade_out", "speed", "zoom"]
+                  "audio_fade_in", "audio_fade_out", "speed", "zoom",
+                  "blur", "vignette", "sharpen", "grayscale"]
     params: tuple[tuple[str, float], ...] = ()   # tupla → hashable
     # eq: brightness, contrast, saturation | volume: gain | fade_*: seconds
-    # audio_fade_*: solo audio (docs/19)
+    # audio_fade_*: solo audio (docs/19) | blur/vignette: elementos y globales (docs/25/26)
 
 @dataclass(frozen=True)
 class Transition:
@@ -119,8 +123,25 @@ class Marker:                               # fase 3, docs/21
     name: str = ""
 
 @dataclass(frozen=True)
+class Element:                              # v6, docs/22/25
+    id: str
+    kind: Literal["image", "rect", "ellipse", "triangle"]
+    start: float
+    end: float
+    x: float = 0.5                          # centro, fracción del lienzo
+    y: float = 0.5
+    width: float = 0.3                      # tamaño, fracción del lienzo
+    height: float = 0.2
+    rotation: float = 0.0                   # grados horarios
+    opacity: float = 1.0                    # 0…1
+    color: str = "#FFFFFF"                  # figuras
+    asset_id: str | None = None             # imágenes: MediaAsset(kind="image")
+    fit: Literal["fit", "fill", "stretch"] = "fit"
+    effects: tuple[Effect, ...] = ()        # p. ej. blur
+
+@dataclass(frozen=True)
 class Project:
-    schema_version: int = 5
+    schema_version: int = 6
     name: str = "Sin título"
     assets: tuple[MediaAsset, ...] = ()
     video: Track = Track("video")
@@ -134,6 +155,8 @@ class Project:
     markers: tuple[Marker, ...] = ()        # fase 3: ordenados por tiempo
     range_in: float | None = None           # In/Out del timeline (no del clip)
     range_out: float | None = None
+    elements: tuple[Element, ...] = ()      # v6: z-order, el último va encima
+    effects: tuple[Effect, ...] = ()        # v6: efectos globales (uno por tipo)
 ```
 
 Invariantes que valida `core/project.py` al construir (y que los tests cubren):
@@ -145,10 +168,15 @@ Invariantes que valida `core/project.py` al construir (y que los tests cubren):
 - `0 ≤ ducking ≤ 1`; textos con `0 ≤ start < end`, posición 0…1, tamaño 8–200 y color `#RRGGBB`.
 - `Project.background` es `#RRGGBB` y `default_fit` es `fit`/`fill`/`stretch`; `Transform` valida
   escala 0.25–4, posición 0…1, rotación 0/90/180/270 y crop `0 ≤ l < r ≤ 1`, `0 ≤ t < b ≤ 1`.
-- IDs únicos (assets, clips, textos y marcadores); `range_out > range_in` si están los dos.
+- IDs únicos (assets, clips, textos, marcadores y elementos); `range_out > range_in` si están los
+  dos.
 - `Track.mode="absolute"`: `Clip.start ≥ 0`, sin solapes en la pista, sin transiciones; `link_id`
   existe y apunta a un clip de video (varios trozos de un audio dividido pueden compartirlo) y
   `audio_enabled` solo se usa en la pista de video. Detalle en [19](19-fase-0-1-audio.md).
+- `MediaAsset.kind` es `video`/`audio`/`image`; una imagen tiene `duration=0` y no se puede añadir
+  como clip. `Element` valida intervalo, centro 0…1, tamaño 0.01…4, rotación finita, opacidad 0…1,
+  color `#RRGGBB` o asset de imagen existente, y efectos conocidos. `Project.effects` no repite
+  tipo. Detalle en [22](22-plan-features-editor.md) y [25](25-elementos.md).
 
 ## Matemática del timeline (`core/timeline.py`, puro y testeado)
 
@@ -350,6 +378,12 @@ fps/tpad/trim/fade/format/setsar             # igual que la rama histórica
 La auto-rotación se apoya en la que FFmpeg hace por defecto al leer la display matrix (sin
 `-noautorotate`, para no copiar la matriz al MP4 y girar dos veces). Detalle en
 [20](20-fase-2-frame.md).
+
+Después de componer los clips (cortes/transiciones) y antes de los textos, el graph aplica en este
+orden: **efectos globales** (`core/global_effects.py`) → **elementos** (`core/overlays.py`) →
+`drawtext`. El preview (`services/playback.FrameRenderer`) llama a los mismos hooks en el mismo
+orden. Sin efectos globales ni elementos, el graph es byte a byte el de F4. Detalle en
+[25](25-elementos.md) y [26](26-efectos-globales.md).
 
 Cadena **por clip de audio** (tramo audible: el entrante de una transición empieza tras el solape):
 

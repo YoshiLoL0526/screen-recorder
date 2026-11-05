@@ -13,7 +13,12 @@
 > auto-rotación — ver [docs/19](docs/19-fase-0-1-audio.md) y
 > [docs/20](docs/20-fase-2-frame.md). La **fase 3** añade el flujo de edición: copiar/pegar/
 > duplicar, marquesina que mueve, razor, marcadores, In/Out con loop, J/K/L, Q/W y export de un
-> rango — ver [docs/21](docs/21-fase-3-flujo.md). Ver también
+> rango — ver [docs/21](docs/21-fase-3-flujo.md). Las **features v6** añaden canvas interactivo
+> (mover/redimensionar clips), audio del video separado y enlazado por defecto, elementos
+> superpuestos (figuras, imágenes y blur) y efectos globales — ver
+> [docs/22](docs/22-plan-features-editor.md), [docs/23](docs/23-canvas-resize.md),
+> [docs/24](docs/24-pistas-av.md), [docs/25](docs/25-elementos.md) y
+> [docs/26](docs/26-efectos-globales.md). Ver también
 > [docs/12](docs/12-f3-editor.md), [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md)
 > y el [CHANGELOG](CHANGELOG.md).
 
@@ -62,7 +67,10 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 - [14 — F5: pulido y v1.0](docs/14-f5-pulido.md): layout adaptable, divisores, Ajustes, build y smoke del exe.
 - [15 — Roadmap post-v1](docs/15-post-v1.md): lo que queda por implementar, por bloques y priorizado.
 - [16 — Bloque A](docs/16-bloque-a-entrega.md): CI, RNF-06/07, instalador, bundle ligero y verificaciones manuales.
-- [17 — Bloque B](docs/17-bloque-b-editor.md): música/ducking, textos, selección múltiple, snap por waveform, proxy y reubicar carpetas.
+- [17 - Bloque B](docs/17-bloque-b-editor.md): música/ducking, textos, selección múltiple, snap por waveform, proxy y reubicar carpetas.
+- [22 - Plan de features v6](docs/22-plan-features-editor.md): canvas interactivo, pistas A/V enlazadas, elementos y efectos globales.
+- [23 - Canvas resize](docs/23-canvas-resize.md), [24 - Pistas A/V](docs/24-pistas-av.md),
+  [25 - Elementos](docs/25-elementos.md) y [26 - Efectos globales](docs/26-efectos-globales.md).
 
 ## Estructura del repositorio
 

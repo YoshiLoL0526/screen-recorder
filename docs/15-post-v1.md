@@ -3,8 +3,10 @@
 > Estado a **2026-11-05**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
 > filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.10), los
 > **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md))
-> y las **fases 0, 1, 2 y 3 del editor** ([19 — Fase 0 y 1](19-fase-0-1-audio.md),
-> [20 — Fase 2](20-fase-2-frame.md), [21 — Fase 3](21-fase-3-flujo.md)).
+> y las **fases 0, 1, 2 y 3 del editor** ([19 - Fase 0 y 1](19-fase-0-1-audio.md),
+> [20 - Fase 2](20-fase-2-frame.md), [21 - Fase 3](21-fase-3-flujo.md)), más las **features v6**
+> de composición ([22 - plan](22-plan-features-editor.md), [23](23-canvas-resize.md),
+> [24](24-pistas-av.md), [25](25-elementos.md) y [26](26-efectos-globales.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -29,9 +31,13 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
 | Lienzo configurable, transformación del frame y auto-rotación | `core/project.py`, `core/transform.py`, `core/graph.py`, `services/playback.py`, inspector (docs/20) |
 | Flujo de edición: portapapeles, marquesina que mueve, razor, marcadores, In/Out, loop, J/K/L, Q/W y export de rango | `core/timeline.py`, `core/graph.py`, `core/keyframes.py`, `services/playback.py`, `ui/editor_controller.py`, `ui/timeline.py` (docs/21) |
+| Redimensionar y mover el clip sobre el canvas del preview | `core/canvas_edit.py`, `ui/screens/editor.py`, `ui/editor_controller.py` (docs/23) |
+| Pistas de video/audio separadas por defecto y enlazadas | `core/timeline.py`, `ui/editor_controller.py`, `ui/timeline.py` (docs/24) |
+| Elementos superpuestos: figuras, imágenes, blur y z-order | `core/elements.py`, `core/overlays.py`, `services/element_assets.py`, inspector y preview (docs/25) |
+| Efectos globales: color, blur, viñeta y blanco y negro | `core/global_effects.py`, `core/color.py`, inspector (docs/26) |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**324 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
+**392 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
 `aurora 0.10.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests + build +
 instalador. Todo lo que sigue **no está implementado**, salvo lo marcado como hecho en los
 bloques A y B y las fases 0/1/2/3 del editor.
@@ -170,9 +176,59 @@ Resultados y decisiones completas en [21 — Fase 3](21-fase-3-flujo.md).
 - Filmstrip y pósters de assets rotados enderezados. **A17** (zoom que sigue al playhead) queda
   bloqueado por Aurora 0.10.
 
-> Las herramientas del editor que aún faltan (composición y export) se analizan en
-> [18 — Herramientas del editor](18-herramientas-editor.md). **La fase 4 (composición y texto) es
-> la siguiente**: PiP/overlay, subtítulos y keyframes.
+### B10 — Canvas interactivo: mover y redimensionar el clip (✅ · M)
+
+Resultados y decisiones completas en [23 — Canvas resize](23-canvas-resize.md).
+
+- **Preview medido**: el panel mide su hueco con `on_resize` y pinta un escenario con el aspecto
+  del proyecto; la imagen y las cajas comparten píxeles.
+- **Manipulación directa**: cuerpo para mover (`Transform.x/y`) y cuatro asas para escalar
+  (`Transform.scale`, 0.25…4) anclando la esquina opuesta.
+- **Un undo por gesto**, `Esc` cancela, un clic sin movimiento no ensucia el historial y la capa
+  se oculta al reproducir.
+- Sin cambios de esquema: usa `Clip.transform` de la fase 2.
+
+### B11 — Pistas de video/audio separadas por defecto y enlazadas (✅ · M)
+
+Resultados y decisiones completas en [24 — Pistas A/V](24-pistas-av.md).
+
+- **Importación**: si el video tiene audio, se crea «Audio del video» (pista absoluta) y el clip
+  de video queda mudo; todo en un solo undo.
+- **Enlace**: mover, recortar, dividir o cambiar la velocidad del video recoloca/ajusta su audio
+  enlazado; mover o recortar el audio enlazado por su cuenta se bloquea con aviso.
+- **Desvincular/Vincular**: el audio se conserva al desvincular y `relink_audio` recupera el
+  enlace sin duplicar clips; el corte rápido sigue bloqueado con audio separado.
+
+### B12 — Elementos superpuestos: figuras, imágenes y blur (✅ · L)
+
+Resultados y decisiones completas en [25 — Elementos](25-elementos.md).
+
+- **Modelo v6**: `Project.elements` y `Element` (imagen/rect/elipse/triángulo) con intervalo,
+  centro/tamaño normalizados, rotación, opacidad, color/asset, fit y efectos.
+- **Composición**: geometría pura compartida, PNG de figuras materializado en cache atómica,
+  blur horneado con Pillow; el export usa `-loop 1`, `scale`, `rotate`, alfa y `overlay`, y el
+  preview compone con PIL.
+- **UI**: lista y controles en el inspector, alta de figuras/imágenes, z-order, borrado y caja
+  con asas sobre el preview; un undo por cambio/gesto.
+- El corte rápido se bloquea con elementos; sin elementos el graph es idéntico al histórico.
+
+### B13 — Efectos globales sobre todo el video (✅ · M)
+
+Resultados y decisiones completas en [26 — Efectos globales](26-efectos-globales.md).
+
+- **Modelo v6**: `Project.effects` (color, blur, viñeta, blanco y negro) además de los efectos
+  por clip.
+- **Orden único** en preview y export: compuesto → `eq` → `gblur` → `vignette` → `hue=s=0` →
+  elementos → textos.
+- **UI** en el inspector del proyecto, un undo por cambio y reset; sin efectos el filter graph
+  es byte a byte el histórico.
+- Blur escalado al alto de salida, viñeta con la fórmula real de FFmpeg y paridad verificada con
+  export real.
+
+> Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
+> [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
+> PiP de video, subtítulos/keyframes; los elementos, el canvas y los efectos globales ya están
+> hechos.
 
 ---
 
@@ -292,8 +348,9 @@ Si hay que elegir un orden (y no simplemente el orden del documento):
    smoke del exe, pero no el flujo CU-1→CU-5 con monitor y audio.
 2. **A6 + A7 + A8** — cerrar las comprobaciones manuales del bloque A (móvil, soak de 30 min y
    sensación del timeline); los procedimientos están en [docs/16](16-bloque-a-entrega.md).
-3. **Fase 4 del editor** — composición y texto (PiP/overlay, subtítulos, keyframes); la fase 3
-   (flujo de edición) ya está hecha ([21](21-fase-3-flujo.md)).
+3. **Fase 4 del editor (resto)** — PiP de video, subtítulos y keyframes; el canvas interactivo,
+   los elementos (figuras/imágenes/blur) y los efectos globales ya están hechos
+   ([23](23-canvas-resize.md), [25](25-elementos.md), [26](26-efectos-globales.md)).
 4. **C1** — webcam PiP, el siguiente salto de producto.
 5. **D1** — GIF/WebM para compartir en un clic.
 6. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de

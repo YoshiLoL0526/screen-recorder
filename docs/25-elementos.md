@@ -149,7 +149,8 @@ rechaza cualquier archivo que no empiece por la firma PNG (misma lección que la
    cambio, falla: la UI nunca debe tapar un error de composición en el archivo final.
 
 La caja de selección del preview (`ui/element_overlay.py`) calcula el rectángulo real del lienzo
-dentro del panel con el aspecto del proyecto y el tamaño medido (`state.preview_box`). Se muestra
+con el aspecto del proyecto y el tamaño del **escenario** (`state.preview_box`, que tras integrar
+la feature A es el rectángulo del lienzo dentro del panel, no el panel entero). Se muestra
 solo con un elemento seleccionado, en pausa y si está activo en el playhead. El cuerpo mueve
 `x/y`; las cuatro asas escalan `width/height` anclando la esquina opuesta. Un drag usa
 `store.begin/update/commit` ⇒ **un solo undo**; un clic sin movimiento no crea entrada. `Esc`
@@ -236,10 +237,11 @@ cancela.
 ## Conflictos previsibles con las otras features
 
 - **A (canvas resize)**: ambas tocan `ui/screens/editor.py` (preview), `state.py` y
-  `ui/editor_controller.py`. La capa de preview de C es propia (`ui/element_overlay.py`) y
-  calcula el rectángulo del lienzo; si A introduce una capa reutilizable, conviene sustituir solo
-  la colocación de la caja y conservar los handlers de C. No se comparte ningún nombre de
-  `Signal` nuevo salvo `preview_box`, que A también podría querer.
+  `ui/editor_controller.py`. En el merge se conservaron ambos conjuntos de handlers:
+  `_measure_preview` escribe `preview_area` (hueco del panel) y `preview_box` (tamaño del
+  escenario), y tanto la caja del clip como la del elemento viven dentro del mismo `ed-stage` con
+  coordenadas relativas a él. Los drags de elemento usan el escenario actual
+  (`canvas_edit.fit_stage`), no un panel con letterbox.
 - **B (pistas A/V)**: independiente en modelo; C no toca `core/timeline.py` más allá de usar
   `add_asset`/`total_duration` y no toca audio. El merge no debería pisarse.
 - **D (efectos globales)**: comparte `core/graph.py` y `services/playback.py` solo en los hooks ya
