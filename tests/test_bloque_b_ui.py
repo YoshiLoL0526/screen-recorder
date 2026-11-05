@@ -131,11 +131,16 @@ def test_marquesina_selecciona_y_borra_varios_con_un_solo_undo(ui, tmp_path: Pat
     editor.drag_marquee(TL_X0 - scroll + 4.0 * zoom)
     editor.end_marquee()
 
-    assert len(state.multi_selection()) == 3
+    project = state.editor_project()
+    # La marquesina elige el video y su audio enlazado de «Audio del video» (docs/24).
+    expected = {c.id for c in project.video.clips} | {c.id for t in project.audio for c in t.clips}
+    assert state.multi_selection() == expected
     editor.delete_selected()
     assert state.editor_project().video.clips == ()
+    assert all(track.clips == () for track in state.editor_project().audio)
     editor.undo()
     assert len(state.editor_project().video.clips) == 3
+    assert len(state.editor_project().audio[0].clips) == 3
 
 
 def test_el_snap_engancha_en_un_pico_de_audio_del_vecino(

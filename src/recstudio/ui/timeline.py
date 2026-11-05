@@ -341,7 +341,8 @@ def _draw_tracks(c: Canvas) -> None:
         if selected:
             c.rect(x + 1, audio_top, w - 2, audio_h, radius=5, stroke="$primary", stroke_width=1.5)
         if asset is not None and not clip.audio_enabled:
-            c.text(x + 8, audio_top + 13, _ellipsis("audio separado", w - 12, 10), size=10, color="$muted")
+            c.text(x + 8, audio_top + 13, _ellipsis("audio separado · pista inferior", w - 12, 10),
+                   size=10, color="$muted")
         elif asset is not None and asset.has_audio and zoom >= 20 and not is_offline and video_gain > 0:
             if asset.id not in peaks_by_asset:
                 peaks = media.cached_waveform(asset.path)
@@ -912,7 +913,10 @@ def track_labels():
     selected = state.selection()
     for audio_row in lay.rows:
         track = project.audio[audio_row.index]
+        linked = any(clip.link_id for clip in track.clips)
         name = track.name or f"Audio {audio_row.index + 1}"
+        if linked:
+            name += " ↔"
         active = (
             selected is not None and selected[0] == "audio"
             and int(selected[1]) == audio_row.index

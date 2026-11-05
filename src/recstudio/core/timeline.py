@@ -905,6 +905,205 @@ def attach_audio(p: Project, video_clip_id: str) -> Project:
     return replace(p, video=replace(p.video, clips=tuple(video_clips)), audio=tuple(tracks))
 
 
+def separate_audio_all(p: Project) -> Project:
+    """Separa el audio de **todos** los clips de video que todavía lo tengan activo.
+
+    Reutiliza una única pista «Audio del video» (cada `detach_audio` la crea o la reutiliza) y
+    devuelve el proyecto; la UI lo aplica con un solo `store.apply` (un undo por importación).
+    Los clips mudos o ya separados no cambian y no se crea pista si no hay nada que separar.
+    Es todo o nada: si un tramo no cabe en la pista absoluta (o está bloqueada), lanza
+    `ProjectError` y el proyecto de entrada queda intacto.
+    """
+    project = p
+    for clip_id in [clip.id for clip in p.video.clips]:
+        clip = project.clip(clip_id)
+        if not clip.audio_enabled:
+            continue
+        if not project.asset(clip.asset_id).has_audio:
+            continue
+        project, _audio_id = detach_audio(project, clip_id)
+    return project
+
+
+def unlink_audio(p: Project, video_clip_id: str) -> Project:
+    """Corta el enlace de los clips de audio que apuntan a `video_clip_id`.
+
+    El audio **se conserva** en su pista (y el video sigue con `audio_enabled=False`: no se
+    reactiva su sonido original). Queda libre para moverlo o recortarlo por separado;
+    `relink_audio` recupera el enlace sin borrarlo y `attach_audio` («Vincular audio») sigue
+    siendo la vía para descartar el audio separado y recuperar el sonido original del video.
+    """
+    p.video.index_of(video_clip_id)  # valida que el video existe
+    tracks = list(p.audio)
+    changed = False
+    for track_index, track in enumerate(tracks):
+        indexes = [i for i, clip in enumerate(track.clips) if clip.link_id == video_clip_id]
+        if not indexes:
+            continue
+        _ensure_unlocked(track)
+        clips = list(track.clips)
+        for index in indexes:
+            clips[index] = replace(clips[index], link_id=None)
+        tracks[track_index] = replace(track, clips=tuple(clips))
+        changed = True
+    return replace(p, audio=tuple(tracks)) if changed else p
+
+
+def relink_audio(p: Project, audio_clip_id: str, video_clip_id: str | None = None) -> Project:
+    """Vuelve a enlazar un audio libre con un clip de video (inverso de `unlink_audio`).
+
+    El clip de audio **se conserva** tal cual (posición, recortes y efectos); solo recupera su
+    `link_id` y el video vuelve a quedar con `audio_enabled=False`. Sin `video_clip_id` se elige
+    el clip del mismo asset que más solapa con el audio (y, a igualdad, el más cercano). Es lo
+    que permite desvincular, editar el audio y volver a vincularlo sin duplicar clips.
+    """
+    found = find_audio_clip(p, audio_clip_id)
+    if found is None:
+        raise ProjectError(f"no existe el clip de audio {audio_clip_id}")
+    track_index, clip_index, clip = found
+    track = p.audio[track_index]
+    _ensure_unlocked(track)
+    if track.mode != "absolute":
+        raise ProjectError("solo se puede volver a vincular audio de una pista absoluta")
+    if clip.link_id is not None:
+        return p  # ya está enlazado
+    if video_clip_id is None:
+        starts = clip_starts(p.video)
+        audio_start = float(clip.start or 0.0)
+        audio_end = audio_start + clip.duration
+        candidates = [
+            (index, video) for index, video in enumerate(p.video.clips)
+            if video.asset_id == clip.asset_id
+        ]
+        if not candidates:
+            raise ProjectError("no hay un clip de video con el mismo archivo para vincular")
+
+        def rank(item: tuple[int, Clip]) -> tuple[int, float, float, int]:
+            index, video = item
+            start, end = starts[index], starts[index] + video.duration
+            overlap = max(0.0, min(end, audio_end) - max(start, audio_start))
+            contains = 0 if start - 1e-9 <= audio_start < end - 1e-9 else 1
+            return (contains, -overlap, abs((start + end) / 2 - (audio_start + audio_end) / 2), index)
+
+        video = min(candidates, key=rank)[1]
+    else:
+        video = p.clip(video_clip_id)
+    if video.asset_id != clip.asset_id:
+        raise ProjectError("el audio y el video no usan el mismo archivo")
+    _ensure_unlocked(p.video)
+    clips = list(track.clips)
+    clips[clip_index] = replace(clip, link_id=video.id)
+    tracks = list(p.audio)
+    tracks[track_index] = replace(track, clips=tuple(clips))
+    video_clips = list(p.video.clips)
+    video_clips[p.video.index_of(video.id)] = replace(video, audio_enabled=False)
+    return replace(p, video=replace(p.video, clips=tuple(video_clips)), audio=tuple(tracks))
+
+
+def _absolute_overlaps(clips) -> tuple[str, str] | None:  # noqa: ANN001
+    """Primer par de clips solapados de una pista absoluta (las pistas ya se validan al aplicar)."""
+    ordered = sorted(clips, key=lambda c: (float(c.start or 0.0), c.id))
+    for a, b in zip(ordered, ordered[1:]):
+        if float(b.start or 0.0) < float(a.start or 0.0) + a.duration - 1e-9:
+            return a.id, b.id
+    return None
+
+
+def sync_linked_audio(p: Project, before: Project) -> Project:
+    """Recoloca el audio enlazado tras una edición del video (`before` es la base del gesto).
+
+    - Cada clip de audio con `link_id` sigue el **nuevo inicio del video**: `start` se calcula
+      desde el inicio actual del video (más el solape de la transición entrante), no sumando
+      deltas al estado intermedio; así llamar dos veces con el mismo `before` es idempotente y
+      los drags no acumulan error.
+    - Con **un solo segmento** enlazado también se ajustan `in_`, `out_` y `speed` a los del
+      video: recortar o cambiar la velocidad mantiene la misma porción de fuente. Con varios
+      segmentos (audio dividido con `split_audio`) solo se desplaza `start`, porque no hay una
+      correspondencia 1:1 entre trozos (límite documentado en docs/24).
+    - Si el resultado se solapa en una pista absoluta, lanza `ProjectError` para que la UI
+      cancele el gesto (el proyecto del `before` sigue siendo válido).
+
+    No toca el audio sin enlace ni las pistas secuenciales.
+    """
+    linked_counts: dict[str, int] = {}
+    for track in p.audio:
+        for clip in track.clips:
+            if clip.link_id:
+                linked_counts[clip.link_id] = linked_counts.get(clip.link_id, 0) + 1
+    if not linked_counts:
+        return p
+
+    before_video = {
+        clip.id: start for clip, start in zip(before.video.clips, clip_starts(before.video))
+    }
+    new_video = {clip.id: start for clip, start in zip(p.video.clips, clip_starts(p.video))}
+    before_audio: dict[str, float] = {}
+    for track in before.audio:
+        for clip, start in zip(track.clips, clip_starts(track)):
+            before_audio[clip.id] = start
+
+    tracks = list(p.audio)
+    changed = False
+    for track_index, track in enumerate(p.audio):
+        if track.mode != "absolute":
+            continue
+        updated: list[Clip] = []
+        track_changed = False
+        for clip in track.clips:
+            if not clip.link_id:
+                updated.append(clip)
+                continue
+            try:
+                video = p.clip(clip.link_id)
+                video_index = p.video.index_of(video.id)
+            except ProjectError as exc:
+                raise ProjectError(
+                    f"el audio {clip.id} apunta a un video que no existe ({clip.link_id})"
+                ) from exc
+            new_start = new_video.get(video.id)
+            if new_start is None:
+                updated.append(clip)
+                continue
+            if linked_counts.get(video.id, 0) == 1:
+                overlap = 0.0
+                if video_index > 0 and video_index - 1 < len(p.video.transitions):
+                    transition = p.video.transitions[video_index - 1]
+                    overlap = transition.duration if transition is not None else 0.0
+                target_start = frame_round(new_start + overlap, p.fps)
+                target_in = video.in_ + overlap * video.speed
+                try:
+                    candidate = replace(
+                        clip, start=round(max(0.0, target_start), 6),
+                        in_=target_in, out_=video.out_, speed=video.speed,
+                    )
+                except ProjectError as exc:
+                    raise ProjectError(
+                        f"el audio enlazado al clip {video.id} no cabe con el nuevo recorte: {exc.message}"
+                    ) from exc
+            else:
+                old_video_start = before_video.get(video.id)
+                delta = 0.0 if old_video_start is None else new_start - old_video_start
+                old_start = before_audio.get(clip.id, float(clip.start or 0.0))
+                target_start = max(0.0, old_start + delta)
+                candidate = replace(clip, start=round(target_start, 6))
+            if candidate != clip:
+                track_changed = True
+                changed = True
+            updated.append(candidate)
+        if not track_changed:
+            continue
+        overlap = _absolute_overlaps(updated)
+        if overlap is not None:
+            label = track.name or f"Audio {track_index + 1}"
+            raise ProjectError(
+                f"el audio enlazado se solaparía con otro clip de «{label}» ({overlap[0]} y {overlap[1]})"
+            )
+        ordered = _ordered_absolute_clips(updated)
+        tracks[track_index] = replace(
+            track, clips=ordered, transitions=tuple(None for _ in range(max(0, len(ordered) - 1)))
+        )
+    return replace(p, audio=tuple(tracks)) if changed else p
+
 
 def add_asset(p: Project, asset: MediaAsset) -> tuple[Project, MediaAsset]:
     """Añade el asset si su ruta no estaba ya; devuelve el asset efectivo del proyecto."""

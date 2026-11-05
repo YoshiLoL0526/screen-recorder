@@ -136,7 +136,10 @@ def test_marquesina_y_mover_el_bloque_con_un_solo_undo(ui, video: Path) -> None:
     editor.begin_marquee(_x(0.1))
     editor.drag_marquee(_x(3.9))
     editor.end_marquee()
-    assert state.multi_selection() == {c1.id, c2.id}
+    project = state.editor_project()
+    assert {c1.id, c2.id} <= state.multi_selection()
+    # la marquesina también elige los dos trozos de audio enlazado de «Audio del video»
+    assert {c.id for c in project.audio[0].clips[:2]} <= state.multi_selection()
     pilot.click("tl-marquee")  # fuera de la marquesina: arrastrar mueve
     _settle(pilot)
     before = state.editor_project()

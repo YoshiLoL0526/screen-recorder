@@ -366,6 +366,10 @@ class EditorController:
             self._sync_inspector()
             return
         track_index, clip_index, clip = audio
+        if clip.link_id:
+            state.toast("warning", "El audio está enlazado al video: desvincúlalo para recortarlo")
+            self._sync_inspector()
+            return
         start = tl.clip_starts(self.project.audio[track_index])[clip_index]
         delta = end - (start + clip.duration)
         new_out = clip.out_ + delta * clip.speed
@@ -507,6 +511,15 @@ class EditorController:
             return False
         return self.store.apply(label, project)
 
+    def _sync_audio(self, before: Project, project: Project, *, notify: bool = True) -> Project | None:
+        """Sincroniza el audio enlazado con `project`; `None` si el resultado no cabe (se cancela)."""
+        try:
+            return tl.sync_linked_audio(project, before)
+        except ProjectError as exc:
+            if notify:
+                state.toast("warning", exc.message)
+            return None
+
     # -- comandos de edición -------------------------------------------------------
 
     def split(self) -> None:
@@ -614,6 +627,53 @@ class EditorController:
             if project.has_clip(video_id):
                 self.select_clip(video_id)
             state.toast("success", "Audio vinculado al video de nuevo")
+
+    def unlink_audio(self) -> None:
+        """«Desvincular audio»: mantiene el audio en su pista pero deja de seguir al video."""
+        if not self._guard_editable():
+            return
+        audio = self.selected_audio()
+        video_id = audio[2].link_id if audio is not None else None
+        video = self.selected_clip()
+        if video_id is None and video is not None and tl.linked_audio_clips(self.project, video.id):
+            video_id = video.id
+        if video_id is None:
+            state.toast("info", "Selecciona el clip de video o su audio enlazado")
+            return
+        try:
+            project = tl.unlink_audio(self.project, video_id)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("desvincular audio", project):
+            state.toast(
+                "success",
+                "Audio desvinculado: el video queda mudo y el audio puede editarse por separado",
+            )
+
+    def relink_audio(self) -> None:
+        """«Vincular al video»: recupera el enlace de un audio libre sin borrarlo ni duplicarlo."""
+        if not self._guard_editable():
+            return
+        audio = self.selected_audio()
+        if audio is None:
+            state.toast("info", "Selecciona el clip de audio que quieres volver a enlazar")
+            return
+        track_index, _clip_index, clip = audio
+        track = self.project.audio[track_index]
+        if track.locked:
+            state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        if self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
+        try:
+            project = tl.relink_audio(self.project, clip.id)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("vincular audio", project):
+            state.toast("success", "Audio vinculado al video: vuelve a seguir sus cortes")
 
     def delete_selected(self) -> None:
         selection = state.selection()
@@ -748,7 +808,15 @@ class EditorController:
         clip = self.selected_clip()
         if clip is None:
             return
-        self._apply("velocidad", tl.set_speed(self.project, clip.id, speed))
+        before = self.project
+        try:
+            project = tl.set_speed(before, clip.id, speed)
+            project = tl.sync_linked_audio(project, before)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply("velocidad", project)
 
     def set_effect(self, kind: str, label: str | None = None, **params: float) -> None:
         clip = self.selected_clip()
@@ -895,6 +963,13 @@ class EditorController:
         track = self.project.audio[track_index]
         if track.locked:
             state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        if clip.link_id:
+            state.toast(
+                "warning",
+                "El audio está enlazado al video: pulsa «Desvincular audio» para moverlo",
+            )
+            self._sync_inspector()
             return
         if track.mode != "absolute":
             state.toast("info", "La música es secuencial: muévela arrastrando en el timeline")
@@ -1306,8 +1381,10 @@ class EditorController:
         current = self.project.video.transitions[index]
         if duration is None:
             duration = current.duration if current is not None else 0.5
+        before = self.project
         try:
-            project, clamped = tl.set_transition(self.project, index, kind, duration)
+            project, clamped = tl.set_transition(before, index, kind, duration)
+            project = tl.sync_linked_audio(project, before)
         except ProjectError as exc:
             state.toast("warning", exc.message)
             return
@@ -1326,11 +1403,18 @@ class EditorController:
         clip = self.selected_clip()
         if clip is None:
             return
-        project = tl.trim(
-            self.project, clip.id,
-            clip.in_ if new_in is None else new_in,
-            clip.out_ if new_out is None else new_out,
-        )
+        before = self.project
+        try:
+            project = tl.trim(
+                before, clip.id,
+                clip.in_ if new_in is None else new_in,
+                clip.out_ if new_out is None else new_out,
+            )
+            project = tl.sync_linked_audio(project, before)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()  # el texto vuelve al valor real
+            return
         if not self._apply(label, project):
             self._sync_inspector()  # el texto vuelve al valor real
 
@@ -1692,10 +1776,18 @@ class EditorController:
             track_index, clip_index, clip = audio
             start = tl.clip_starts(self.project.audio[track_index])[clip_index]
             if start <= t < start + clip.duration:
+                if clip.link_id:
+                    state.toast(
+                        "warning",
+                        "El audio está enlazado al video: desvincúlalo para recortarlo",
+                    )
+                    return
                 track = track_index
         before = self.project
         try:
             project = tl.trim_to(before, t, side, track)
+            if track is None:  # Q/W sobre el video: su audio enlazado lo sigue
+                project = tl.sync_linked_audio(project, before)
         except ProjectError as exc:
             state.toast("info", exc.message)
             return
@@ -1791,7 +1883,12 @@ class EditorController:
         ghost = snapped_start if snapped_start != ghost else snapped_end
         ghost = max(0.0, ghost)
         index = tl.drop_index(base, clip.id, ghost)
-        self.store.update(tl.move(base, clip.id, index))
+        synced = self._sync_audio(base, tl.move(base, clip.id, index),
+                                  notify=not drag.get("sync_warned", False))
+        if synced is None:
+            drag["sync_warned"] = True
+            return  # el audio enlazado no cabe: se queda en la última posición válida
+        self.store.update(synced)
         state.tl_drag.set(state.TimelineDrag("move", clip.id, ghost=round(ghost, 4)))
 
     def begin_trim(self, clip_id: str, side: str) -> None:
@@ -1829,7 +1926,14 @@ class EditorController:
         if drag["kind"] == "trim_l":
             edge = self._snap(start + dx / zoom, cands)
             new_in = clip.in_ + (edge - start) * clip.speed
-            project = tl.trim(base, clip.id, new_in, clip.out_)
+            synced = self._sync_audio(
+                base, tl.trim(base, clip.id, new_in, clip.out_),
+                notify=not drag.get("sync_warned", False),
+            )
+            if synced is None:
+                drag["sync_warned"] = True
+                return
+            project = synced
             shift = (project.clip(clip.id).in_ - clip.in_) / clip.speed
             self.store.update(project)
             state.tl_drag.set(state.TimelineDrag("trim_l", clip.id, shift_index=index, shift=round(shift, 5)))
@@ -1837,7 +1941,14 @@ class EditorController:
         else:
             edge = self._snap(start + clip.duration + dx / zoom, cands)
             new_out = clip.in_ + (edge - start) * clip.speed
-            project = tl.trim(base, clip.id, clip.in_, new_out)
+            synced = self._sync_audio(
+                base, tl.trim(base, clip.id, clip.in_, new_out),
+                notify=not drag.get("sync_warned", False),
+            )
+            if synced is None:
+                drag["sync_warned"] = True
+                return
+            project = synced
             self.store.update(project)
             state.tl_drag.set(state.TimelineDrag("trim_r", clip.id))
             new_clip = project.clip(clip.id)
@@ -1852,9 +1963,17 @@ class EditorController:
         if track.locked:
             state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
             return
+        index = track.index_of(clip_id)
+        if track.clips[index].link_id:
+            # Política segura (docs/24): un audio enlazado no se mueve por su cuenta para no
+            # desincronizarlo del video en silencio; se pide desvincularlo primero.
+            state.toast(
+                "warning",
+                "El audio está enlazado al video: pulsa «Desvincular audio» para moverlo",
+            )
+            return
         self.cancel_drag()
         project = self.project
-        index = track.index_of(clip_id)
         start = tl.clip_starts(track)[index]
         self.store.begin("mover audio")
         self._drag = {
@@ -1910,9 +2029,15 @@ class EditorController:
         if track.locked:
             state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
             return
+        index = track.index_of(clip_id)
+        if track.clips[index].link_id:
+            state.toast(
+                "warning",
+                "El audio está enlazado al video: pulsa «Desvincular audio» para recortarlo",
+            )
+            return
         self.cancel_drag()
         project = self.project
-        index = track.index_of(clip_id)
         start = tl.clip_starts(track)[index]
         self.store.begin("recortar audio")
         self._drag = {
@@ -2002,11 +2127,21 @@ class EditorController:
         snapped_start = self._snap(ghost, cands)
         snapped_end = self._snap(ghost + length, cands) - length
         ghost = max(0.0, snapped_start if snapped_start != ghost else snapped_end)
+        # El audio enlazado no viaja como audio libre: lo recoloca `sync_linked_audio` con el
+        # video, no `shift_audio_many` (podía chocar con el audio de un vecino antes de tiempo).
+        free_ids = {
+            clip_id for clip_id in ids
+            if not any(c.id == clip_id and c.link_id for track in base.audio for c in track.clips)
+        }
         try:
-            project = tl.move_block(base, ids, ghost)
+            project = tl.move_block(base, free_ids, ghost)
         except ProjectError:
             return  # solape de audio: el bloque se queda en la última posición válida
-        self.store.update(project)
+        synced = self._sync_audio(base, project, notify=not drag.get("sync_warned", False))
+        if synced is None:
+            drag["sync_warned"] = True
+            return
+        self.store.update(synced)
         state.tl_drag.set(state.TimelineDrag("block", drag["id"], ghost=round(ghost, 4), length=round(length, 4)))
 
     def end_drag(self) -> None:
@@ -2428,6 +2563,19 @@ class EditorController:
                 state.importing.set(tuple(n for n in state.importing() if n != path.name))
         return assets
 
+    def _separate_imported_audio(self, project: Project) -> Project:
+        """Deja el audio de los videos importados en «Audio del video» enlazado (docs/24).
+
+        Es una sola operación sobre el proyecto importado (un solo undo con el `apply` que
+        sigue). Si un tramo no cabe (p. ej. choca con audio absoluto ya existente o la pista
+        está bloqueada), se conserva el audio propio del video y se avisa.
+        """
+        try:
+            return tl.separate_audio_all(project)
+        except ProjectError as exc:
+            state.toast("warning", f"No se pudo separar el audio automáticamente: {exc.message}")
+            return project
+
     def import_paths(self, paths: list[Path], *, new_project: bool = False) -> None:
         """Añade videos al final del timeline (o crea un proyecto con ellos)."""
         if not paths:
@@ -2451,6 +2599,7 @@ class EditorController:
                     )
                     for asset in assets:
                         project, _ = tl.append_clip(project, asset)
+                    project = self._separate_imported_audio(project)
                     path = store_mod.unique_project_file(state.projects_dir(), first.name)
                     try:
                         store_mod.save_project(path, project)
@@ -2467,6 +2616,7 @@ class EditorController:
                     project = self.project
                     for asset in assets:
                         project, _ = tl.append_clip(project, asset)
+                    project = self._separate_imported_audio(project)
                     self.store.apply("importar", project)
                     self._refresh_offline(project)
                     self.zoom_fit()

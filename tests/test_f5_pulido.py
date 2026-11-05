@@ -15,6 +15,7 @@ import pytest
 from PIL import Image
 
 from recstudio import __version__, state
+from recstudio.core.project import Project
 from recstudio.platform import ffmpeg as F
 from recstudio.platform import paths
 from recstudio.services.settings import Settings
@@ -90,6 +91,7 @@ def video(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
 
 def test_pistas_del_timeline_crecen_y_se_topan() -> None:
+    state.editor_project.set(Project())  # aísla de proyectos que dejen otros tests de UI
     base = tlui.tracks_for(0)
     assert (base.video_h, base.audio_h) == (tlui.VIDEO_H, tlui.AUDIO_H)
     bigger = tlui.tracks_for(100)
