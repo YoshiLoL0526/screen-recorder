@@ -163,7 +163,8 @@ preview_frame = Signal(b"")  # JPEG del preview del editor
 preview_note = Signal("")  # aviso discreto bajo el preview («transición aproximada», …)
 preview_area = Signal(PreviewArea())  # hueco medido del preview (feature A, docs/23)
 preview_audio = Signal(True)  # audio del preview (best-effort)
-# ("clip", id) | ("transition", índice) | ("audio", pista, clip) | ("text", id) | ("marker", id) | None
+# ("clip", id) | ("transition", índice) | ("audio", pista, clip) | ("text", id) | ("marker", id)
+# | ("element", id) | None
 selection = Signal(None)
 # ids seleccionados con la marquesina (B3): clips de video y de audio absoluto (fase 3, docs/21)
 multi_selection = Signal(frozenset())
@@ -239,6 +240,19 @@ insp_text_x = Signal(0.5)
 insp_text_y = Signal(0.82)
 insp_text_bold = Signal(False)
 insp_marker_name = Signal("")  # nombre del marcador seleccionado (fase 3)
+# -- elementos superpuestos (v6, docs/25) -----------------------------------------
+insp_el_start = Signal("")  # intervalo del elemento seleccionado (texto editable)
+insp_el_end = Signal("")
+insp_el_x = Signal(0.5)  # centro en fracción del lienzo
+insp_el_y = Signal(0.5)
+insp_el_width = Signal(0.35)  # tamaño en fracción del lienzo
+insp_el_height = Signal(0.25)
+insp_el_rotation = Signal(0.0)  # grados horarios
+insp_el_opacity = Signal(1.0)
+insp_el_blur = Signal(0.0)  # radio 0…50 px del lienzo
+insp_el_color = Signal("#FF5470")  # figuras
+insp_el_fit = Signal("fit")  # imágenes: fit | fill | stretch
+preview_box = Signal((0.0, 0.0))  # tamaño medido del lienzo del preview (para la caja de selección)
 proxies = Signal(0)  # versión: sube cuando termina un proxy de preview (B5)
 
 export_open = Signal(False)  # modal «Exportar»

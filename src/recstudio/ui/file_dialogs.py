@@ -25,6 +25,10 @@ VIDEO_FILTERS = (
     ("Videos", ("mp4", "mkv", "mov", "webm", "avi")),
     ("Todos los archivos", ("*",)),
 )
+IMAGE_FILTERS = (
+    ("Imágenes", ("png", "jpg", "jpeg", "webp", "bmp")),
+    ("Todos los archivos", ("*",)),
+)
 
 
 def open_videos(initial_dir: str | Path | None = None, *, title: str = "Importar video") -> list[Path]:
@@ -33,6 +37,12 @@ def open_videos(initial_dir: str | Path | None = None, *, title: str = "Importar
     Devuelve los archivos elegidos, en el orden en que los da el sistema.
     """
     chosen = dialogs.open_files(title=title, directory=initial_dir, filters=VIDEO_FILTERS)
+    return [Path(p) for p in chosen]
+
+
+def open_images(initial_dir: str | Path | None = None, *, title: str = "Importar imagen") -> list[Path]:
+    """Diálogo «Abrir» con multiselección de imágenes (PNG/JPG/WebP/BMP); `[]` si se cancela."""
+    chosen = dialogs.open_files(title=title, directory=initial_dir, filters=IMAGE_FILTERS)
     return [Path(p) for p in chosen]
 
 

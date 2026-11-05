@@ -34,7 +34,7 @@ from ..core.errors import FfmpegError, MediaError, ProjectError, RecStudioError
 from ..core.project import Project
 from ..platform import ffmpeg as F
 from ..platform import paths
-from . import media
+from . import element_assets, media
 
 ETA_WINDOW = 20
 DURATION_TOLERANCE = 0.2  # s (docs/04: verificación con ffprobe ±0.2 s)
@@ -105,6 +105,8 @@ def unique_output(folder: Path, name: str) -> Path:
 
 def offline_assets(project: Project) -> list[str]:
     used = {c.asset_id for t in (project.video, *project.audio) for c in t.clips}
+    # v6 (docs/25): una imagen de un elemento también es un archivo necesario del proyecto.
+    used |= {e.asset_id for e in project.elements if e.asset_id}
     return [a.name for a in project.assets if a.id in used and media.is_offline(a)]
 
 
@@ -222,8 +224,19 @@ class Exporter:
         except (OSError, FfmpegError):
             available = {"libx264": True}
         encoder = G.resolve_encoder(preset, available)
+        element_sources = None
+        if project.elements:
+            try:
+                element_sources = element_assets.materialize(project, G.output_size(project, preset))
+            except RecStudioError:
+                raise
+            except Exception as exc:  # OSError/PIL: un elemento no debe perderse en silencio
+                raise MediaError(f"no se pudieron preparar los elementos: {exc}") from exc
         while True:
-            spec = G.build(project, preset, partial, encoder=encoder, exe=exe, span=span)
+            spec = G.build(
+                project, preset, partial, encoder=encoder, exe=exe, span=span,
+                element_sources=element_sources,
+            )
             base = replace(base, encoder=encoder, duration=spec.duration, message="")
             self._tolerance = max(DURATION_TOLERANCE, 2.0 / spec.fps)
             try:
