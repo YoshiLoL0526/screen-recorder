@@ -36,8 +36,45 @@ def section(title: str, *children, gap: float = 10, **style):
     ]
 
 
+_CONTROL_ROLES = {
+    "combobox", "textbox", "textarea", "switch", "checkbox", "radio", "radiogroup",
+    "slider", "spinbutton", "listbox",
+}
+
+
+def label_control(control, label: str) -> None:
+    """Da `label` como nombre accesible al primer control del árbol (Aurora 0.10).
+
+    El texto que se pinta al lado no cuenta como nombre accesible. Los componentes compuestos
+    (`select`) llevan el rol y el `label` en un hijo, no en la raíz, así que hay que buscar el
+    primer nodo con rol de control (o un campo de texto, que es `kind="input"`). `setdefault`
+    respeta un `label=` explícito.
+    """
+    if not hasattr(control, "style"):
+        return
+
+    def visit(element) -> bool:
+        style = getattr(element, "style", None)
+        if style is None:
+            return False
+        # No tocar la serialización memorizada de un `@component` reutilizado.
+        if getattr(element, "_memo", None) is not None:
+            return style.get("label") is not None
+        if getattr(element, "kind", None) == "input" or style.get("role") in _CONTROL_ROLES:
+            style.setdefault("label", label)
+            return True
+        for child in getattr(element, "children", ()) or ():
+            if visit(child):
+                return True
+        return False
+
+    if not visit(control):
+        control.style.setdefault("label", label)
+
+
 def field(label: str, control):
     """Etiqueta a la izquierda y control a la derecha."""
+    label_control(control, label)
     return row(gap=8, align="center")[
         text(label, size=12.5, color="$muted", width=84, shrink=0),
         box(grow=1)[control],
@@ -57,6 +94,10 @@ def icon_button(icon: bytes, on_click, *, tooltip: str | None = None, size: floa
         "press_scale": 0.94,
         **style,
     }
+    # Un botón de solo icono no tiene texto que lo nombre para el lector de pantalla. El tooltip
+    # ya describe la acción: sirve de `label` (0.10 lo exige para no avisar de `no-label`).
+    if tooltip:
+        props.setdefault("label", tooltip)
     element = box(on_click=on_click, **props)[image(icon, width=size * 0.52)]
     if tooltip:
         element.style["tooltip"] = tooltip
@@ -180,7 +221,7 @@ def _modal():
         capture=True,
     )[
         box(position="absolute", left=0, right=0, top=0, bottom=0, bg="#00000080",
-            on_click=lambda: state.confirm.set(None))[None],
+            label="Cerrar el diálogo", on_click=lambda: state.confirm.set(None))[None],
         box(
             position="absolute",
             width=430,

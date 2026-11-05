@@ -146,12 +146,12 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | A9 | Ripple trim, roll, slip, slide, insert/overwrite | ⛔ | Solo trim simple y ripple delete | P2 | L |
 | A10 | Marcadores y capítulos | ✅ (marcadores; capítulos en el MP4, no) | `Project.markers`, `B`, ↑/↓, regla e inspector (docs/21) | P2 | S |
 | A11 | Loop e in/out de reproducción | ✅ | `I`/`O`, `Ctrl+L` y `Player.set_loop` (docs/21) | — | — |
-| A12 | Scroll vertical cuando hay muchas pistas | ✅ (alternativa) | El panel crece con las pistas y se limita a 6 nuevas; el scroll anidado de Aurora 0.9 no se pudo usar (docs/19) | — | — |
+| A12 | Scroll vertical cuando hay muchas pistas | ✅ (alternativa) | El panel crece con las pistas y se limita a 6 nuevas; el scroll anidado de Aurora 0.10 no se pudo usar (docs/19) | — | — |
 | A13 | Drag & drop desde el Explorador | ⛔ | `on_drop` de Aurora disponible (docs/05) | P1 | S |
 | A14 | Panel de medios del proyecto | ⛔ | Los assets solo se ven en el inspector de cada clip | P2 | M |
 | A15 | Menú contextual (clic derecho) | ⛔ | `on_context_menu` de Aurora disponible, sin usar | P2 | S–M |
 | A16 | Herramienta razor visible (cortar donde se pulsa) | ✅ | Botón y `C`; por pista o en todas (docs/21) | — | — |
-| A17 | Zoom que mantenga el playhead/selección a la vista | ◐ | Aurora 0.9 no permite fijar el scroll horizontal (spike en docs/21) | P1 | S |
+| A17 | Zoom que mantenga el playhead/selección a la vista | ◐ | Aurora 0.10 no permite fijar el scroll horizontal (spike en docs/21) | P1 | S |
 
 ### 3.2 Audio
 
@@ -368,7 +368,7 @@ pistas:
 - cabeceras con nombre, M/S, candado y volumen; la barra lateral deja de ser solo `V/A/M`;
 - `content_h` dinámico; el playhead cruza todas las filas;
 - **scroll vertical**: envolver el contenido en un `scroll(axis="y")` con altura fija y mantener el
-  scroll horizontal dentro. Hay que probarlo con Aurora 0.9 (scroll anidado) antes de comprometer
+  scroll horizontal dentro. Hay que probarlo con Aurora 0.10 (scroll anidado) antes de comprometer
   la UI; si no funciona, alternativa: limitar a 4–6 pistas y hacer que el panel crezca.
 - El filmstrip y las miniaturas solo se dibujan en la pista de video; el audio usa waveform.
 
@@ -458,7 +458,7 @@ export vertical coincide con el preview; el corte rápido se bloquea si hay tran
 
 - Copiar/pegar/duplicar; razor; marquesina que mueve; marcadores; loop e in/out; export de rango. ✅
 - J/K/L (marcha atrás sin audio y a menos fps) y Q/W. ✅ Zoom que sigue al playhead (A17): ⛔ por
-  Aurora 0.9.
+  Aurora 0.10.
 - Panel de medios y drag & drop: pendientes (A13/A14).
 
 **Criterio:** copiar dos clips y pegarlos en el playhead; duplicar con `Ctrl+D`; cortar con razor

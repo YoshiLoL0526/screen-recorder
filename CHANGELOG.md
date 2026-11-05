@@ -6,6 +6,15 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 
 ## Sin publicar
 
+### Cambiado
+- **aurora-ui actualizado de 0.9.0 a 0.10.0** (`>=0.10.0,<0.11.0`). La API que usa la app no
+  cambió, pero 0.10 valida props/handlers al crear el elemento y avisa de controles sin nombre
+  accesible (`no-label`). Se añadió `label=` a botones de icono, switches, campos de texto, fondos
+  de modal, transiciones y marcadores; `aurora check main.py` queda **sin avisos**. La auditoría con
+  `Pilot.layout()` sobre todas las pantallas, modales, temas y 3 tamaños da **0 avisos de layout**.
+  Se verificaron 324 tests, F2/F3/F5 y `tools/check_build.py` (256 MB, smoke OK con `aurora
+  0.10.0`). Docs actualizados: `docs/02`, `docs/05`, `docs/15` y `AGENTS.md`.
+
 ## [1.1.0] — 2026-11-01
 
 Bandeja y atajos globales, filmstrip, bloques A y B y las fases 0–3 del editor sobre la 1.0.0.

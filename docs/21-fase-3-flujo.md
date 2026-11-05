@@ -22,7 +22,7 @@
 | Export de rango en el modal (render y corte rápido) | ✅ | `core/graph.py`, `core/keyframes.py`, `services/export.py`, `ui/export_modal.py` |
 | J/K/L con velocidad creciente y marcha atrás | ✅ | controller + `Player.set_rate` |
 | Q/W: recortar hasta el playhead (ripple en video) | ✅ | `core/timeline.trim_to` |
-| A17: zoom que mantiene el playhead a la vista | ⛔ (límite de Aurora 0.9) | ver «Límites» |
+| A17: zoom que mantiene el playhead a la vista | ⛔ (límite de Aurora 0.10) | ver «Límites» |
 | Filmstrip y pósters de assets rotados enderezados (caché invalidada) | ✅ | `services/media.py` |
 | Tests puros, player, graph, export real y UI con `pilot` | ✅ | `tests/test_fase3_flujo.py`, `tests/test_fase3_flujo_ui.py` |
 
@@ -218,7 +218,7 @@ seguían esa regla. El panel «Atajos» del inspector y los tooltips están actu
   los clips anteriores al In (ver límites).
 - **Corte rápido con rango**: se soporta con el mismo imán a keyframe que ya tenían los cortes, en
   vez de bloquearlo; avisa si el inicio se movió.
-- **A17**: se investigó (spike con `pilot`) y Aurora 0.9 no expone scroll horizontal programático.
+- **A17**: se investigó (spike con `pilot`) y Aurora 0.10 no expone scroll horizontal programático.
   El estilo `reveal=` de `scroll` se ignora (el offset siguió en 0,0) y
   `_core.inspect_reveal` solo funciona con el inspector de desarrollo activo. Queda como límite.
 
@@ -242,7 +242,7 @@ seguían esa regla. El panel «Atajos» del inspector y los tooltips están actu
 
 ## Límites y pendientes
 
-- **A17** (zoom que mantiene el playhead a la vista): bloqueado por Aurora 0.9, que no permite
+- **A17** (zoom que mantiene el playhead a la vista): bloqueado por Aurora 0.10, que no permite
   fijar el scroll horizontal desde el código. Se revisará con la siguiente versión de Aurora
   (docs/15 → F1).
 - **Marcha atrás** sin audio y a menos fps (seek por frame en PyAV); el reloj es exacto.

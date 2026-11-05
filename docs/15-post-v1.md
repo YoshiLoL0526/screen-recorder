@@ -1,7 +1,7 @@
 # 15 — Roadmap post-v1: qué falta
 
-> Estado a **2026-10-31**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
-> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.9), los
+> Estado a **2026-11-05**, tras v1.0.0, los primeros trabajos post-v1 (bandeja y atajos globales,
+> filmstrip de miniaturas, diálogos nativos de Aurora y alineación con aurora-ui 0.10), los
 > **bloques A y B** ([16 — Bloque A](16-bloque-a-entrega.md), [17 — Bloque B](17-bloque-b-editor.md))
 > y las **fases 0, 1, 2 y 3 del editor** ([19 — Fase 0 y 1](19-fase-0-1-audio.md),
 > [20 — Fase 2](20-fase-2-frame.md), [21 — Fase 3](21-fase-3-flujo.md)).
@@ -23,7 +23,7 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Trabajo | Dónde vive |
 |---|---|
 | Arranque robusto si Windows bloquea la carpeta de grabaciones | `platform/paths.py`, `state.py`, `ui/controller.py` (docs/09) |
-| aurora-ui alineado a 0.9.0, con techo `<0.10` | `pyproject.toml`, `docs/05` |
+| aurora-ui alineado a 0.10.0, con techo `<0.11` (props desconocidas y `no-label` incluidos) | `pyproject.toml`, `docs/05` |
 | Diálogos nativos de Aurora en vez de ctypes | `ui/file_dialogs.py` (borrado `platform/dialogs.py`) |
 | Bandeja, atajos globales F9/F10 y «seguir grabando al cerrar» | `ui/tray.py`, `platform/hotkeys.py` |
 | Filmstrip de miniaturas en los clips | `services/media.thumbstrip`, `ui/timeline.filmstrip_slots` |
@@ -31,10 +31,10 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Flujo de edición: portapapeles, marquesina que mueve, razor, marcadores, In/Out, loop, J/K/L, Q/W y export de rango | `core/timeline.py`, `core/graph.py`, `core/keyframes.py`, `services/playback.py`, `ui/editor_controller.py`, `ui/timeline.py` (docs/21) |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**288 tests** en verde y `tools/check_build.py` OK (bundle de **255 MB** en local con
-`aurora 0.9.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests + build +
+**324 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
+`aurora 0.10.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests + build +
 instalador. Todo lo que sigue **no está implementado**, salvo lo marcado como hecho en los
-bloques A y B y las fases 0/1/2 del editor.
+bloques A y B y las fases 0/1/2/3 del editor.
 
 ---
 
@@ -131,7 +131,7 @@ Resultados y decisiones completas en [19 — Fase 0 y 1](19-fase-0-1-audio.md).
   drags, snap y transacciones de undo.
 - **Varias pistas visibles** con cabeceras de nombre, mute, solo, bloqueo y volumen; añadir y
   quitar pista. El solo aísla también el audio del video; el bloqueo impide mover/recortar/
-  borrar/dividir. Límite de 6 pistas nuevas (alternativa al scroll vertical anidado de Aurora 0.9).
+  borrar/dividir. Límite de 6 pistas nuevas (alternativa al scroll vertical anidado de Aurora 0.10).
 - **Fundidos de audio independientes** (`audio_fade_in/out`) en el graph y el preview.
 - **Export/preview**: `adelay` en muestras + `amix` para pistas absolutas, WAV de preview con la
   misma mezcla (`build_audio`) y corte rápido bloqueado con audio separado/absoluto.
@@ -168,7 +168,7 @@ Resultados y decisiones completas en [21 — Fase 3](21-fase-3-flujo.md).
 - **Q/W** recortan hasta el playhead (ripple en video) y el **export de rango** funciona en render
   y en corte rápido sin tocar los golden.
 - Filmstrip y pósters de assets rotados enderezados. **A17** (zoom que sigue al playhead) queda
-  bloqueado por Aurora 0.9.
+  bloqueado por Aurora 0.10.
 
 > Las herramientas del editor que aún faltan (composición y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **La fase 4 (composición y texto) es
@@ -245,7 +245,7 @@ los textos solo añade una indirección.
 
 ## Bloque F — Aurora: adopciones y propuestas
 
-### F1 — Capacidades de Aurora 0.9 que aún no usamos (⏳ · variable)
+### F1 — Capacidades de Aurora 0.10 que aún no usamos (⏳ · variable)
 
 Ordenadas por relación valor/coste (detalle en la tabla de docs/05):
 
@@ -270,14 +270,17 @@ no antes: `canvas.image()` (mataría la capa de `image()` absolutas del filmstri
 `on_hover` (cursores por zona sin la capa de cajas), `scroll_to` (mantener el playhead a la vista al
 hacer zoom) y `rect` del nodo en los handlers (hoy hay que deducir la x con `TL_X0` + scroll).
 
-### F3 — Vigilar aurora-ui 0.10 (⏳ · S cada vez)
+### F3 — Vigilar aurora-ui 0.11 (⏳ · S cada vez)
 
-La dependencia tiene techo `<0.10` a propósito (Aurora es `0.x` y rompe entre menores). Subir de
+La dependencia tiene techo `<0.11` a propósito (Aurora es `0.x` y rompe entre menores). Subir de
 versión es un trabajo **deliberado**: `uv lock` + suite completa + `tools/f3_editor_test.py` +
-`tools/f4_export_test.py --skip-long` + `tools/check_build.py` + revisar la tabla de limitaciones de
-docs/05. Ya pasó una vez: 0.3 → 0.5 cambió comportamiento sin avisar en el lock (ver el commit de
-alineación). **0.5 → 0.9 hecho el 2026-10-31**: sin cambios de API que rompieran la app; se adaptó
-`ui/shell` a `on_resize` y se actualizó docs/05 con lo nuevo de 0.6–0.9.
+`tools/f4_export_test.py --skip-long` + `tools/check_build.py` + `aurora check main.py` + revisar la
+tabla de limitaciones de docs/05. Ya pasó una vez: 0.3 → 0.5 cambió comportamiento sin avisar en el
+lock (ver el commit de alineación). **0.5 → 0.9 hecho el 2026-10-31** sin cambios de API; **0.9 →
+0.10 hecho el 2026-11-05**: 324 tests, F2/F3/F5 y build/smoke en verde. Los cambios de 0.10 son
+compatibles salvo la validación de props (destapó cero errores en la app) y los avisos `no-label`,
+que se resolvieron añadiendo `label=` a iconos, switches, campos y fondos de modal; la auditoría de
+layout (`Pilot.layout()` sobre pantallas, modales, temas y 3 tamaños) queda en **0 avisos**.
 
 ---
 

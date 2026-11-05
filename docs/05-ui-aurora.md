@@ -5,7 +5,7 @@
 1. **La grabación manda**: iniciar/parar debe estar siempre a un clic o a un `F9`, sin diálogos
    intermedios. Todo lo demás es secundario.
 2. **Una ventana, cuatro zonas**: Grabar · Biblioteca · Editor · Ajustes. Los modales y toasts
-   viven en `layer="overlay"` dentro de la ventana (Aurora 0.9 ya permite varias ventanas — ver
+   viven en `layer="overlay"` dentro de la ventana (Aurora 0.10 ya permite varias ventanas — ver
    «Limitaciones», abajo— pero la app sigue siendo de una sola).
 3. **Cero pantallas en blanco**: cada panel tiene estado vacío con acción ("Importa un video
    para empezar").
@@ -186,7 +186,7 @@ PyAV, FFmpeg y licencia del binario).
    (cuerpo, `cursor="grab"`) y dos asas de trim (`width=8`, `cursor="col-resize"`, `bg_hover`
    sutil). Se generan **solo para el rango visible** (calculado con `px_offset`, que llega del
    `on_scroll` del contenedor). Así los cursores hover nativos, `bg_hover` y los `on_drag`
-   funcionan elemento a elemento (Aurora 0.9 sigue sin `on_hover`, este patrón lo suple).
+   funcionan elemento a elemento (Aurora 0.10 sigue sin `on_hover`, este patrón lo suple).
    ✅ **Validado en F0** (S5/S7): las cajas absolutas dentro del `scroll` se mueven con el
    contenido y reciben clics y cursores correctos (`col-resize` sobre el asa).
 
@@ -311,11 +311,25 @@ def start_export():
     # el progreso llega por export_progress()
 ```
 
-## Limitaciones de Aurora 0.9 y cómo las esquivamos
+## Limitaciones de Aurora 0.10 y cómo las esquivamos
 
-Re-validado contra **aurora-ui 0.9.0** (2026-10-31), comprobando el paquete instalado y no solo el
+Re-validado contra **aurora-ui 0.10.0** (2026-11-02), comprobando el paquete instalado y no solo el
 changelog de Aurora. Las filas tachadas ya no son ciertas; el resto sigue igual. Donde la mitigación
 lleva ✅ es un patrón que quedó validado en F0/F3.
+
+La actualización 0.9 → 0.10 no rompió ninguna vista: los tests (324) y las aceptaciones de F2/F3/F5
+pasaron sin cambios funcionales. Sí obligó a dos adaptaciones:
+
+- **Props y handlers desconocidos lanzan `TypeError`** al crear el elemento (antes se ignoraban) y
+  los valores enumerados (`justify`, `align`, `variant`, `fit`…) lanzan `ValueError` con los válidos.
+  Un `on_<evento>` que el núcleo no despacha también falla. Esto destapa errores latentes; en este
+  proyecto no había ninguno, pero conviene ejecutar `uv run aurora check main.py` al tocar vistas que
+  los tests no visitan.
+- **Nombres accesibles**: `aurora check`/`aurora tree` avisan `no-label` de los controles sin nombre
+  (botones de solo icono, `switch`, `text_input`). Se añadió `label=` en `icon_button` (desde el
+  tooltip), en `field`/`_row` del editor, en los campos sueltos (región, carpeta, nombre de export) y
+  en los fondos de modal. La auditoría con `Pilot.layout()` sobre todas las pantallas, modales,
+  temas y tamaños (1280×800, 1100×700, 1920×1080) da **0 avisos de layout**.
 
 | Limitación | Impacto | Mitigación elegida |
 |---|---|---|
@@ -326,9 +340,9 @@ lleva ✅ es un patrón que quedó validado en F0/F3.
 | Cualquier caja encima bloquea los clics (aunque no tenga handlers) | Playhead y toasts tapaban asas y controles | Línea de playhead de 2 px con el asa solo en la regla; toasts en un contenedor de 0 px de alto (F3, docs/12). |
 | La raíz recibe las teclas aunque haya un campo enfocado | `S`/`Espacio` dividían o reproducían al escribir | Los campos marcan sus pulsaciones (`mark_input_key`) y los atajos sin modificador las ignoran. |
 | Sin `scroll_to` por píxel (0.7 añade `reveal=(top, bottom)` para mostrar una franja, pero no se usa aquí) | El zoom no puede mantener el playhead a la vista | «Ajustar» (`0`) y zoom automático al importar. *Mejora propuesta: `scroll_to`.* |
-| `view()` completo por evento (0.7 añade reconstrucción **parcial** cuando un `Signal` cambia sin evento, desde un hilo o `app.spawn`) | Coste de reconstrucción | `@component` + `key` estables + Signals de grano fino + `virtual_list`. En 0.4 el núcleo añadió caché de layout, reconciliación por `key` e invalidación por fases; en 0.7–0.9, reutilización de componentes y regiones reactivas, así que reconstruir sale mucho más barato. |
+| `view()` completo por evento (0.7 añade reconstrucción **parcial** cuando un `Signal` cambia sin evento, desde un hilo o `app.spawn`) | Coste de reconstrucción | `@component` + `key` estables + Signals de grano fino + `virtual_list`. En 0.4 el núcleo añadió caché de layout, reconciliación por `key` e invalidación por fases; en 0.7–0.10, reutilización de componentes y regiones reactivas, así que reconstruir sale mucho más barato. |
 | ✅ ~~Sin `slider` nativo~~ | Controles continuos | Resuelto en 0.4 (`slider` con relleno y pulgar). La app no tenía ningún deslizador propio, así que no hay nada que sustituir. |
-| ✅ ~~Sin accesibilidad~~ | — | Resuelto en 0.5 (AccessKit: rol, nombre, foco y acciones al lector de pantalla; `Pilot.a11y_tree()` en tests). 0.9 corrige las etiquetas de `field`, `combobox`, `select` y los selectores de fecha/hora/color. Queda como mejora posible: roles/nombres explícitos en el timeline y las asas. |
+| ✅ ~~Sin accesibilidad~~ | — | Resuelto en 0.5 (AccessKit: rol, nombre, foco y acciones al lector de pantalla; `Pilot.a11y_tree()` en tests). 0.9 corrigió las etiquetas de `field`, `combobox`, `select` y los selectores de fecha/hora/color; 0.10 añade `label=` en primitivas y avisa (`no-label`) de lo que no tiene nombre. **Hecho**: iconos, switches, campos y fondos de modal llevan `label`; transiciones y marcadores del timeline también. Las asas de región siguen sin ser enfocables (son `on_drag`), pero no generan aviso. |
 | ✅ ~~Sin `wrap` en filas~~ | Listas de chips de longitud variable | `row(wrap=True)` funciona (verificado con `Pilot.rect`): las filas de chips pueden envolver en vez de unirse con « · ». |
 | `Signal.set` compara con `==` | Dataclasses mutables no dispararían | Todo el estado complejo es `frozen=True` (regla de proyecto) |
 | Un hijo `grow=1` usa su contenido como base del flex | Una imagen alta o una pantalla larga estiraban su contenedor y empujaban controles fuera de la ventana (F5) | `height=0` (columna) / `width=0` (fila) en todo contenedor que crece y cuyo contenido puede no caber; ver docs/14. |
@@ -355,17 +369,21 @@ lleva ✅ es un patrón que quedó validado en F0/F3.
 | `chart(...)` nativo — 0.3 | El sparkline de fps es un `canvas` con `polyline` |
 | `overflow="hidden"` — 0.4 | Recortes que hoy se hacen con `scroll` de 0 px o canvas |
 | `App(motion=False)` / `AURORA_MOTION=0` — 0.4 | Snapshots y CI deterministas si aparecen animaciones de componentes |
-| `aurora build --upx` (ya no por defecto) y `upx = true` — 0.5 | Probado en A5: 78 MB pero arranque 3.66 s y RSS +107 MB; se descartó. Bundle actual: **256 MB** sin OpenCV (medido con 0.9) |
+| `aurora check` / `aurora tree` / `aurora pilot` / `aurora docs` — 0.10 | Comprobar la app sin ventana y consultar la API instalada | **Usado en el desarrollo**: `aurora check main.py` pinta el primer frame, señala errores con archivo/línea y avisos de layout; `aurora tree` da el árbol y `aurora docs` la referencia. No sustituyen a los tests de interacción, pero encuentran ramas que los tests no visitan. |
+| `Style` (`TypedDict` de props) — 0.10 | Autocompletado y errores de tipo en el editor | No se adopta todavía: el proyecto no tiene typechecker. Sirve si se añade uno. |
+| `label` en `stat`/`badge`, campos de contraseña, zoom de `chart` por teclado, foco de enlaces — 0.10 | Componentes y accesibilidad | Sin uso directo: la app no tiene contraseñas, gráficos interactivos ni enlaces `rich_text`. |
+| `aurora build --upx` (ya no por defecto) y `upx = true` — 0.5 | Probado en A5: 78 MB pero arranque 3.66 s y RSS +107 MB; se descartó. Bundle actual: **256 MB** sin OpenCV (medido con 0.10) |
 
-> `aurora build` 0.9 sigue sin exponer `--exclude-module` (solo excluye `tkinter`); `tools/build_exe.py`
+> `aurora build` 0.10 sigue sin exponer `--exclude-module` (solo excluye `tkinter`); `tools/build_exe.py`
 > parchea `aurora.build.pyinstaller_args` para añadir `--exclude-module cv2` y sigue usando el
 > `build()` de Aurora. Es el único punto donde el proyecto se separa de la CLI estándar. La API de
-> build no cambió entre 0.5 y 0.9 (`resolve`, `BuildConfig`, `pyinstaller_args`, `build`).
+> build no cambió entre 0.5 y 0.10 (`resolve`, `BuildConfig`, `pyinstaller_args`, `build`); el build
+> con 0.10 se verificó con `tools/check_build.py` (256 MB, smoke OK, `aurora 0.10.0` dentro).
 >
-> 0.9 no añade componentes: acelera el repintado de `canvas`/`chart`, la reconstrucción parcial y el
-> arranque, y corrige nombres accesibles de formularios. Sí añade desde 0.6–0.8 las capacidades de
-> la tabla anterior. Desde 0.6, `aurora.AuroraDeprecationWarning` avisa de API obsoleta; `pytest`
-> la convierte en error (`[tool.pytest.ini_options]` en `pyproject.toml`).
+> 0.10 no añade componentes nuevos: valida props/enums al crear, arregla el layout de contenedores
+> en columnas con `align` distinto de `stretch` (fit-content), el cursor de los campos, `tabs`/
+> `segmented` con `key` y los nombres accesibles. Desde 0.6, `aurora.AuroraDeprecationWarning` avisa
+> de API obsoleta; `pytest` la convierte en error (`[tool.pytest.ini_options]` en `pyproject.toml`).
 
 ## Tests de UI
 
@@ -374,6 +392,8 @@ lleva ✅ es un patrón que quedó validado en F0/F3.
 - `app.render_png()`: un snapshot por pantalla y por estado clave (grabando, editor con
   selección, modal de export) → `tests/snapshots/*.png` versionados; cualquier cambio visual
   aparece en el diff del PR.
+- `pilot.a11y_tree()`: `tests/test_a11y.py` fija los nombres accesibles de iconos, switches,
+  campos y desplegables de Grabar y Ajustes (la regresión que destapó `aurora check` en 0.10).
 - `pilot.stats`: presupuesto de frame del timeline (test de regresión suave con 100 clips
   sintéticos). El coste absoluto depende del equipo (5.8 ms medidos en desarrollo; hasta ~16 ms en
   una máquina modesta), así que el test no fija milisegundos: exige que un redibujado con todo a la

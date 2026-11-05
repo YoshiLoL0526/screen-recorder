@@ -105,7 +105,7 @@ def _editor():
         capture=True,
     )[
         box(position="absolute", left=0, right=0, top=0, bottom=0, bg="#00000099",
-            on_click=close)[None],
+            label="Cerrar el editor de región", on_click=close)[None],
         column(
             position="absolute",
             padding=16,

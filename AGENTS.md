@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora-ui** 0.9
+Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora-ui** 0.10
 (núcleo Rust Skia/Taffy), captura WGC/DXGI/mss, audio WASAPI (PyAudioWPatch) y encode por
 **FFmpeg** en subprocess. Todo el proyecto —docs, comentarios, UI, tests y commits— está en
 **español**; los commits usan prefijos `feat:` / `docs:`.
@@ -26,7 +26,10 @@ y el resto del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 320 tests; la integración usa FFmpeg real
+uv run pytest                                   # 324 tests; la integración usa FFmpeg real
+uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
+uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
+uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
 uv run pytest tests/test_ffmpeg_cmd.py -k mux   # un test concreto
 uv run python main.py                           # la app
 uv run aurora dev main.py --inspector           # hot reload + inspector (F12)
@@ -45,7 +48,7 @@ uv run python tools/release_notes.py v1.1.0     # notas del release (falla si el
 
 No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run aurora build` usa
 `[tool.aurora.build]` (onedir, sin consola) → `dist/Rec Studio/`; el build de release pasa por
-`tools/build_exe.py`, que añade `--exclude-module cv2` porque Aurora 0.9 no lo expone. CI:
+`tools/build_exe.py`, que añade `--exclude-module cv2` porque Aurora 0.10 sigue sin exponerlo. CI:
 `.github/workflows/ci.yml` (windows-latest: `uv sync --locked` + `pytest`, `tools/check_build.py`
 con el exe como artefacto y `tools/check_installer.py` con el instalador); los tests no pueden
 depender de monitor, GPU ni audio reales del runner.
@@ -87,9 +90,18 @@ depender de monitor, GPU ni audio reales del runner.
   `None` y todo es no-op. El hook de `pynput` es **opt-in** y se prueba con un backend falso
   (`tests/test_desktop.py`); si `start()` falla, se revierte el ajuste y se avisa. El icono de la
   bandeja viaja en el exe por `[tool.aurora.build] include = ["assets"]` y el smoke lo comprueba.
-- Aurora 0.9: `scroll()` vertical sin `height`/`max_height` añade `grow=1` (pasa `grow=0` en
+- Aurora 0.10: `scroll()` vertical sin `height`/`max_height` añade `grow=1` (pasa `grow=0` en
   filas); columna que debe encoger: `grow=1, width=0`; los `select` no truncan etiquetas. Más
-  límites y mitigaciones en `docs/05` («Limitaciones de Aurora 0.9»).
+  límites y mitigaciones en `docs/05` («Limitaciones de Aurora 0.10»).
+- Aurora 0.10 valida la API al crear el elemento: una prop o un `on_<evento>` desconocidos lanzan
+  `TypeError` con sugerencia, y las props enumeradas (`justify`, `align`, `variant`…) lanzan
+  `ValueError` si el valor no existe. Los tests cubren casi todas las vistas, pero un error en una
+  rama no visitada solo aparece al abrirla: `uv run aurora check main.py` pinta el primer frame y
+  `aurora tree` imprime avisos (`text-overflow`, `zero-size`, `offscreen`, `no-label`).
+- Accesibilidad (0.10): un botón de solo icono, un `switch` o un `text_input` necesitan `label=`;
+  el texto de al lado no cuenta. `icon_button` lo deriva del tooltip y `field`/`_row` lo copian al
+  control, así que `aurora check` debe seguir sin avisos `no-label` (los modales llevan `label` en
+  el fondo y en los campos).
 - Filmstrip del timeline: `canvas()` no dibuja imágenes, así que las miniaturas son una capa de
   `image()` absolutas **entre el canvas y las cajas de interacción** (arriba del canvas para verse,
   debajo de las cajas para no comerse clics ni drags). Tira por **asset** (`media.thumbstrip`,
@@ -99,7 +111,7 @@ depender de monitor, GPU ni audio reales del runner.
   `cached_thumbstrip` rechaza lo que no empiece por `\xff\xd8`; la UI la lee mientras el hilo
   genera y un archivo a medio escribir dejaba un JPEG de 0 bytes que tumbaba el render (lo
   destapó el CI; no volver a `write_bytes` directo).
-- Aurora 0.9 (F3): cualquier caja encima bloquea los clics aunque no tenga handlers (playhead,
+- Aurora 0.10 (F3): cualquier caja encima bloquea los clics aunque no tenga handlers (playhead,
   toasts); la raíz recibe las teclas aunque haya un campo enfocado (usa `mark_input_key`);
   `KeyEvent.matches("+")` lanza excepción; `on_drag` llega también con un clic (fase `start`,
   x de ventana → `TL_X0`). En Windows, `Condition.wait` va a saltos de ~15.6 ms: para relojes
@@ -109,8 +121,10 @@ depender de monitor, GPU ni audio reales del runner.
   revisar los golden de `tests/test_f4_graph.py`. El concat del corte rápido necesita
   `-auto_convert 0` o los keyframes dejan de ser idénticos. Preview y graph comparten las
   curvas de `core/effects.py` (lo exportado = lo visto).
-- Aurora 0.9: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
-  `height=0`; los handlers suscritos a `Signal` globales deben ignorar eventos tras `shutdown`
+- Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
+  `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
+  como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
+  Los handlers suscritos a `Signal` globales deben ignorar eventos tras `shutdown`
   (los tests crean varias apps por proceso; `subscribe` devuelve un desuscribidor, pero el
   proyecto conserva guardas `live()`/`_closing`).
 - Editor: el canvas del timeline usa una función de dibujo de módulo (misma identidad ⇒ Aurora

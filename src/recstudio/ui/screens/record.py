@@ -246,10 +246,14 @@ def config_panel():
     else:
         source_block.append(
             row(gap=6, align="center")[
-                text("x", size=12, color="$muted"), text_input(state.region_x, width=54, key="rx"),
-                text("y", size=12, color="$muted"), text_input(state.region_y, width=54, key="ry"),
-                text("an", size=12, color="$muted"), text_input(state.region_w, width=58, key="rw"),
-                text("al", size=12, color="$muted"), text_input(state.region_h, width=58, key="rh"),
+                text("x", size=12, color="$muted"),
+                text_input(state.region_x, width=54, key="rx", label="Posición X de la región"),
+                text("y", size=12, color="$muted"),
+                text_input(state.region_y, width=54, key="ry", label="Posición Y de la región"),
+                text("an", size=12, color="$muted"),
+                text_input(state.region_w, width=58, key="rw", label="Ancho de la región"),
+                text("al", size=12, color="$muted"),
+                text_input(state.region_h, width=58, key="rh", label="Alto de la región"),
             ]
         )
         source_block.append(

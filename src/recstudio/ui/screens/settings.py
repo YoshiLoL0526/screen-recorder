@@ -95,7 +95,8 @@ def settings_screen():
                 section(
                     "Grabación",
                     field("Carpeta", row(gap=8, align="center")[
-                        text_input(state.out_dir, key="set-out-dir", grow=1, width=0),
+                        text_input(state.out_dir, key="set-out-dir", grow=1, width=0,
+                                   label="Carpeta de grabaciones"),
                         button("Cambiar…", _call("browse_out_dir"), variant="soft", padding=(6, 12),
                                font_size=12.5, key="set-browse-out"),
                         icon_button(icons.FOLDER, _call("open_out_dir"), tooltip="Abrir la carpeta", size=32),

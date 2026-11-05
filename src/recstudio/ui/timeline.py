@@ -820,6 +820,7 @@ def timeline_layer():
                 bg_hover="#7C5CFF55",
                 cursor="pointer",
                 tooltip=label,
+                label=label,
                 on_click=pick,
             )
         )
@@ -830,9 +831,10 @@ def timeline_layer():
         mx = marker.t * zoom
         if mx < x0 - MARKER_W or mx > x1 + MARKER_W:
             continue
+        marker_label = f"{marker.name} · {tl.format_time(marker.t)}"
         boxes.append(box(key=f"marker-{marker.id}", position="absolute", left=mx - MARKER_W / 2, top=0,
                          width=MARKER_W, height=14, radius=3, bg="#00000000", bg_hover="#F5B85155",
-                         cursor="pointer", tooltip=f"{marker.name} · {tl.format_time(marker.t)}",
+                         cursor="pointer", tooltip=marker_label, label=marker_label,
                          on_click=_marker_click(marker.id)))
 
     return box(key="tl-layer", width=width, height=content_h, shrink=0)[

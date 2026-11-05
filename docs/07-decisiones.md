@@ -17,10 +17,11 @@ El trabajo pesado (captura, encode) en librerías nativas de Python/Rust y FFmpe
 Electron/Tauri (doble tecnología, WebView); WPF/WinUI (salir de Python).
 
 **Consecuencias.** + Una sola tecnología, dogfooding de Aurora, iteración rápida.
-− Se heredan los límites de Aurora 0.9 (sin ventanas transparentes, sin `on_hover`, sin `canvas`
+− Se heredan los límites de Aurora 0.10 (sin ventanas transparentes, sin `on_hover`, sin `canvas`
 de imágenes…); el proyecto los documenta y los convierte en issues. Desde 0.4 han desaparecido
 varios (slider nativo, accesibilidad, `wrap`, multi-ventana, diálogos, bandeja, menús y `on_resize`),
-y 0.6–0.9 añadieron arrastrar archivos, ventanas sin marco, `splitter` y reconstrucción parcial.
+y 0.6–0.10 añadieron arrastrar archivos, ventanas sin marco, `splitter`, reconstrucción parcial y
+las comprobaciones sin ventana (`aurora check`/`tree`).
 
 **Revisar.** Si aparecen tres o más bloqueos duros de UI, revisar en conjunto con el roadmap de Aurora.
 
@@ -176,7 +177,7 @@ rango visible) y encima una **capa de cajas `position="absolute"`** por clip vis
 
 **Alternativas.** (a) Elementos por clip: rebuilds masivos con cada zoom/scroll, waveform
 seguiría necesitando canvas, y los drags serían N handlers. (b) Solo canvas: sin cursores por
-zona (Aurora 0.9 sigue sin `on_hover`) y sin `bg_hover`.
+zona (Aurora 0.10 sigue sin `on_hover`) y sin `bg_hover`.
 
 **Consecuencias.** + Rendimiento y control total del detalle visual; los patrones nativos de
 Aurora se usan donde aportan. − Dos fuentes de verdad de posiciones (dibujo y cajas) que hay que
@@ -302,14 +303,14 @@ porque `windows-capture` lo importa en su `__init__` y `dxcam` lo usa como proce
 probar `--exclude-module cv2` y `upx = true`.
 
 **Decisión.** El build de release (`tools/build_exe.py`, usado por `check_build.py` y el CI)
-excluye `cv2` y deja **256 MB** con aurora-ui 0.9. `platform/cv2_shim.py` cubre el único uso de OpenCV en
+excluye `cv2` y deja **256 MB** con aurora-ui 0.10. `platform/cv2_shim.py` cubre el único uso de OpenCV en
 `windows-capture` (`Frame.save_as_image`, que la app no llama) con `imwrite` sobre Pillow; el
 backend `dxcam` da un `CaptureError` claro en ese build. UPX se probó y se descartó: 78 MB pero
 arranque de 3.66 s y +107 MB de RSS, incumpliendo RNF-06 (< 2 s).
 
 **Alternativas.** Mantener OpenCV (370 MB, sin riesgo para `dxcam`); UPX (más pequeño pero rompe
 el arranque); quitar `dxcam` del proyecto (pierde el backend de altas fps en desarrollo); parchear
-Aurora para que exponga `exclude` (sería lo limpio, pero 0.9 no lo tiene y el techo `<0.10` impide
+Aurora para que exponga `exclude` (sería lo limpio, pero 0.10 no lo tiene y el techo `<0.11` impide
 subir sin un trabajo aparte).
 
 **Consecuencias.** + −32 % de bundle y RNF-06/07 en verde; el instalador baja a 71 MB.

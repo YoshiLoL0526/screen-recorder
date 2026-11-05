@@ -5,7 +5,7 @@
 > FFmpeg, presets GPU/calidad/720p/sin recodificar, progreso y ETA, efectos) y **pulido** (F5:
 > layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test). El
 > **bloque A de entrega** ya tiene CI en verde, RNF medidos, instalador Inno Setup y bundle de
-> 256 MB (con aurora-ui 0.9) — ver [docs/16](docs/16-bloque-a-entrega.md); quedan las comprobaciones manuales
+> 256 MB (con aurora-ui 0.10) — ver [docs/16](docs/16-bloque-a-entrega.md); quedan las comprobaciones manuales
 > (máquina limpia, móvil, soak y ratón). El **bloque B del editor** añade música con ducking y
 > crossfades, textos quemados, selección múltiple, snap por waveform, proxy 540p y reubicar
 > carpetas — ver [docs/17](docs/17-bloque-b-editor.md). Las **fases 0/1/2 del editor** añaden
@@ -53,7 +53,7 @@ Empieza por el [índice de documentación](docs/README.md). Los documentos clave
 - [02 — Arquitectura](docs/02-arquitectura.md): capas, módulos, hilos, dependencias y empaquetado.
 - [03 — Grabación](docs/03-grabacion.md): backends de captura, pipeline FFmpeg y sincronía A/V.
 - [04 — Editor](docs/04-editor.md): modelo de proyecto, timeline y motor de export (`xfade`).
-- [05 — UI con Aurora](docs/05-ui-aurora.md): pantallas, wireframes, patrones y límites de Aurora 0.9.
+- [05 — UI con Aurora](docs/05-ui-aurora.md): pantallas, wireframes, patrones y límites de Aurora 0.10.
 - [06 — Roadmap](docs/06-roadmap.md): fases F0–F5, riesgos y criterios de aceptación.
 - [07 — Decisiones (ADR)](docs/07-decisiones.md): por qué FFmpeg, PyAV, MKV→MP4, canvas híbrido, etc.
 - [08 — F0: resultados](docs/08-f0-resultados.md): mediciones reales de captura, pipe FFmpeg, audio, preview y empaquetado.

@@ -13,7 +13,7 @@
 | A2 | Máquina limpia (CU-1→CU-5) | ⏳ | El CI ya instala y hace smoke en un runner limpio; falta el flujo manual |
 | A3 | RNF-06/07 con ventana | ✅ | arranque 0.87–1.74 s · RSS 261–414 MB en reposo · 337 MB grabando |
 | A4 | Instalador (Inno Setup) | ✅ | `RecStudio-1.0.0-setup.exe` (72 MB), instalación/desinstalación y smoke OK |
-| A5 | Bundle más ligero | ✅ | 370 → **255 MB** (−115 MB) sin OpenCV (256 MB con aurora-ui 0.9); UPX descartado con datos |
+| A5 | Bundle más ligero | ✅ | 370 → **256 MB** (−114 MB) sin OpenCV (256 MB con aurora-ui 0.10); UPX descartado con datos |
 | A6 | Export en móvil físico | ⏳ | Procedimiento listo; falta el teléfono |
 | A7 | Soak de 30 min | ⏳ | Comando y criterio listos; no se ejecutó en esta sesión |
 | A8 | «Sensación» del timeline | ⏳ | Drags/undo automatizados OK; falta el ratón real |
@@ -138,7 +138,7 @@ OpenCV ocupaba **112 MB** (13 archivos; `cv2.pyd` 82 MB + `opencv_videoio_ffmpeg
 `windows_capture`; si se elige el backend `dxcam`, el shim detecta el caso y da un
 `CaptureError` explicable en vez de fallar dentro del hook.
 
-Aurora 0.9 no expone `--exclude-module` (solo excluye `tkinter`), así que `tools/build_exe.py`
+Aurora 0.10 sigue sin exponer `--exclude-module` (solo excluye `tkinter`), así que `tools/build_exe.py`
 parchea `aurora.build.pyinstaller_args` y llama al mismo `build()` de Aurora. `tools/check_build.py`
 usa ese wrapper. `upx` se probó y se descartó: el arranque de 3.66 s incumple RNF-06 y UPX suma
 ~107 MB de RSS; queda `upx = false` documentado en `pyproject.toml`.

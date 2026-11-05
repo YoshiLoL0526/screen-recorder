@@ -17,7 +17,7 @@ from aurora import box, button, column, component, image, row, scroll, select, s
 from ... import state
 from ...core import timeline as tl
 from ...core.project import TRANSITION_KINDS
-from ..components import chip, icon_button, mark_input_key, section
+from ..components import chip, icon_button, label_control, mark_input_key, section
 from .. import icons
 from ..export_modal import export_chip, export_modal
 from ..timeline import EDITOR_PAD_X, PANEL_BORDER, PREVIEW_MIN_W, SPLIT_W, timeline_view
@@ -186,6 +186,10 @@ def transport():
 
 
 def _row(label: str, value):
+    # El texto de la izquierda no es el nombre accesible del control (Aurora 0.10 lo avisa como
+    # `no-label`); se lo damos al control sin cambiar el layout.
+    if not isinstance(value, str):
+        label_control(value, label)
     return row(gap=8, align="center")[
         text(label, size=12.5, color="$muted", width=74, shrink=0),
         box(grow=1)[value] if not isinstance(value, str) else text(value, size=12.5, family="Consolas"),
@@ -436,7 +440,7 @@ def inspector():
         children.append(section(
             "Texto",
             text_input(state.insp_text, key="insp-text", on_submit=_submit("set_text_text"),
-                       on_key=mark_input_key, grow=1, width=0, padding=(7, 10)),
+                       on_key=mark_input_key, grow=1, width=0, padding=(7, 10), label="Texto"),
             _row("Inicio", text_input(state.insp_text_start, key="insp-text-start",
                                       on_submit=_submit("set_text_start"), on_key=mark_input_key,
                                       font_family="Consolas", padding=(7, 10))),

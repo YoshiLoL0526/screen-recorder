@@ -179,7 +179,7 @@ def export_modal():
     return column(layer="overlay", position="absolute", left=0, right=0, top=0, bottom=0, align="center",
                   justify="center", capture=True)[
         box(position="absolute", left=0, right=0, top=0, bottom=0, bg="#00000080",
-            on_click=None if running else close)[None],
+            label="Cerrar el diálogo", on_click=None if running else close)[None],
         column(position="absolute", width=540, padding=20, gap=14, radius="$lg", bg="$surface",
                border_width=1, border_color="$border", shadow=(0, 20, 50, "$shadow"), key="export-modal")[
             row(align="center", gap=10)[
@@ -191,7 +191,8 @@ def export_modal():
                 text("Nombre del archivo", size=12, color="$muted"),
                 row(gap=8, align="center")[
                     text_input(state.export_name, key="export-name", on_key=mark_input_key, grow=1, width=0,
-                               padding=(7, 10), on_submit=lambda _v: None if running else _call("start_export")()),
+                               padding=(7, 10), label="Nombre del archivo",
+                               on_submit=lambda _v: None if running else _call("start_export")()),
                     text(".mp4", size=12.5, color="$muted", family="Consolas"),
                 ],
                 row(gap=6, align="center")[

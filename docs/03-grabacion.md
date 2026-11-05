@@ -93,7 +93,7 @@ Notas de implementación:
 
 ### Selección de región (sin overlay a pantalla completa)
 
-Aurora 0.9 ya tiene **multi-ventana** (`App.window`) y ventanas **sin marco**
+Aurora 0.10 ya tiene **multi-ventana** (`App.window`) y ventanas **sin marco**
 (`decorations=False`), pero todavía **no** ventanas transparentes, así que no se puede hacer el
 rectángulo semitransparente clásico sobre el escritorio. La UX elegida:
 
