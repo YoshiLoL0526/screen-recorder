@@ -50,6 +50,9 @@ _SCALES = [(v, f"{v:g}×") for v in (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 
 _POSITIONS = [(v, f"{v:.2f}") for v in (0.0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 1.0)]
 _ROTATIONS = [(0, "0°"), (90, "90°"), (180, "180°"), (270, "270°")]
 _FLIPS = [(False, "No"), (True, "Sí")]
+# Efectos globales (feature D, docs/26): los mismos rangos que el clip, acotados en la UI.
+_BLURS = [(0.0, "Sin blur")] + [(v, f"{v:g} px") for v in (2.0, 5.0, 10.0, 20.0)]
+_VIGNETTES = [(0.0, "Sin viñeta")] + [(v, f"{v:g}") for v in (0.25, 0.5, 0.75, 1.0)]
 
 
 def _options(options, current):
@@ -234,6 +237,30 @@ def _color_options(current: str):
     if all(value.upper() != current.upper() for value, _label in _CANVAS_COLORS):
         return [*_CANVAS_COLORS, (current, f"Personalizado ({current})")]
     return _CANVAS_COLORS
+
+
+def _global_effects_controls():
+    return section(
+        "Efectos globales",
+        _row("Brillo", select(state.glob_brightness, _options(_BRIGHTNESS, state.glob_brightness()),
+                              key="proj-global-bright")),
+        _row("Contraste", select(state.glob_contrast, _options(_CONTRAST, state.glob_contrast()),
+                                 key="proj-global-contrast")),
+        _row("Saturación", select(state.glob_saturation,
+                                  _options(_SATURATION, state.glob_saturation()),
+                                  key="proj-global-sat")),
+        _row("Blur", select(state.glob_blur, _options(_BLURS, state.glob_blur()),
+                            key="proj-global-blur")),
+        _row("Viñeta", select(state.glob_vignette, _options(_VIGNETTES, state.glob_vignette()),
+                              key="proj-global-vignette")),
+        _row("Blanco y negro", select(state.glob_grayscale, _FLIPS, key="proj-global-gray")),
+        text("Se aplican a todo el video (también en las transiciones), antes de elementos y "
+             "textos. El corte rápido se desactiva mientras haya efectos globales.",
+             size=11, color="$muted", line_height=1.35),
+        button("Restablecer efectos globales", _call("reset_global_effects"), variant="ghost",
+               padding=(4, 10), font_size=11.5, key="proj-global-reset"),
+        gap=8,
+    )
 
 
 def _transform_controls(clip):
@@ -517,6 +544,7 @@ def inspector():
             button("Exportar… (Ctrl+E)", _call("open_export"), padding=(7, 14), font_size=12.5, key="insp-export"),
             gap=10,
         ))
+        children.append(_global_effects_controls())
         if project.texts:
             children.append(section(
                 "Textos",

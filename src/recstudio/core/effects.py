@@ -35,21 +35,31 @@ ZOOM_MAX = 4.0
 MICRO_FADE = 0.03  # anti-click en las fronteras internas del audio (s)
 
 
-def find(clip: Clip, kind: str) -> Effect | None:
-    for effect in clip.effects:
+def find_effect(effects: tuple[Effect, ...], kind: str) -> Effect | None:
+    """Primer efecto `kind` de una tupla (sirve para clips, elementos y efectos globales)."""
+    for effect in effects:
         if effect.kind == kind:
             return effect
     return None
 
 
-def param(clip: Clip, kind: str, name: str, default: float) -> float:
-    effect = find(clip, kind)
+def param_in(effects: tuple[Effect, ...], kind: str, name: str, default: float) -> float:
+    """Parámetro `name` del efecto `kind` de una tupla (o `default` si falta)."""
+    effect = find_effect(effects, kind)
     if effect is None:
         return default
     for key, value in effect.params:
         if key == name:
             return float(value)
     return default
+
+
+def find(clip: Clip, kind: str) -> Effect | None:
+    return find_effect(clip.effects, kind)
+
+
+def param(clip: Clip, kind: str, name: str, default: float) -> float:
+    return param_in(clip.effects, kind, name, default)
 
 
 def eq(clip: Clip) -> dict[str, float] | None:

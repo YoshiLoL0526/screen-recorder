@@ -37,6 +37,7 @@ from ..core import graph as graph_mod
 from ..core import overlays
 from ..core import timeline as tl
 from ..core import transform as tx
+from ..core.color import apply_eq
 from ..core.project import Clip, MediaAsset, Project, to_dict, video_audio_gain
 from ..platform import ffmpeg as ffmpeg_mod
 from ..platform import paths
@@ -281,22 +282,8 @@ APPROXIMATE = frozenset({"wipeleft", "wiperight", "slideleft", "circleopen", "di
 
 # -- efectos del preview (las mismas curvas que `core.graph`) ------------------------------
 
-_LUMA = np.array([0.299, 0.587, 0.114], np.float32)
-
-
-def apply_eq(rgb: np.ndarray, eq: dict[str, float]) -> np.ndarray:
-    """Aproximación RGB del filtro `eq` de FFmpeg (contraste alrededor de 0.5, brillo sumado,
-    saturación respecto a la luma)."""
-    f = rgb.astype(np.float32) * (1.0 / 255.0)
-    contrast, brightness, saturation = eq["contrast"], eq["brightness"], eq["saturation"]
-    if contrast != 1.0:
-        f = (f - 0.5) * contrast + 0.5
-    if brightness:
-        f += brightness
-    if saturation != 1.0:
-        gray = (f @ _LUMA)[..., None]
-        f = gray + (f - gray) * saturation
-    return (np.clip(f, 0.0, 1.0) * 255.0 + 0.5).astype(np.uint8)
+# `apply_eq` se importa de `core.color` (la comparten los efectos globales); aquí se mantiene el
+# nombre histórico `playback.apply_eq` para no romper a quien lo importe.
 
 
 def apply_zoom(rgb: np.ndarray, factor: float, cx: float, cy: float) -> np.ndarray:

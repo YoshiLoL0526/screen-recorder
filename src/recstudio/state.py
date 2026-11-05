@@ -225,6 +225,13 @@ insp_text_x = Signal(0.5)
 insp_text_y = Signal(0.82)
 insp_text_bold = Signal(False)
 insp_marker_name = Signal("")  # nombre del marcador seleccionado (fase 3)
+# Efectos globales del proyecto (feature D, docs/26): se editan en «Proyecto» sin selección.
+glob_brightness = Signal(0.0)  # eq global
+glob_contrast = Signal(1.0)
+glob_saturation = Signal(1.0)
+glob_blur = Signal(0.0)  # radio en px del lienzo
+glob_vignette = Signal(0.0)  # 0…1
+glob_grayscale = Signal(False)
 proxies = Signal(0)  # versión: sube cuando termina un proxy de preview (B5)
 
 export_open = Signal(False)  # modal «Exportar»
