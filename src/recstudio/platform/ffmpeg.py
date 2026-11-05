@@ -33,19 +33,21 @@ _AUDIO_RE = re.compile(r"Audio:\s*([\w-]+)")
 _AUDIO_HZ_RE = re.compile(r",\s*(\d{4,6})\s*Hz")
 
 # Sin esto, con `pythonw` o la app empaquetada (sin consola propia) cada FFmpeg abre una
-# ventana de consola. Todo lanzamiento de FFmpeg pasa por `run()` o `run_capture_process()`.
+# ventana de consola. Todo lanzamiento de FFmpeg pasa por `run()`, `run_capture_process()` o
+# `run_progress_process()`; `tests/test_revision_riesgos.py` vigila que no haya atajos.
 NO_WINDOW: dict[str, int] = (
     {"creationflags": subprocess.CREATE_NO_WINDOW} if sys.platform == "win32" else {}
 )
 
 
-def run(cmd: list[str]) -> subprocess.CompletedProcess[str]:
+def run(cmd: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
     """Ejecuta FFmpeg sin ventana y captura su salida como texto UTF-8 (tolerante)."""
     # `text=True` a secas decodifica con la página de códigos (cp1252) y revienta con rutas
     # no ASCII en la salida de FFmpeg, que escribe UTF-8. `stdin=DEVNULL`: en el exe sin consola
     # (PyInstaller `--windowed`) no hay stdin válido que heredar y el hijo fallaría.
     return subprocess.run(
-        cmd, capture_output=True, stdin=subprocess.DEVNULL, encoding="utf-8", errors="replace", **NO_WINDOW
+        cmd, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout,
+        encoding="utf-8", errors="replace", **NO_WINDOW
     )
 
 

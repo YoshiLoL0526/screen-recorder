@@ -3,6 +3,7 @@ limpieza), cursores monocromos, FFmpeg sin consola y orden de monitores."""
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -229,6 +230,43 @@ def test_proceso_de_captura_sin_consola(tmp_path: Path, monkeypatch: pytest.Monk
     assert F.run_capture_process(["ffmpeg"], tmp_path / "ffmpeg.log") == "proc"
     if sys.platform == "win32":
         assert seen["creationflags"] == subprocess.CREATE_NO_WINDOW
+
+
+def test_run_propaga_el_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict = {}
+
+    def fake_run(cmd, **kwargs):  # noqa: ANN001, ANN003, ANN202
+        seen.update(kwargs)
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(F.subprocess, "run", fake_run)
+    F.run(["ffmpeg"], timeout=12)
+    assert seen["timeout"] == 12
+
+
+def test_solo_el_lanzador_de_ffmpeg_crea_procesos() -> None:
+    """Ningún módulo lanza FFmpeg por su cuenta: se saltaría `CREATE_NO_WINDOW` (parpadeo de CMD).
+
+    `services/library.py` es la excepción: lanza el explorador/xdg-open (apps de escritorio, sin
+    consola), no FFmpeg.
+    """
+    src = Path(__file__).resolve().parents[1] / "src" / "recstudio"
+    allowed = {src / "platform" / "ffmpeg.py", src / "services" / "library.py"}
+    offenders: list[str] = []
+    for file in src.rglob("*.py"):
+        if file in allowed:
+            continue
+        tree = ast.parse(file.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if (
+                isinstance(node.func.value, ast.Name)
+                and node.func.value.id == "subprocess"
+                and node.func.attr in {"run", "Popen", "call", "check_call", "check_output"}
+            ):
+                offenders.append(f"{file.relative_to(src)}:{node.lineno}")
+    assert not offenders, "lanza FFmpeg con platform.ffmpeg.run/run_*_process: " + ", ".join(offenders)
 
 
 def test_probe_media_con_salida_no_ascii(exe: str, tmp_path: Path) -> None:

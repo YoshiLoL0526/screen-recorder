@@ -21,7 +21,6 @@ import hashlib
 import io
 import json
 import os
-import subprocess
 import threading
 import time
 import wave
@@ -618,8 +617,7 @@ class AudioPreview:
             tmp = target.with_name(target.name + ".tmp.wav")
             try:
                 args = graph_mod.build_audio(project, tmp, exe=ffmpeg_mod.ffmpeg_exe())
-                result = subprocess.run(args, capture_output=True, text=True, encoding="utf-8",
-                                        errors="replace", timeout=600)
+                result = ffmpeg_mod.run(args, timeout=600)
                 if result.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
                     raise RuntimeError(result.stderr[-400:] or "FFmpeg no generó el audio")
                 os.replace(tmp, target)

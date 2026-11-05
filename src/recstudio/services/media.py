@@ -324,8 +324,7 @@ def proxy(path: str | Path, height: int = 540, rotation: int = 0) -> Path:
         "-movflags", "+faststart", str(tmp),
     ]
     try:
-        result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8",
-                                errors="replace", timeout=600)
+        result = ffmpeg_mod.run(command, timeout=600)
         if result.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
             raise MediaError(f"no se pudo crear el proxy de «{path.name}»: {result.stderr[-300:]}")
         os.replace(tmp, target)
