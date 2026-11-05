@@ -60,7 +60,7 @@ def ids_of(track: Track) -> list[str]:
 
 
 def test_esquema_v5_marcadores_e_in_out_con_round_trip() -> None:
-    assert SCHEMA_VERSION == 5
+    assert SCHEMA_VERSION >= 5  # v6 (docs/22) conserva todo lo de v5
     assert Project().markers == () and Project().range_in is None and Project().range_out is None
     project = replace(three_clips(), markers=(Marker("k1", 2.0, "Intro"), Marker("k2", 6.5, "Clímax")),
                       range_in=1.0, range_out=9.0)
@@ -87,7 +87,7 @@ def test_migracion_v4_v5_abre_identico_y_mas_nuevo_es_solo_lectura(tmp_path: Pat
         v4.pop(key)
     v4["schema_version"] = 4
     migrated, read_only = store_mod.migrate(v4)
-    assert not read_only and migrated["schema_version"] == 5
+    assert not read_only and migrated["schema_version"] == SCHEMA_VERSION
     assert migrated["markers"] == [] and migrated["range_in"] is None
     assert from_dict(migrated) == project
 
@@ -97,7 +97,7 @@ def test_migracion_v4_v5_abre_identico_y_mas_nuevo_es_solo_lectura(tmp_path: Pat
     result = store_mod.load_project(path)
     assert result.project == project and not result.read_only
 
-    future = {**to_dict(project), "schema_version": 6}
+    future = {**to_dict(project), "schema_version": SCHEMA_VERSION + 1}
     assert store_mod.migrate(future)[1] is True
 
 

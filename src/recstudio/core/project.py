@@ -16,6 +16,7 @@ Convenciones:
 
 from __future__ import annotations
 
+import math
 import re
 import uuid
 from dataclasses import dataclass, field, replace
@@ -23,14 +24,22 @@ from typing import Any, Literal
 
 from .errors import ProjectError
 
-SCHEMA_VERSION = 5  # v5: marcadores e In/Out del timeline (docs/21)
+SCHEMA_VERSION = 6  # v6: elementos superpuestos y efectos globales (docs/22)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
 TRANSITION_KINDS = (
     "fade", "fadeblack", "fadewhite", "wipeleft", "wiperight", "slideleft", "circleopen", "dissolve",
 )
-EFFECT_KINDS = ("eq", "volume", "fade_in", "fade_out", "audio_fade_in", "audio_fade_out", "speed", "zoom")
+EFFECT_KINDS = (
+    "eq", "volume", "fade_in", "fade_out", "audio_fade_in", "audio_fade_out", "speed", "zoom",
+    # v6 (docs/22): efectos de clip, de elemento y globales.
+    "blur", "vignette", "sharpen", "grayscale",
+)
+ASSET_KINDS = ("video", "audio", "image")
+ELEMENT_KINDS = ("image", "rect", "ellipse", "triangle")
+ELEMENT_FITS = ("fit", "fill", "stretch")
+ELEMENT_SIZE_MIN, ELEMENT_SIZE_MAX = 0.01, 4.0
 TRACK_MODES = ("sequence", "absolute")
 AUDIO_VIDEO_TRACK_NAME = "Audio del video"
 TEXT_SIZE_MIN, TEXT_SIZE_MAX = 8, 200
@@ -72,6 +81,15 @@ class MediaAsset:
     has_audio: bool
     audio_channels: int = 2
     rotation: int = 0
+    # v6 (docs/22): los elementos superpuestos pueden usar imágenes. `duration` es 0 para una
+    # imagen; los assets de solo audio mantienen `width=height=0` y `fps=0` (docs/19).
+    kind: Literal["video", "audio", "image"] = "video"
+
+    def __post_init__(self) -> None:
+        if self.kind not in ASSET_KINDS:
+            raise ProjectError(f"asset {self.id}: tipo desconocido ({self.kind!r})")
+        if self.kind == "image" and (self.width <= 0 or self.height <= 0):
+            raise ProjectError(f"asset {self.id}: una imagen necesita ancho y alto positivos")
 
     @property
     def name(self) -> str:
@@ -134,6 +152,65 @@ class TextOverlay:
 
     @property
     def seconds(self) -> float:
+        return self.end - self.start
+
+
+@dataclass(frozen=True)
+class Element:
+    """Elemento superpuesto al video (v6, docs/22): imagen o figura con transformación propia.
+
+    `x`/`y` son el **centro** en fracciones del lienzo y `width`/`height` el tamaño en fracciones
+    del lienzo (no píxeles: así el mismo proyecto se ve igual en preview y export, y al cambiar de
+    resolución). `rotation` son grados horarios; `opacity` va de 0 a 1. Las figuras usan `color`;
+    las imágenes usan `asset_id` (un `MediaAsset` de tipo `image`) y `fit` para encajar en la caja.
+    `effects` reutiliza `Effect` (p. ej. `blur`), con parámetros float.
+    """
+
+    id: str
+    kind: Literal["image", "rect", "ellipse", "triangle"]
+    start: float
+    end: float
+    x: float = 0.5
+    y: float = 0.5
+    width: float = 0.3
+    height: float = 0.2
+    rotation: float = 0.0
+    opacity: float = 1.0
+    color: str = "#FFFFFF"
+    asset_id: str | None = None
+    fit: Literal["fit", "fill", "stretch"] = "fit"
+    effects: tuple[Effect, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.kind not in ELEMENT_KINDS:
+            raise ProjectError(f"elemento {self.id}: tipo desconocido ({self.kind!r})")
+        if self.start != self.start or self.start < 0 or not self.end > self.start:
+            raise ProjectError(f"elemento {self.id}: intervalo inválido ({self.start}–{self.end})")
+        if not 0.0 <= self.x <= 1.0 or not 0.0 <= self.y <= 1.0:
+            raise ProjectError(f"elemento {self.id}: posición fuera del lienzo ({self.x}, {self.y})")
+        for axis, value in (("ancho", self.width), ("alto", self.height)):
+            if not ELEMENT_SIZE_MIN <= float(value) <= ELEMENT_SIZE_MAX:
+                raise ProjectError(
+                    f"elemento {self.id}: {axis} fuera de "
+                    f"[{ELEMENT_SIZE_MIN}, {ELEMENT_SIZE_MAX}] ({value})"
+                )
+        if not math.isfinite(float(self.rotation)):
+            raise ProjectError(f"elemento {self.id}: rotación inválida ({self.rotation})")
+        if not 0.0 <= self.opacity <= 1.0:
+            raise ProjectError(f"elemento {self.id}: opacidad fuera de [0, 1] ({self.opacity})")
+        if self.kind == "image":
+            if not self.asset_id:
+                raise ProjectError(f"elemento {self.id}: una imagen necesita `asset_id`")
+            if self.fit not in ELEMENT_FITS:
+                raise ProjectError(f"elemento {self.id}: encaje desconocido ({self.fit!r})")
+        elif not _HEX_COLOR.match(self.color):
+            raise ProjectError(f"elemento {self.id}: color inválido ({self.color!r})")
+        for effect in self.effects:
+            if not isinstance(effect, Effect):
+                raise ProjectError(f"elemento {self.id}: efecto inválido")
+
+    @property
+    def duration(self) -> float:
         return self.end - self.start
 
 
@@ -277,6 +354,9 @@ class Project:
     markers: tuple[Marker, ...] = ()  # ordenados por tiempo (fase 3)
     range_in: float | None = None  # In/Out del timeline (loop y export de rango); None = sin punto
     range_out: float | None = None
+    # v6 (docs/22): composición. El orden de `elements` es el z-order (el último va encima).
+    elements: tuple[Element, ...] = ()
+    effects: tuple[Effect, ...] = ()  # efectos globales, se aplican al video ya compuesto
 
     # -- consultas -------------------------------------------------------------
 
@@ -309,6 +389,15 @@ class Project:
 
     def has_text(self, text_id: str) -> bool:
         return any(t.id == text_id for t in self.texts)
+
+    def element(self, element_id: str) -> Element:
+        for element in self.elements:
+            if element.id == element_id:
+                return element
+        raise ProjectError(f"no existe el elemento {element_id}")
+
+    def has_element(self, element_id: str) -> bool:
+        return any(e.id == element_id for e in self.elements)
 
     def marker(self, marker_id: str) -> Marker:
         for marker in self.markers:
@@ -376,6 +465,23 @@ class Project:
         text_ids = [t.id for t in self.texts]
         if len(set(text_ids)) != len(text_ids):
             raise ProjectError("ids de texto duplicados")
+        element_ids = [e.id for e in self.elements]
+        if len(set(element_ids)) != len(element_ids):
+            raise ProjectError("ids de elemento duplicados")
+        for element in self.elements:
+            if element.kind == "image":
+                asset = by_id.get(element.asset_id or "")
+                if asset is None:
+                    raise ProjectError(
+                        f"el elemento {element.id} usa una imagen inexistente ({element.asset_id})"
+                    )
+                if asset.kind != "image":
+                    raise ProjectError(
+                        f"el elemento {element.id} debe usar un asset de tipo imagen ({asset.kind})"
+                    )
+        global_kinds = [e.kind for e in self.effects]
+        if len(set(global_kinds)) != len(global_kinds):
+            raise ProjectError("efectos globales duplicados (como mucho uno de cada tipo)")
         marker_ids = [m.id for m in self.markers]
         if len(set(marker_ids)) != len(marker_ids):
             raise ProjectError("ids de marcador duplicados")
@@ -472,7 +578,7 @@ def to_dict(project: Project) -> dict[str, Any]:
             {
                 "id": a.id, "path": a.path, "duration": a.duration, "width": a.width, "height": a.height,
                 "fps": a.fps, "has_audio": a.has_audio, "audio_channels": a.audio_channels,
-                "rotation": a.rotation,
+                "rotation": a.rotation, "kind": a.kind,
             }
             for a in project.assets
         ],
@@ -488,6 +594,19 @@ def to_dict(project: Project) -> dict[str, Any]:
         "markers": [{"id": m.id, "t": m.t, "name": m.name} for m in project.markers],
         "range_in": project.range_in,
         "range_out": project.range_out,
+        "elements": [
+            {
+                "id": e.id, "kind": e.kind, "start": e.start, "end": e.end,
+                "x": e.x, "y": e.y, "width": e.width, "height": e.height,
+                "rotation": e.rotation, "opacity": e.opacity, "color": e.color,
+                "asset_id": e.asset_id, "fit": e.fit,
+                "effects": [{"kind": fx.kind, "params": [list(p) for p in fx.params]} for fx in e.effects],
+            }
+            for e in project.elements
+        ],
+        "effects": [
+            {"kind": fx.kind, "params": [list(p) for p in fx.params]} for fx in project.effects
+        ],
     }
 
 
@@ -511,6 +630,12 @@ def from_dict(data: dict[str, Any]) -> Project:
                 crop=tuple(float(v) for v in crop),  # type: ignore[arg-type]
             )
 
+        def effect_of(e: dict[str, Any]) -> Effect:
+            return Effect(
+                kind=e["kind"],
+                params=tuple((str(k), float(v)) for k, v in e.get("params", ())),
+            )
+
         def clip_of(d: dict[str, Any]) -> Clip:
             start = d.get("start")
             return Clip(
@@ -519,10 +644,7 @@ def from_dict(data: dict[str, Any]) -> Project:
                 in_=float(d["in_"]),
                 out_=float(d["out_"]),
                 speed=float(d.get("speed", 1.0)),
-                effects=tuple(
-                    Effect(kind=e["kind"], params=tuple((str(k), float(v)) for k, v in e.get("params", ())))
-                    for e in d.get("effects", ())
-                ),
+                effects=tuple(effect_of(e) for e in d.get("effects", ())),
                 start=None if start is None else float(start),
                 audio_enabled=bool(d.get("audio_enabled", True)),
                 link_id=None if d.get("link_id") is None else str(d["link_id"]),
@@ -557,6 +679,7 @@ def from_dict(data: dict[str, Any]) -> Project:
                 has_audio=bool(a["has_audio"]),
                 audio_channels=int(a.get("audio_channels", 2)),
                 rotation=int(a.get("rotation", 0)),
+                kind=str(a.get("kind", "video")),  # type: ignore[arg-type]
             )
             for a in data.get("assets", ())
         )
@@ -575,6 +698,20 @@ def from_dict(data: dict[str, Any]) -> Project:
                 key=lambda m: (m.t, m.id),
             )
         )
+        elements = tuple(
+            Element(
+                id=str(e["id"]), kind=str(e["kind"]), start=float(e["start"]), end=float(e["end"]),
+                x=float(e.get("x", 0.5)), y=float(e.get("y", 0.5)),
+                width=float(e.get("width", 0.3)), height=float(e.get("height", 0.2)),
+                rotation=float(e.get("rotation", 0.0)), opacity=float(e.get("opacity", 1.0)),
+                color=str(e.get("color", "#FFFFFF")),
+                asset_id=None if e.get("asset_id") is None else str(e["asset_id"]),
+                fit=str(e.get("fit", "fit")),  # type: ignore[arg-type]
+                effects=tuple(effect_of(fx) for fx in e.get("effects", ())),
+            )
+            for e in data.get("elements", ())
+        )
+        effects = tuple(effect_of(e) for e in data.get("effects", ()))
         range_in, range_out = data.get("range_in"), data.get("range_out")
         return Project(
             schema_version=int(data.get("schema_version", SCHEMA_VERSION)),
@@ -591,6 +728,8 @@ def from_dict(data: dict[str, Any]) -> Project:
             markers=markers,
             range_in=None if range_in is None else float(range_in),
             range_out=None if range_out is None else float(range_out),
+            elements=elements,
+            effects=effects,
         )
     except ProjectError:
         raise

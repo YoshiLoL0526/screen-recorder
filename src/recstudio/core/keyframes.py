@@ -79,6 +79,10 @@ def blockers(project: Project) -> list[str]:
         reasons.append("tiene pistas de audio en posición absoluta")
     if project.texts:
         reasons.append("tiene textos sobre el video")
+    if project.elements:
+        reasons.append("tiene elementos superpuestos")
+    if project.effects:
+        reasons.append("tiene efectos globales")
     by_id = {a.id: a for a in project.assets}
     first = next((by_id[c.asset_id] for c in track.clips if c.asset_id in by_id), None)
     if first is not None and (project.width, project.height) != (first.width, first.height):

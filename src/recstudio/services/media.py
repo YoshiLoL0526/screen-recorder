@@ -127,6 +127,7 @@ def probe(path: str | Path, asset_id: str | None = None) -> MediaAsset:
             has_audio=bool(audio),
             audio_channels=int(audio[0].codec_context.channels) if audio else 0,
             rotation=rotation,
+            kind="video" if video is not None else "audio",
         )
     finally:
         container.close()

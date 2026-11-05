@@ -235,6 +235,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v3_v4(data)
     if version < 5:
         data = _migrate_v4_v5(data)
+    if version < 6:
+        data = _migrate_v5_v6(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -301,6 +303,29 @@ def _migrate_v4_v5(data: dict[str, Any]) -> dict[str, Any]:
     migrated.setdefault("markers", [])
     migrated.setdefault("range_in", None)
     migrated.setdefault("range_out", None)
+    return migrated
+
+
+def _migrate_v5_v6(data: dict[str, Any]) -> dict[str, Any]:
+    """v5 → v6: elementos superpuestos, efectos globales y tipo de asset (docs/22).
+
+    Todo proyecto anterior equivale a «sin elementos, sin efectos globales». Los assets de solo
+    audio (música y audio separado) se distinguen por `width/height/fps == 0`; el resto son videos.
+    """
+    migrated = {**data}
+    migrated.setdefault("elements", [])
+    migrated.setdefault("effects", [])
+    assets = []
+    for asset in migrated.get("assets", ()):
+        item = {**asset}
+        if "kind" not in item:
+            if item.get("width", 0) <= 0 and item.get("height", 0) <= 0:
+                item["kind"] = "audio"
+            else:
+                item["kind"] = "video"
+        assets.append(item)
+    if assets or "assets" in migrated:
+        migrated["assets"] = assets
     return migrated
 
 

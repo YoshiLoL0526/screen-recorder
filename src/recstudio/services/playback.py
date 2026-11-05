@@ -32,7 +32,9 @@ from pathlib import Path
 import numpy as np
 
 from ..core import effects as fx
+from ..core import global_effects
 from ..core import graph as graph_mod
+from ..core import overlays
 from ..core import timeline as tl
 from ..core import transform as tx
 from ..core.project import Clip, MediaAsset, Project, to_dict, video_audio_gain
@@ -492,6 +494,9 @@ class FrameRenderer:
             self.last_transition = tr.transition.kind
         else:
             self.last_transition = None
+        # v6 (docs/22): efectos globales → elementos → textos (mismo orden que el export).
+        frame = global_effects.apply_frame(project, frame)
+        frame = overlays.apply_frame(project, t, frame)
         return _draw_texts(project, t, frame)
 
     def prefetch(self, project: Project, index: int) -> None:

@@ -916,6 +916,8 @@ def add_asset(p: Project, asset: MediaAsset) -> tuple[Project, MediaAsset]:
 
 def append_clip(p: Project, asset: MediaAsset, index: int | None = None) -> tuple[Project, Clip]:
     """Añade el asset (si falta) y un clip con el asset entero al final (o en `index`)."""
+    if asset.kind == "image":
+        raise ProjectError("una imagen no se añade como clip: usa un elemento superpuesto")
     p, asset = add_asset(p, asset)
     clip = Clip(id=new_id("c"), asset_id=asset.id, in_=0.0, out_=asset.duration)
     clips = list(p.video.clips)

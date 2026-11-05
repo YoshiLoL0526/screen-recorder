@@ -25,6 +25,8 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import effects as fx
+from . import global_effects
+from . import overlays
 from . import timeline as tl
 from . import transform as tx
 from .errors import ProjectError
@@ -581,6 +583,14 @@ def build(
         pending, pending_frames = [label], pending_frames + frames[k] - overlap
     video_out = flush()
 
+    # -- efectos globales: al video ya compuesto (antes de elementos y textos) -----------
+    video_out = global_effects.apply_graph(project, video_out, chains)
+
+    # -- elementos superpuestos (v6): debajo de los textos -------------------------------
+    video_out, _overlay_input = overlays.apply_graph(
+        project, video_out, chains, inputs, size, first_input=inputs.count("-i"),
+    )
+
     # -- textos: se queman sobre el video ya compuesto (tiempo global) --------------------
     filters = text_filters(project, size[1])
     if filters:
@@ -591,8 +601,8 @@ def build(
     audio_out = ""
     if has_audio:
         audio_out = _audio_section(
-            project, inputs, chains, first_extra_input=len(track.clips), total_frames=total_frames,
-            frames=frames, overlaps=overlaps,
+            project, inputs, chains, first_extra_input=inputs.count("-i"),
+            total_frames=total_frames, frames=frames, overlaps=overlaps,
         )
 
     # -- rango In/Out: recorte final por frames (mismo número entero de frames que el preview) --

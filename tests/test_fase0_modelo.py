@@ -42,7 +42,7 @@ def base_project() -> Project:
 
 
 def test_esquema_v4_y_defaults_retrocompatibles() -> None:
-    assert SCHEMA_VERSION >= 4  # v5 (docs/21) conserva los defaults de v4
+    assert SCHEMA_VERSION >= 4  # v5/v6 (docs/21/docs/22) conservan los defaults de v4
     clip = Clip("c", "a", 0, 1)
     assert (clip.start, clip.audio_enabled, clip.link_id, clip.transform) == (None, True, None, None)
     track = Track("audio")
