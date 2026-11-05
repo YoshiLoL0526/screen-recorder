@@ -20,7 +20,7 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   - **Efectos globales** (docs/26): brillo/contraste/saturación, blur, viñeta y blanco y negro
     sobre todo el video compuesto, antes de elementos y textos; sin efectos el filter graph queda
     byte a byte como antes.
-- **392 tests** y `aurora check`/`aurora tree` sin avisos; `tools/f3_editor_test.py --no-shots` y
+- **394 tests** y `aurora check`/`aurora tree` sin avisos; `tools/f3_editor_test.py --no-shots` y
   `tools/f4_export_test.py --skip-long --no-shots` verificados tras la integración.
 
 ### Cambiado

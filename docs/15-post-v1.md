@@ -37,7 +37,7 @@ Hecho después de la v1.0.0 (para no volver a planificarlo):
 | Efectos globales: color, blur, viñeta y blanco y negro | `core/global_effects.py`, `core/color.py`, inspector (docs/26) |
 | Tests portables entre equipos (región y `draw` del timeline) | `tests/test_f21_ui.py`, `tests/test_f3_editor.py` |
 
-**392 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
+**394 tests** en verde y `tools/check_build.py` OK (bundle de **256 MB** en local con
 `aurora 0.10.0`, `pynput` y el icono de la bandeja dentro; sin OpenCV). El CI valida tests + build +
 instalador. Todo lo que sigue **no está implementado**, salvo lo marcado como hecho en los
 bloques A y B y las fases 0/1/2/3 del editor.
