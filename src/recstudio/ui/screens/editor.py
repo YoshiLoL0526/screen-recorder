@@ -15,10 +15,11 @@ from __future__ import annotations
 from aurora import box, button, column, component, image, row, scroll, select, spacer, text, text_input
 
 from ... import state
+from ...core import elements as element_mod
 from ...core import timeline as tl
 from ...core.project import TRANSITION_KINDS
+from .. import element_overlay, icons
 from ..components import chip, icon_button, label_control, mark_input_key, section
-from .. import icons
 from ..export_modal import export_chip, export_modal
 from ..timeline import EDITOR_PAD_X, PANEL_BORDER, PREVIEW_MIN_W, SPLIT_W, timeline_view
 
@@ -51,11 +52,32 @@ _POSITIONS = [(v, f"{v:.2f}") for v in (0.0, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9
 _ROTATIONS = [(0, "0°"), (90, "90°"), (180, "180°"), (270, "270°")]
 _FLIPS = [(False, "No"), (True, "Sí")]
 
+# Elementos superpuestos (v6, docs/25)
+_ELEMENT_POSITIONS = [(round(i / 20, 2), f"{i / 20:.2f}") for i in range(21)]
+_ELEMENT_SIZES = [(round(i / 20, 2), f"{i / 20:.2f}") for i in range(1, 31)]
+_ELEMENT_ROTATIONS = [(float(v), f"{v}°") for v in
+                      (0, 15, 30, 45, 60, 90, 120, 135, 180, 225, 270, 315)]
+_ELEMENT_OPACITIES = [(round(i / 10, 1), f"{i * 10} %") for i in range(11)]
+_ELEMENT_BLURS = [(float(v), "Sin desenfoque" if v == 0 else f"{v:g} px")
+                  for v in (0, 2, 4, 6, 8, 12, 16, 24, 32, 50)]
+_ELEMENT_COLORS = [
+    ("#FF5470", "Rojo"), ("#F5B851", "Ámbar"), ("#7C5CFF", "Violeta"),
+    ("#4CD6A0", "Verde"), ("#4AA8FF", "Azul"), ("#FFFFFF", "Blanco"), ("#000000", "Negro"),
+]
+_ELEMENT_FITS_UI = [("fit", "Encajar"), ("fill", "Rellenar"), ("stretch", "Estirar")]
+
 
 def _options(options, current):
     """Las opciones fijas más el valor actual si no está entre ellas (p. ej. de un proyecto viejo)."""
     if all(abs(v - current) > 1e-6 for v, _ in options):
         return sorted([*options, (current, f"{current:g}")])
+    return options
+
+
+def _string_options(options, current):
+    """Igual que `_options` para valores de texto (colores, encajes…)."""
+    if all(str(v).upper() != str(current).upper() for v, _ in options):
+        return [*options, (current, f"Personalizado ({current})")]
     return options
 
 
@@ -103,6 +125,8 @@ def editor_toolbar():
         box(width=8),
         icon_button(icons.MUSIC, _call("browse_music"), tooltip="Añadir música", size=32, key="ed-music"),
         icon_button(icons.TEXT, _call("add_text"), tooltip="Añadir texto en el playhead", size=32, key="ed-text"),
+        icon_button(icons.IMAGE, _call("browse_images"), tooltip="Añadir imagen como elemento",
+                    size=32, key="ed-image"),
         button("Importar", _call("open_import"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-import"),
         button("Exportar…", _call("open_export"), variant="soft", padding=(6, 14), font_size=12.5, key="ed-export"),
         button("Cerrar", _call("close_project"), variant="ghost", padding=(6, 12), font_size=12.5, key="ed-close"),
@@ -112,17 +136,78 @@ def editor_toolbar():
 # -- preview y transporte -----------------------------------------------------------
 
 
+def _on_preview_resize(e) -> None:  # noqa: ANN001
+    size = (round(float(e.width)), round(float(e.height)))
+    if size != state.preview_box():
+        state.preview_box.set(size)
+
+
+def _element_drag(element_id: str, mode: str):
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_element_drag(element_id, mode)
+        elif e.phase == "move":
+            editor.drag_element(e.dx, e.dy)
+        else:
+            editor.drag_element(e.dx, e.dy)
+            editor.end_drag()
+
+    return handler
+
+
+def _preview_overlay(project):
+    """Caja con asas del elemento seleccionado (solo en pausa y si está activo en el playhead)."""
+    selection = state.selection()
+    if state.playing() or not selection or selection[0] != "element":
+        return None
+    if not project.has_element(selection[1]):
+        return None
+    element = project.element(selection[1])
+    if not (element.start <= state.playhead() < element.end):
+        return None
+    frame_box = element_overlay.element_box(project, element, state.preview_box())
+    if frame_box is None or frame_box.width < 2 or frame_box.height < 2:
+        return None
+    handle = 12
+    return box(
+        key="el-box", position="absolute", left=frame_box.left, top=frame_box.top,
+        width=frame_box.width, height=frame_box.height, bg="#00000000",
+        border_width=1.5, border_color="#7C5CFF", cursor="grab",
+        label="Caja del elemento seleccionado", tooltip="Arrastra para mover el elemento",
+        on_drag=_element_drag(element.id, "move"),
+    )[
+        box(key="el-handle-se", position="absolute", right=-handle / 2, bottom=-handle / 2,
+            width=handle, height=handle, radius=handle / 2, bg="#7C5CFF", cursor="nwse-resize",
+            label="Asa inferior derecha", on_drag=_element_drag(element.id, "se")),
+        box(key="el-handle-sw", position="absolute", left=-handle / 2, bottom=-handle / 2,
+            width=handle, height=handle, radius=handle / 2, bg="#7C5CFF", cursor="nesw-resize",
+            label="Asa inferior izquierda", on_drag=_element_drag(element.id, "sw")),
+        box(key="el-handle-ne", position="absolute", right=-handle / 2, top=-handle / 2,
+            width=handle, height=handle, radius=handle / 2, bg="#7C5CFF", cursor="nesw-resize",
+            label="Asa superior derecha", on_drag=_element_drag(element.id, "ne")),
+        box(key="el-handle-nw", position="absolute", left=-handle / 2, top=-handle / 2,
+            width=handle, height=handle, radius=handle / 2, bg="#7C5CFF", cursor="nwse-resize",
+            label="Asa superior izquierda", on_drag=_element_drag(element.id, "nw")),
+    ]
+
+
 @component
 def preview_panel():
     frame = state.preview_frame()
     note = state.preview_note()
-    has_clips = bool(state.editor_project().video.clips)
+    project = state.editor_project()
+    has_clips = bool(project.video.clips)
     # El hueco lo decide el layout (`width/height=0` + `grow`), nunca el tamaño de la imagen; y
     # `fit="contain"` la centra en él: sin esto, al agrandar la ventana el frame se quedaba
     # pegado a la izquierda y sin aprovechar el espacio.
     body = (
-        column(grow=1, height=0, align="center", justify="center")[
-            image(frame, fit="contain", grow=1, height=0, width="100%", key="ed-preview-img")
+        box(key="ed-preview-stage", grow=1, height=0, align="center", justify="center",
+            on_resize=_on_preview_resize)[
+            image(frame, fit="contain", grow=1, height=0, width="100%", key="ed-preview-img"),
+            _preview_overlay(project),
         ]
         if frame
         else column(grow=1, align="center", justify="center", gap=6)[
@@ -314,6 +399,107 @@ def _transition_controls(index: int | None):
     )
 
 
+def _element_controls(project, element):
+    label = element_mod.ELEMENT_LABELS.get(element.kind, element.kind)
+    children = [
+        text(f"{label} · {tl.format_time(element.start)}–{tl.format_time(element.end)}",
+             size=12, color="$muted", family="Consolas"),
+        _row("Inicio", text_input(state.insp_el_start, key="insp-el-start",
+                                  on_submit=_submit("submit_element_start"), on_key=mark_input_key,
+                                  font_family="Consolas", padding=(7, 10))),
+        _row("Fin", text_input(state.insp_el_end, key="insp-el-end",
+                               on_submit=_submit("submit_element_end"), on_key=mark_input_key,
+                               font_family="Consolas", padding=(7, 10))),
+        _row("Duración", tl.format_time(element.duration)),
+        _row("X", select(state.insp_el_x, _options(_ELEMENT_POSITIONS, element.x), key="insp-el-x")),
+        _row("Y", select(state.insp_el_y, _options(_ELEMENT_POSITIONS, element.y), key="insp-el-y")),
+        _row("Ancho", select(state.insp_el_width, _options(_ELEMENT_SIZES, element.width),
+                             key="insp-el-width")),
+        _row("Alto", select(state.insp_el_height, _options(_ELEMENT_SIZES, element.height),
+                            key="insp-el-height")),
+        _row("Rotación", select(state.insp_el_rotation,
+                                _options(_ELEMENT_ROTATIONS, element.rotation), key="insp-el-rotation")),
+        _row("Opacidad", select(state.insp_el_opacity,
+                                _options(_ELEMENT_OPACITIES, element.opacity), key="insp-el-opacity")),
+    ]
+    if element.kind == "image":
+        try:
+            asset = project.asset(element.asset_id or "")
+            children.append(text(asset.name, size=11.5, color="$muted", max_lines=1))
+        except Exception:
+            pass
+        children.append(_row("Encaje", select(state.insp_el_fit, _ELEMENT_FITS_UI,
+                                              key="insp-el-fit")))
+    else:
+        children.append(_row("Color", select(
+            state.insp_el_color, _string_options(_ELEMENT_COLORS, element.color),
+            key="insp-el-color",
+        )))
+    children += [
+        _row("Desenfoque", select(state.insp_el_blur,
+                                  _options(_ELEMENT_BLURS, element_mod.blur_radius(element)),
+                                  key="insp-el-blur")),
+        text("Se compone sobre el video en el preview y en el export; en la lista, lo de arriba "
+             "queda encima.", size=11, color="$muted", line_height=1.35),
+        row(gap=6)[
+            button("Al frente", _call("move_element_z", "front"), variant="ghost",
+                   padding=(4, 9), font_size=11.5, key="insp-el-front"),
+            button("Al fondo", _call("move_element_z", "back"), variant="ghost",
+                   padding=(4, 9), font_size=11.5, key="insp-el-back"),
+        ],
+        row(gap=6)[
+            button("Subir", _call("move_element_z", "up"), variant="ghost", padding=(4, 9),
+                   font_size=11.5, key="insp-el-up"),
+            button("Bajar", _call("move_element_z", "down"), variant="ghost", padding=(4, 9),
+                   font_size=11.5, key="insp-el-down"),
+            button("Eliminar", _call("delete_selected"), variant="soft", padding=(4, 9),
+                   font_size=11.5, key="insp-el-delete"),
+        ],
+    ]
+    return section(f"Elemento · {label}", *children, gap=9)
+
+
+def _elements_section(project):
+    rows = []
+    for element in reversed(project.elements):  # la lista se lee de arriba (encima) abajo
+        label = element_mod.ELEMENT_LABELS.get(element.kind, element.kind)
+        if element.kind == "image":
+            try:
+                name = project.asset(element.asset_id or "").name
+                label = f"Imagen · {name}"
+            except Exception:
+                label = "Imagen"
+        rows.append(row(
+            key=f"el-{element.id}", gap=8, align="center", padding=(5, 7), radius="$md",
+            bg_hover="$surface_hover", cursor="pointer", label=f"Seleccionar {label}",
+            on_click=_call("select_element", element.id),
+        )[
+            text(label, size=12, grow=1, max_lines=1),
+            text(f"{element.start:.1f}–{element.end:.1f}s", size=10.5, color="$muted",
+                 family="Consolas"),
+        ])
+    return section(
+        "Elementos",
+        text("Figuras e imágenes por encima del video; el orden de la lista es el z-order "
+             "(arriba = encima).", size=11, color="$muted", line_height=1.35),
+        rows and column(gap=3)[rows],
+        not rows and text("Todavía no hay elementos.", size=11.5, color="$muted"),
+        row(gap=6)[
+            button("Rectángulo", _call("add_element", "rect"), variant="soft", padding=(4, 9),
+                   font_size=11.5, key="insp-el-rect"),
+            button("Elipse", _call("add_element", "ellipse"), variant="soft", padding=(4, 9),
+                   font_size=11.5, key="insp-el-ellipse"),
+        ],
+        row(gap=6)[
+            button("Triángulo", _call("add_element", "triangle"), variant="soft", padding=(4, 9),
+                   font_size=11.5, key="insp-el-triangle"),
+            button("Añadir imagen…", _call("browse_images"), variant="soft", padding=(4, 9),
+                   font_size=11.5, key="insp-el-image"),
+        ],
+        gap=7,
+    )
+
+
 @component
 def inspector():
     from ..editor_controller import CANVAS_LABELS, SPEED_CHOICES
@@ -435,6 +621,8 @@ def inspector():
             button("Eliminar", _call("delete_selected"), variant="soft", padding=(6, 12),
                    font_size=12.5, key="insp-audio-delete"),
         ])
+    elif selection and selection[0] == "element" and project.has_element(selection[1]):
+        children.append(_element_controls(project, project.element(selection[1])))
     elif selection and selection[0] == "text" and project.has_text(selection[1]):
         overlay = project.text(selection[1])
         children.append(section(
@@ -517,6 +705,7 @@ def inspector():
             button("Exportar… (Ctrl+E)", _call("open_export"), padding=(7, 14), font_size=12.5, key="insp-export"),
             gap=10,
         ))
+        children.append(_elements_section(project))
         if project.texts:
             children.append(section(
                 "Textos",

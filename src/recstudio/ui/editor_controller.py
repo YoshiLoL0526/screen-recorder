@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .. import state
 from ..core import effects as fx
+from ..core import elements as element_mod
 from ..core import graph as graph_mod
 from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
@@ -76,6 +77,21 @@ CROP_FIELDS = (
     (state.insp_crop_r, 2, "recorte derecho"),
     (state.insp_crop_b, 3, "recorte inferior"),
 )
+
+# Campos numéricos del elemento seleccionado: (signal, campo, etiqueta de undo)
+ELEMENT_FIELDS = (
+    (state.insp_el_x, "x", "posición X del elemento"),
+    (state.insp_el_y, "y", "posición Y del elemento"),
+    (state.insp_el_width, "width", "ancho del elemento"),
+    (state.insp_el_height, "height", "alto del elemento"),
+    (state.insp_el_rotation, "rotation", "rotación del elemento"),
+    (state.insp_el_opacity, "opacity", "opacidad del elemento"),
+)
+ELEMENT_DEFAULTS = {
+    "rect": (0.4, 0.25, "#FF5470", "rectángulo"),
+    "ellipse": (0.3, 0.3, "#7C5CFF", "elipse"),
+    "triangle": (0.35, 0.3, "#F5B851", "triángulo"),
+}
 
 # Campos de efectos del inspector: (signal, efecto, parámetro, valor neutro, etiqueta de undo)
 EFFECT_FIELDS = (
@@ -166,6 +182,11 @@ class EditorController:
         state.insp_text_x.subscribe(live(lambda value: self._on_insp_text("x", value)))
         state.insp_text_y.subscribe(live(lambda value: self._on_insp_text("y", value)))
         state.insp_text_bold.subscribe(live(lambda value: self._on_insp_text("bold", value)))
+        for signal, field, label in ELEMENT_FIELDS:
+            signal.subscribe(live(lambda value, f=field, lb=label: self._on_insp_element(f, value, lb)))
+        state.insp_el_color.subscribe(live(lambda value: self._on_insp_element("color", value, "color del elemento")))
+        state.insp_el_fit.subscribe(live(lambda value: self._on_insp_element("fit", value, "encaje del elemento")))
+        state.insp_el_blur.subscribe(live(self._on_insp_element_blur))
         if self.settings.export_preset in graph_mod.PRESET_IDS:
             state.export_preset.set(self.settings.export_preset)
         self.player.start()
@@ -217,6 +238,8 @@ class EditorController:
         elif selection and selection[0] == "text" and not project.has_text(selection[1]):
             state.selection.set(None)
         elif selection and selection[0] == "marker" and not project.has_marker(selection[1]):
+            state.selection.set(None)
+        elif selection and selection[0] == "element" and not project.has_element(selection[1]):
             state.selection.set(None)
         clip_ids = {c.id for track in (project.video, *project.audio) for c in track.clips}
         if not state.multi_selection() <= clip_ids:
@@ -292,6 +315,19 @@ class EditorController:
         marker = self.selected_marker()
         if marker is not None:
             state.insp_marker_name.set(marker.name)
+        element = self.selected_element()
+        if element is not None:
+            state.insp_el_start.set(tl.format_time(element.start))
+            state.insp_el_end.set(tl.format_time(element.end))
+            state.insp_el_x.set(element.x)
+            state.insp_el_y.set(element.y)
+            state.insp_el_width.set(element.width)
+            state.insp_el_height.set(element.height)
+            state.insp_el_rotation.set(element.rotation)
+            state.insp_el_opacity.set(element.opacity)
+            state.insp_el_blur.set(element_mod.blur_radius(element))
+            state.insp_el_color.set(element.color)
+            state.insp_el_fit.set(element.fit)
 
     def _canvas_key(self, width: int, height: int) -> str:
         for key, (w, h) in CANVAS_SIZES.items():
@@ -410,6 +446,32 @@ class EditorController:
             return
         self._update_text(**{name: value})
 
+    def _on_insp_element(self, name: str, value, label: str) -> None:  # noqa: ANN001
+        element = self.selected_element()
+        if element is None:
+            return
+        if name in ("x", "y", "width", "height", "rotation", "opacity"):
+            value = round(float(value), 4)
+        if getattr(element, name) == value:
+            return
+        self._update_element(label, **{name: value})
+
+    def _on_insp_element_blur(self, radius: float) -> None:
+        element = self.selected_element()
+        if element is None:
+            return
+        radius = round(max(0.0, min(element_mod.BLUR_MAX, float(radius))), 3)
+        if abs(element_mod.blur_radius(element) - radius) < 1e-6:
+            return
+        try:
+            project = element_mod.set_blur(self.project, element.id, radius)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        if self._apply("desenfoque del elemento", project):
+            self._sync_inspector()
+
     def _current_transition(self):  # noqa: ANN202
         index = self._transition_index()
         if index is None:
@@ -482,6 +544,12 @@ class EditorController:
         if not selection or selection[0] != "text":
             return None
         return self.project.text(selection[1]) if self.project.has_text(selection[1]) else None
+
+    def selected_element(self):  # noqa: ANN201
+        selection = state.selection()
+        if not selection or selection[0] != "element":
+            return None
+        return self.project.element(selection[1]) if self.project.has_element(selection[1]) else None
 
     def selected_marker(self):  # noqa: ANN201
         selection = state.selection()
@@ -656,6 +724,8 @@ class EditorController:
             self.set_transition(None)
         elif selection[0] == "text":
             self.delete_text()
+        elif selection[0] == "element":
+            self.delete_element()
         elif selection[0] == "marker":
             self.delete_marker()
         elif selection[0] == "audio":
@@ -712,6 +782,10 @@ class EditorController:
     def select_text(self, text_id: str) -> None:
         state.multi_selection.set(frozenset())
         state.selection.set(("text", text_id))
+
+    def select_element(self, element_id: str) -> None:
+        state.multi_selection.set(frozenset())
+        state.selection.set(("element", element_id))
 
     def select_all(self) -> None:
         ids = frozenset(c.id for c in self.project.video.clips)
@@ -1185,6 +1259,216 @@ class EditorController:
         self._apply("editar texto", project)
         self._sync_inspector()
 
+    # -- elementos superpuestos (v6, docs/25) ---------------------------------------
+
+    def add_element(self, kind: str) -> None:
+        """Añade una figura (rect/ellipse/triangle) en el playhead, encima de las demás."""
+        if not self.project.video.clips:
+            state.toast("info", "Importa un video antes de añadir elementos")
+            return
+        width, height, color, label = ELEMENT_DEFAULTS.get(kind, ELEMENT_DEFAULTS["rect"])
+        try:
+            project, element = element_mod.add_element(
+                self.project, kind, state.playhead(), element_mod.ELEMENT_DURATION,
+                width=width, height=height, color=color,
+            )
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply(f"añadir {label}", project):
+            self.select_element(element.id)
+
+    def browse_images(self) -> None:
+        """Diálogo de imágenes (modal, hilo de UI); el probe y la cache van a un hilo."""
+        from . import file_dialogs
+
+        try:
+            chosen = file_dialogs.open_images(state.recordings_dir(), title="Importar imagen")
+        except Exception as exc:  # diálogo nativo: cualquier fallo debe acabar en un toast
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen:
+            self.import_images(chosen)
+
+    def import_images(self, paths: list[Path]) -> None:
+        """Añade imágenes al proyecto como assets y las coloca como elementos (sin clip)."""
+        if not paths:
+            return
+
+        def worker() -> None:
+            with self._io_lock:
+                project = self.project
+                if not project.video.clips:
+                    state.toast("info", "Importa un video antes de añadir imágenes")
+                    return
+                start = state.playhead()
+                added: list[str] = []
+                for path in paths:
+                    try:
+                        asset = media.probe_image(path)
+                    except RecStudioError as exc:
+                        state.toast("danger", exc.message)
+                        continue
+                    project, asset = tl.add_asset(project, asset)
+                    width, height = element_mod.default_image_box(project, asset)
+                    try:
+                        project, element = element_mod.add_element(
+                            project, "image", start, element_mod.ELEMENT_DURATION,
+                            width=width, height=height, asset_id=asset.id,
+                        )
+                    except ProjectError as exc:
+                        state.toast("warning", exc.message)
+                        continue
+                    added.append(element.id)
+                if not added:
+                    return
+                if self._apply(
+                    f"añadir {len(added)} imagen{'es' if len(added) != 1 else ''}", project
+                ):
+                    self.select_element(added[-1])
+                    state.toast("success", f"{len(added)} imagen(es) añadida(s) como elemento")
+
+        threading.Thread(target=worker, daemon=True, name="import-images").start()
+
+    def delete_element(self) -> None:
+        element = self.selected_element()
+        if element is None:
+            return
+        if self._apply("eliminar elemento", element_mod.remove_element(self.project, element.id)):
+            state.selection.set(None)
+
+    def _update_element(self, label: str, **changes) -> None:  # noqa: ANN003
+        element = self.selected_element()
+        if element is None:
+            return
+        try:
+            project = element_mod.update_element(self.project, element.id, **changes)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        self._apply(label, project)
+        self._sync_inspector()
+
+    def submit_element_start(self, value: str) -> None:
+        element = self.selected_element()
+        if element is None:
+            return
+        try:
+            start = tl.parse_time(value)
+        except ValueError:
+            state.toast("warning", "Tiempo inválido: usa mm:ss.mmm")
+            self._sync_inspector()
+            return
+        total = tl.total_duration(self.project)
+        start = max(0.0, min(start, total - 0.1))
+        end = max(start + 0.1, min(element.end, total))
+        if end <= start:
+            end = min(total, start + 0.2)
+        self._update_element("inicio del elemento", start=round(start, 4), end=round(end, 4))
+
+    def submit_element_end(self, value: str) -> None:
+        element = self.selected_element()
+        if element is None:
+            return
+        try:
+            end = tl.parse_time(value)
+        except ValueError:
+            state.toast("warning", "Tiempo inválido: usa mm:ss.mmm")
+            self._sync_inspector()
+            return
+        total = tl.total_duration(self.project)
+        end = max(element.start + 0.1, min(end, total))
+        self._update_element("fin del elemento", end=round(end, 4))
+
+    def move_element_z(self, action: str) -> None:
+        """Cambia el z-order del elemento seleccionado: `front`, `back`, `up` o `down`."""
+        element = self.selected_element()
+        if element is None:
+            return
+        actions = {
+            "front": ("traer al frente", element_mod.bring_to_front),
+            "back": ("enviar al fondo", element_mod.send_to_back),
+            "up": ("subir elemento", element_mod.raise_element),
+            "down": ("bajar elemento", element_mod.lower_element),
+        }
+        item = actions.get(action)
+        if item is None:
+            return
+        label, function = item
+        self._apply(label, function(self.project, element.id))
+
+    # -- caja de manipulación del preview (C, opcional) -----------------------------
+
+    def _element_display(self) -> tuple[float, float] | None:
+        """Tamaño (px) con el que se ve el lienzo dentro del panel del preview."""
+        box_w, box_h = state.preview_box()
+        if box_w <= 0 or box_h <= 0:
+            return None
+        frame_w, frame_h = playback_mod.preview_size(self.project)
+        factor = min(box_w / frame_w, box_h / frame_h)
+        return frame_w * factor, frame_h * factor
+
+    def begin_element_drag(self, element_id: str, mode: str) -> None:
+        if not self._guard_editable() or not self.project.has_element(element_id):
+            return
+        display = self._element_display()
+        if display is None:
+            return
+        self.cancel_drag()
+        self.store.begin("mover elemento" if mode == "move" else "escalar elemento")
+        self._drag = {
+            "kind": "element",
+            "mode": mode,
+            "id": element_id,
+            "project": self.project,
+            "element": self.project.element(element_id),
+            "display": display,
+            "dx": 0.0,
+            "dy": 0.0,
+        }
+        state.selection.set(("element", element_id))
+
+    def drag_element(self, dx: float, dy: float) -> None:
+        drag = self._drag
+        if drag is None or drag["kind"] != "element":
+            return
+        drag["dx"], drag["dy"] = dx, dy
+        base: Project = drag["project"]
+        element = drag["element"]
+        display_w, display_h = drag["display"]
+        if display_w <= 0 or display_h <= 0:
+            return
+        fraction_x, fraction_y = dx / display_w, dy / display_h
+        changes: dict[str, float] = {}
+        if drag["mode"] == "move":
+            changes = {
+                "x": round(max(0.0, min(1.0, element.x + fraction_x)), 4),
+                "y": round(max(0.0, min(1.0, element.y + fraction_y)), 4),
+            }
+        else:
+            sign_x = 1.0 if drag["mode"] in ("se", "ne") else -1.0
+            sign_y = 1.0 if drag["mode"] in ("se", "sw") else -1.0
+            width = max(
+                element_mod.ELEMENT_SIZE_MIN,
+                min(element_mod.ELEMENT_SIZE_MAX, element.width + sign_x * fraction_x),
+            )
+            height = max(
+                element_mod.ELEMENT_SIZE_MIN,
+                min(element_mod.ELEMENT_SIZE_MAX, element.height + sign_y * fraction_y),
+            )
+            changes = {
+                "width": round(width, 4),
+                "height": round(height, 4),
+                "x": round(max(0.0, min(1.0, element.x + sign_x * (width - element.width) / 2)), 4),
+                "y": round(max(0.0, min(1.0, element.y + sign_y * (height - element.height) / 2)), 4),
+            }
+        try:
+            project = element_mod.update_element(base, element.id, **changes)
+        except ProjectError:
+            return
+        self.store.update(project)
+
     # -- selección múltiple (B3) ---------------------------------------------------
 
     def begin_marquee(self, window_x: float) -> None:
@@ -1263,7 +1547,11 @@ class EditorController:
             if path is None:
                 continue
             try:
-                probed = media.probe(path, asset_id=asset.id)
+                probed = (
+                    media.probe_image(path, asset_id=asset.id)
+                    if asset.kind == "image"
+                    else media.probe(path, asset_id=asset.id)
+                )
                 if (asset.width > 0 or asset.height > 0) and (probed.width <= 0 or probed.height <= 0):
                     state.toast("warning", f"«{path.name}» no tiene pista de video")
                     continue
@@ -2316,12 +2604,16 @@ class EditorController:
     def relocate_to(self, asset_id: str, path: Path) -> bool:
         """Sustituye el archivo del asset (bloqueante: llamar desde un hilo). El nuevo debe
         durar lo suficiente para sus clips (lo comprueba `Project.validate`)."""
+        old = self.project.asset(asset_id)
         try:
-            probed = media.probe(path, asset_id=asset_id)
+            probed = (
+                media.probe_image(path, asset_id=asset_id)
+                if old.kind == "image"
+                else media.probe(path, asset_id=asset_id)
+            )
         except RecStudioError as exc:
             state.toast("danger", exc.message)
             return False
-        old = self.project.asset(asset_id)
         if (old.width > 0 or old.height > 0) and (probed.width <= 0 or probed.height <= 0):
             state.toast("danger", f"«{path.name}» no tiene pista de video")
             return False
@@ -2540,7 +2832,7 @@ class EditorController:
 
     def _queue_thumbs(self, asset: MediaAsset) -> None:
         """Calcula las miniaturas del asset (una tira por asset, cacheada en disco)."""
-        if media.is_offline(asset):
+        if asset.kind != "video" or media.is_offline(asset):
             return
         if media.cached_thumbstrip(asset.path) is not None:
             state.thumbs.set(state.thumbs() + 1)
@@ -2566,7 +2858,7 @@ class EditorController:
 
     def _queue_proxy(self, asset: MediaAsset) -> None:
         """Genera un proxy 540p en un hilo para videos pesados (4K/60+); el export usa el original."""
-        if not media.is_heavy(asset) or media.is_offline(asset):
+        if asset.kind != "video" or not media.is_heavy(asset) or media.is_offline(asset):
             return
         if media.cached_proxy(asset.path, rotation=asset.rotation) is not None:
             state.proxies.set(state.proxies() + 1)

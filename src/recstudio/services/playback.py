@@ -40,7 +40,7 @@ from ..core import transform as tx
 from ..core.project import Clip, MediaAsset, Project, to_dict, video_audio_gain
 from ..platform import ffmpeg as ffmpeg_mod
 from ..platform import paths
-from . import media
+from . import element_assets, media
 
 PREVIEW_HEIGHT = 540
 TICK_HZ = 30.0
@@ -374,9 +374,30 @@ class FrameRenderer:
         self.max_height = max_height
         self.pool = DecoderPool()
         self.last_transition: str | None = None
+        self._element_key = None
+        self._element_sources: dict[str, str] = {}
 
     def close(self) -> None:
         self.pool.close()
+
+    def _sources(self, project: Project, size: tuple[int, int]) -> dict[str, str]:
+        """PNGs de los elementos del preview, cacheados por proyecto+tamaño (no por frame)."""
+        if not project.elements:
+            return {}
+        key = (
+            project.elements,
+            tuple((asset.id, asset.path) for asset in project.assets),
+            size,
+        )
+        if key == self._element_key:
+            return self._element_sources
+        try:
+            sources = element_assets.materialize(project, size)
+        except Exception:  # best-effort: el preview sigue sin el elemento (el export sí falla)
+            sources = {}
+        self._element_key = key
+        self._element_sources = sources
+        return sources
 
     def _clip_frame(
         self, project: Project, clip: Clip, t_source: float, size: tuple[int, int], slot: int,
@@ -496,7 +517,7 @@ class FrameRenderer:
             self.last_transition = None
         # v6 (docs/22): efectos globales → elementos → textos (mismo orden que el export).
         frame = global_effects.apply_frame(project, frame)
-        frame = overlays.apply_frame(project, t, frame)
+        frame = overlays.apply_frame(project, t, frame, sources=self._sources(project, size))
         return _draw_texts(project, t, frame)
 
     def prefetch(self, project: Project, index: int) -> None:

@@ -1,6 +1,7 @@
 """Medios del editor (PyAV): probe, waveforms y pósters, con cache en disco.
 
 - `probe(path)` → `MediaAsset` (duración, resolución, fps, audio).
+- `probe_image(path)` → `MediaAsset(kind="image")` con Pillow (PNG/JPG/WebP/BMP).
 - `waveform(path)` decodifica el audio **una vez** (en streaming), lo baja a mono y guarda los
   picos min/max por bucket (`BUCKETS_PER_S` por segundo) en un `.npz` de la cache; el timeline
   los dibuja como un polígono (array numpy `(n, 2)` sin copias).
@@ -131,6 +132,38 @@ def probe(path: str | Path, asset_id: str | None = None) -> MediaAsset:
         )
     finally:
         container.close()
+
+
+def probe_image(path: str | Path, asset_id: str | None = None) -> MediaAsset:
+    """Sonda una imagen con Pillow y devuelve un asset `kind="image"` (docs/25).
+
+    `duration=0` y `fps=0`: una imagen no se puede añadir como clip (`timeline.append_clip` la
+    rechaza); solo se usa dentro de un `Element`. Se aplica la orientación EXIF para que el
+    tamaño sea el de visualización y coincida con `element_assets`.
+    """
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    path = Path(path)
+    try:
+        with Image.open(path) as opened:
+            image = ImageOps.exif_transpose(opened)
+            width, height = int(image.width), int(image.height)
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise MediaError(f"no se pudo abrir la imagen «{path.name}»: {exc}") from exc
+    if width <= 0 or height <= 0:
+        raise MediaError(f"«{path.name}» no tiene dimensiones válidas")
+    return MediaAsset(
+        id=asset_id or new_id("a"),
+        path=str(path.resolve()),
+        duration=0.0,
+        width=width,
+        height=height,
+        fps=0.0,
+        has_audio=False,
+        audio_channels=0,
+        rotation=0,
+        kind="image",
+    )
 
 
 # -- waveforms -------------------------------------------------------------------

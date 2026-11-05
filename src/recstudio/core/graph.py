@@ -21,6 +21,7 @@ saliente hasta su final y el entrante empieza en `t_local = duración de la tran
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -518,12 +519,17 @@ def build(
     exe: str = "ffmpeg",
     progress: bool = True,
     span: tuple[float, float] | None = None,
+    element_sources: Mapping[str, str] | None = None,
 ) -> GraphSpec:
     """Comando de render completo. `ProjectError` si el proyecto no se puede exportar así.
 
     `span=(inicio, final)` exporta solo ese rango del timeline (fase 3, docs/21): el graph es el
     mismo y al final se recorta el video compuesto con `trim` por frames y el audio con `atrim`
     a los mismos instantes. Sin `span` el comando es idéntico al de siempre (golden de F4).
+
+    `element_sources` (v6, docs/25) son los PNG ya materializados de los elementos. Solo hace
+    falta cuando `project.elements` no está vacío; el export los prepara con
+    `services.element_assets.materialize` antes de construir el graph.
     """
     if preset.video == "copy":
         raise ProjectError("el preset «sin recodificar» no usa filter graph (ver core.keyframes)")
@@ -589,6 +595,7 @@ def build(
     # -- elementos superpuestos (v6): debajo de los textos -------------------------------
     video_out, _overlay_input = overlays.apply_graph(
         project, video_out, chains, inputs, size, first_input=inputs.count("-i"),
+        sources=element_sources,
     )
 
     # -- textos: se queman sobre el video ya compuesto (tiempo global) --------------------
