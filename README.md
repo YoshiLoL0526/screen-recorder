@@ -1,6 +1,6 @@
 # Rec Studio — grabación de pantalla + editor de video
 
-> **Estado: v1.1.0** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
+> **Estado: v1.2.0** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
 > velocidad, transiciones, undo/redo, autoguardado, preview a 30 fps), **export** (F4: MP4 con
 > FFmpeg, presets GPU/calidad/720p/sin recodificar, progreso y ETA, efectos) y **pulido** (F5:
 > layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test). El

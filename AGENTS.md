@@ -5,7 +5,7 @@ Rec Studio: grabador de pantalla + editor de video para Windows. UI con **aurora
 **FFmpeg** en subprocess. Todo el proyecto —docs, comentarios, UI, tests y commits— está en
 **español**; los commits usan prefijos `feat:` / `docs:`.
 
-Estado: **v1.1.0** — F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1, **F3 (editor)**,
+Estado: **v1.2.0** — F1 (motor), F2 (UI de grabación + Biblioteca), F1.1/F2.1, **F3 (editor)**,
 **F4 (export y efectos)** y **F5 (pulido)** implementados. Editor: `core/project.py`, `core/timeline.py`,
 `core/store.py`, `services/media.py`/`playback.py`, `ui/editor_controller.py`, `ui/timeline.py`,
 `ui/screens/editor.py` (ver `docs/12`). Export: `core/effects.py`, `core/graph.py` (builder puro
@@ -48,7 +48,7 @@ uv run python tools/build_exe.py                # build suelto; `uv run aurora b
 uv run python tools/check_installer.py          # Inno Setup + instalación/desinstalación + smoke
 uv run python tools/rnf_measure.py --exe "dist/Rec Studio/Rec Studio.exe"  # RNF-06/07
 uv run python tools/make_icon.py                # regenera assets/icon.ico
-uv run python tools/release_notes.py v1.1.0     # notas del release (falla si el tag ≠ versión)
+uv run python tools/release_notes.py v1.2.0     # notas del release (falla si el tag ≠ versión)
 ```
 
 No hay linter, formatter ni typechecker configurado; no inventes uno. `uv run aurora build` usa

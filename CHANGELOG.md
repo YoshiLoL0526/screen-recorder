@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 [SemVer](https://semver.org/lang/es/) desde la 1.0.0 (las fases anteriores no se publicaron como versión). El
 detalle de cada fase está en `docs/08`–`docs/16`.
 
-## Sin publicar
+## [1.2.0] — 2026-11-05
 
 ### Añadido
 - **Features v6 del editor** (plan en [docs/22](docs/22-plan-features-editor.md); modelo v6 con
