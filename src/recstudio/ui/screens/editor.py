@@ -336,15 +336,13 @@ def inspector():
         if clip.audio_enabled and has_audio:
             audio_action = button("Separar audio", _call("detach_audio"), variant="soft",
                                   padding=(4, 10), font_size=11.5, key="insp-detach")
-        elif not clip.audio_enabled:
-            audio_action = button(
-                "Vincular audio" if linked else "Activar audio", _call("attach_audio"), variant="soft",
-                padding=(4, 10), font_size=11.5,
-                key="insp-attach" if linked else "insp-enable-audio",
-            )
+        elif not clip.audio_enabled and not linked:
+            audio_action = button("Activar audio", _call("attach_audio"), variant="soft",
+                                  padding=(4, 10), font_size=11.5, key="insp-enable-audio")
         children.append(section(
             f"Clip {index + 1} de {len(project.video.clips)}",
             text(name, size=13.5, weight=600, max_lines=2),
+            linked and chip("audio enlazado · pista «Audio del video»", tone="accent"),
             offline and row(gap=8, align="center")[
                 text("Archivo no encontrado (offline)", size=11.5, color="$danger", grow=1, width=0),
                 button("Reubicar…", _call("relocate_asset", clip.asset_id), variant="soft", padding=(4, 10),
@@ -359,6 +357,19 @@ def inspector():
             _row("Duración", tl.format_time(clip.duration)),
             _row("Velocidad", select(state.insp_speed, [(s, f"{s:g}×") for s in SPEED_CHOICES], key="insp-speed")),
             audio_action and row(gap=8)[audio_action],
+            linked and row(gap=8)[
+                button("Desvincular audio", _call("unlink_audio"), variant="soft",
+                       padding=(4, 10), font_size=11.5, key="insp-unlink",
+                       tooltip="Mantiene el audio en su pista y corta el enlace con el video"),
+                button("Vincular audio", _call("attach_audio"), variant="soft",
+                       padding=(4, 10), font_size=11.5, key="insp-attach",
+                       tooltip="Borra el audio separado y reactiva el audio original del video"),
+            ],
+            not clip.audio_enabled and not linked and text(
+                "El audio separado sigue libre en su pista: selecciónalo para volver a vincularlo "
+                "o usa «Activar audio» para recuperar el sonido original del video.",
+                size=11, color="$muted", line_height=1.35,
+            ),
             gap=10,
         ))
         children.append(_effects_controls(clip))
@@ -385,10 +396,25 @@ def inspector():
             asset_name, offline = asset.name, asset.id in state.offline_assets()
         except Exception:
             asset_name, offline = "?", True
+        relinkable = (
+            track.mode == "absolute" and not clip.link_id
+            and any(video.asset_id == clip.asset_id for video in project.video.clips)
+        )
         children.append(section(
             f"Audio · {track.name or f'Pista {track_index + 1}'}",
             text(asset_name, size=13.5, weight=600, max_lines=2),
-            clip.link_id and chip("enlazado al video", tone="accent"),
+            clip.link_id and chip("enlazado al video · sigue sus cortes", tone="accent"),
+            clip.link_id and row(gap=8)[
+                button("Desvincular audio", _call("unlink_audio"), variant="soft",
+                       padding=(4, 10), font_size=11.5, key="insp-audio-unlink",
+                       tooltip="Mantiene el audio en su pista y corta el enlace con el video"),
+                button("Vincular audio", _call("attach_audio"), variant="soft",
+                       padding=(4, 10), font_size=11.5, key="insp-audio-attach",
+                       tooltip="Borra este audio separado y reactiva el audio original del video"),
+            ],
+            relinkable and button("Vincular al video", _call("relink_audio"), variant="soft",
+                                  padding=(4, 10), font_size=11.5, key="insp-audio-relink",
+                                  tooltip="Conserva este audio y lo vuelve a enlazar con su video"),
             offline and button("Reubicar…", _call("relocate_asset", clip.asset_id), variant="soft",
                                padding=(4, 10), font_size=11.5, key="insp-audio-relocate"),
             _row("Inicio", text_input(state.insp_audio_start, key="insp-audio-start",
@@ -430,8 +456,6 @@ def inspector():
             gap=8,
         ))
         children.append(row(gap=8)[
-            clip.link_id and button("Vincular audio", _call("attach_audio"), variant="soft",
-                                    padding=(6, 12), font_size=12.5, key="insp-audio-attach"),
             button("Eliminar", _call("delete_selected"), variant="soft", padding=(6, 12),
                    font_size=12.5, key="insp-audio-delete"),
         ])

@@ -85,8 +85,10 @@ def _open(controller, pilot, video: Path):
 def test_separar_audio_desde_el_inspector_y_deshacer_en_un_paso(ui, tmp_path: Path) -> None:
     _, controller, pilot = ui
     editor = _open(controller, pilot, _video(tmp_path / "v.mp4"))
-    before = state.editor_project()
+    # Desde docs/24 el import ya separa el audio: se vuelve a vincular para probar la acción manual.
     editor.select_clip(state.editor_project().video.clips[0].id)
+    editor.attach_audio()
+    before = state.editor_project()
     _settle(pilot)
     assert pilot.rect("insp-detach") is not None
     pilot.click("insp-detach")
@@ -106,7 +108,7 @@ def test_mover_recortar_y_borrar_audio_con_drags_y_undo(ui, tmp_path: Path) -> N
     _, controller, pilot = ui
     editor = _open(controller, pilot, _video(tmp_path / "v.mp4"))
     editor.select_clip(state.editor_project().video.clips[0].id)
-    editor.detach_audio()
+    editor.unlink_audio()  # el audio enlazado no se mueve solo: primero se desvincula
     _settle(pilot)
     project = state.editor_project()
     audio_id = project.audio[0].clips[0].id
@@ -153,8 +155,7 @@ def test_mover_recortar_y_borrar_audio_con_drags_y_undo(ui, tmp_path: Path) -> N
 def test_dividir_todo_y_dividir_solo_audio(ui, tmp_path: Path) -> None:
     _, controller, pilot = ui
     editor = _open(controller, pilot, _video(tmp_path / "v.mp4"))
-    editor.select_clip(state.editor_project().video.clips[0].id)
-    editor.detach_audio()
+    assert state.editor_project().audio[0].name == "Audio del video"  # separada al importar
     editor.seek(2.0)
     _settle(pilot)
 
@@ -178,8 +179,6 @@ def test_dividir_todo_y_dividir_solo_audio(ui, tmp_path: Path) -> None:
 def test_varias_pistas_y_cabeceras_mute_solo_lock(ui, tmp_path: Path) -> None:
     _, controller, pilot = ui
     editor = _open(controller, pilot, _video(tmp_path / "v.mp4"))
-    editor.select_clip(state.editor_project().video.clips[0].id)
-    editor.detach_audio()
     editor.import_music([_audio(tmp_path / "m.wav")])
     assert _wait(lambda: len(state.editor_project().audio) == 2)
     _settle(pilot)
@@ -213,15 +212,14 @@ def test_varias_pistas_y_cabeceras_mute_solo_lock(ui, tmp_path: Path) -> None:
 def test_anadir_y_quitar_pista_desde_la_barra(ui, tmp_path: Path) -> None:
     _, controller, pilot = ui
     _open(controller, pilot, _video(tmp_path / "v.mp4"))
-    assert len(state.editor_project().audio) == 0
+    assert len(state.editor_project().audio) == 1  # «Audio del video» creada al importar
     pilot.click("tl-track-add")
     _settle(pilot)
-    assert len(state.editor_project().audio) == 1
+    assert len(state.editor_project().audio) == 2
     assert state.editor_project().audio[0].mode == "absolute"
 
     editor = controller.editor
-    editor.select_clip(state.editor_project().video.clips[0].id)
-    editor.detach_audio()
+    editor.select_audio(0, 0)
     _settle(pilot)
     pilot.click("tl-track-remove")
     _settle(pilot)
@@ -244,8 +242,7 @@ def test_limite_de_pistas_de_audio(ui, tmp_path: Path) -> None:
 def test_guardar_y_reabrir_conserva_audio_pistas_y_ajustes(ui, tmp_path: Path) -> None:
     _, controller, pilot = ui
     editor = _open(controller, pilot, _video(tmp_path / "v.mp4"))
-    editor.select_clip(state.editor_project().video.clips[0].id)
-    editor.detach_audio()
+    editor.select_audio(0, 0)  # el import ya dejó el audio en «Audio del video»
     editor.set_audio_effect("audio_fade_in", "fundido", seconds=0.5)
     editor.toggle_audio_solo(0)
     editor.toggle_audio_lock(0)

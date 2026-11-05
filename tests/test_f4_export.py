@@ -266,7 +266,9 @@ def test_inspector_de_efectos_con_undo(ui, media_dir: Path) -> None:
 def test_exportar_desde_el_modal(ui, media_dir: Path) -> None:
     _, controller, pilot = ui
     editor = controller.editor
-    _open_new(editor, media_dir / "a.mp4")
+    # b.mp4 no tiene audio: el import no crea «Audio del video» y «Sin recodificar» sigue libre
+    # (con audio separado, docs/24, el corte rápido se bloquea por diseño).
+    _open_new(editor, media_dir / "b.mp4")
     _settle(pilot)
     pilot.press("ctrl+e")
     _settle(pilot)
