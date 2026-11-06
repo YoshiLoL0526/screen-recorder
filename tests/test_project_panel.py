@@ -544,6 +544,27 @@ def test_keyframes_de_elemento_y_texto_desde_el_inspector(
     curve = state.editor_project().text(text.id).animations[0]
     assert [p.value for p in curve.points] == [1.0, 0.25]
 
+    # Escala del texto: usa el campo no persistido `insp_text_scale`.
+    state.insp_text_scale.set(2.5)
+    _settle(pilot)
+    _click_inspector(pilot, "insp-text-key-scale")
+    curve = next(a for a in state.editor_project().text(text.id).animations
+                 if a.channel == "scale")
+    assert curve.points[0].value == pytest.approx(2.5)
+    assert state.undo_label() == "añadir clave escala"
+    _click_inspector(pilot, "insp-text-clear-scale")
+    assert all(a.channel != "scale" for a in state.editor_project().text(text.id).animations)
+
+    # Rotación del texto: grados absolutos desde `insp_text_rotation`.
+    state.insp_text_rotation.set(-30.0)
+    _settle(pilot)
+    _click_inspector(pilot, "insp-text-key-rotation")
+    curve = next(a for a in state.editor_project().text(text.id).animations
+                 if a.channel == "rotation")
+    assert curve.points[0].value == pytest.approx(-30.0)
+    _click_inspector(pilot, "insp-text-clear-rotation")
+    assert all(a.channel != "rotation" for a in state.editor_project().text(text.id).animations)
+
 
 def test_volumen_del_pip_en_el_inspector(ui, video: Path, tmp_path: Path) -> None:
     _, controller, pilot = ui

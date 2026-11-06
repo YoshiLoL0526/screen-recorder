@@ -563,40 +563,117 @@ def _escape_path(value: str) -> str:
     return value.replace("\\", "/").replace(":", "\\:").replace("'", "\\'")
 
 
+def text_filter(overlay, project_height: int, output_height: int) -> str:  # noqa: ANN001
+    """Un filtro `drawtext` para un texto, escalado al alto de salida."""
+    size = max(1, int(round(overlay.size * output_height / project_height)))
+    font = FONT_BOLD if overlay.bold else FONT_REGULAR
+    color = "0x" + overlay.color.lstrip("#")
+    x_animated = anim.is_animated(overlay.animations, "x")
+    y_animated = anim.is_animated(overlay.animations, "y")
+    x_value = anim.expr(overlay.animations, "x", overlay.start, overlay.x)
+    y_value = anim.expr(overlay.animations, "y", overlay.start, overlay.y)
+    x_part = f"x=(w*{x_value})-(text_w/2)"
+    y_part = f"y=(h*{y_value})-(text_h/2)"
+    if x_animated:
+        x_part = f"x='(w*{x_value})-(text_w/2)'"
+    if y_animated:
+        y_part = f"y='(h*{y_value})-(text_h/2)'"
+    if anim.is_animated(overlay.animations, "opacity"):
+        opacity = anim.expr(overlay.animations, "opacity", overlay.start, overlay.opacity)
+        alpha = f":alpha='{opacity}'"
+    elif overlay.opacity < 0.999999:
+        alpha = f":alpha={num(overlay.opacity)}"
+    else:
+        alpha = ""
+    return (
+        f"drawtext=fontfile='{_escape_path(font)}':text='{_escape_text(overlay.text)}':"
+        f"fontsize={size}:fontcolor={color}:expansion=none:"
+        f"{x_part}:{y_part}:"
+        f"borderw=2:bordercolor=black@0.55{alpha}:"
+        f"enable='between(t,{num(overlay.start)},{num(overlay.end)})'"
+    )
+
+
 def text_filters(project: Project, output_height: int) -> list[str]:
     """Filtros `drawtext` de los textos del proyecto, escalados al alto de salida."""
     if project.height <= 0:
         return []
-    filters: list[str] = []
-    for overlay in project.texts:
-        size = max(1, int(round(overlay.size * output_height / project.height)))
-        font = FONT_BOLD if overlay.bold else FONT_REGULAR
-        color = "0x" + overlay.color.lstrip("#")
-        x_animated = anim.is_animated(overlay.animations, "x")
-        y_animated = anim.is_animated(overlay.animations, "y")
+    return [
+        text_filter(overlay, project.height, output_height) for overlay in project.texts
+    ]
+
+
+def _text_needs_bake(overlay) -> bool:  # noqa: ANN001
+    return any(
+        anim.is_animated(overlay.animations, channel) for channel in anim.TRANSFORM_CHANNELS
+    )
+
+
+def _text_visible(project: Project, overlay) -> bool:  # noqa: ANN001
+    total = tl.total_duration(project)
+    return total > 0 and float(overlay.start) < total and float(overlay.end) > 0
+
+
+def _text_overlays(
+    project: Project,
+    video_out: str,
+    chains: list[str],
+    inputs: list[str],
+    size: tuple[int, int],
+    *,
+    first_input: int,
+    text_clips: Mapping[str, overlays.TextClip],
+) -> str:
+    """Compone los textos en orden: `drawtext` o `overlay` de un `.mov` horneado (docs/35).
+
+    Se recorre `Project.texts` de principio a fin y cada texto se aplica sobre la etiqueta
+    anterior, así que el orden de apilado es el mismo que el del preview aunque unos textos usen
+    `drawtext` y otros el intermedio RGBA.
+    """
+    label = video_out
+    next_input = int(first_input)
+    fps = max(1, int(project.fps))
+    for index, overlay in enumerate(project.texts):
+        clip = text_clips.get(overlay.id) if _text_needs_bake(overlay) else None
+        if clip is None and _text_needs_bake(overlay) and _text_visible(project, overlay):
+            raise ProjectError(
+                f"falta el vídeo animado del texto {overlay.id}: "
+                "usa services.text_animation.materialize"
+            )
+        if clip is None:
+            if project.height <= 0:
+                continue
+            out = f"vtext{index}"
+            chains.append(f"[{label}]{text_filter(overlay, project.height, size[1])}[{out}]")
+            label = out
+            continue
+        inputs += ["-i", str(clip.path)]
+        source = next_input
+        next_input += 1
+        prepared = f"tx{index}"
+        chains.append(
+            f"[{source}:v]format=rgba,setpts=PTS-STARTPTS+{num(overlay.start)}/TB,"
+            f"fps={fps}[{prepared}]"
+        )
         x_value = anim.expr(overlay.animations, "x", overlay.start, overlay.x)
         y_value = anim.expr(overlay.animations, "y", overlay.start, overlay.y)
-        x_part = f"x=(w*{x_value})-(text_w/2)"
-        y_part = f"y=(h*{y_value})-(text_h/2)"
-        if x_animated:
-            x_part = f"x='(w*{x_value})-(text_w/2)'"
-        if y_animated:
-            y_part = f"y='(h*{y_value})-(text_h/2)'"
-        if anim.is_animated(overlay.animations, "opacity"):
-            opacity = anim.expr(overlay.animations, "opacity", overlay.start, overlay.opacity)
-            alpha = f":alpha='{opacity}'"
-        elif overlay.opacity < 0.999999:
-            alpha = f":alpha={num(overlay.opacity)}"
-        else:
-            alpha = ""
-        filters.append(
-            f"drawtext=fontfile='{_escape_path(font)}':text='{_escape_text(overlay.text)}':"
-            f"fontsize={size}:fontcolor={color}:expansion=none:"
-            f"{x_part}:{y_part}:"
-            f"borderw=2:bordercolor=black@0.55{alpha}:"
-            f"enable='between(t,{num(overlay.start)},{num(overlay.end)})'"
+        x_part = f"main_w*{x_value}-overlay_w/2"
+        y_part = f"main_h*{y_value}-overlay_h/2"
+        if anim.is_animated(overlay.animations, "x"):
+            x_part = f"'{x_part}'"
+        if anim.is_animated(overlay.animations, "y"):
+            y_part = f"'{y_part}'"
+        enable = (
+            f"between(t,{num(overlay.start)},{num(overlay.end)})"
+            f"*lt(t,{num(overlay.end)})"
         )
-    return filters
+        out = f"txo{index}"
+        chains.append(
+            f"[{label}][{prepared}]overlay=x={x_part}:y={y_part}:format=auto"
+            f":eof_action=pass:enable='{enable}'[{out}]"
+        )
+        label = out
+    return label
 
 
 # -- builder ----------------------------------------------------------------------------
@@ -660,6 +737,7 @@ def build(
     span: tuple[float, float] | None = None,
     element_sources: Mapping[str, str] | None = None,
     element_clips: Mapping[str, overlays.ElementClip] | None = None,
+    text_clips: Mapping[str, overlays.TextClip] | None = None,
 ) -> GraphSpec:
     """Comando de render completo. `ProjectError` si el proyecto no se puede exportar así.
 
@@ -674,6 +752,10 @@ def build(
     `element_clips` (docs/33) son los vídeos RGBA intermedios de los elementos con escala o
     rotación animadas; los prepara `services.element_animation.materialize`. Sin animación de
     geometría no se usan y las cadenas quedan como siempre.
+
+    `text_clips` (docs/35) son los vídeos RGBA intermedios de los textos con escala o rotación
+    animadas; los prepara `services.text_animation.materialize`. Los textos sin esos canales
+    siguen usando `drawtext`; si un proyecto no tiene ninguno, las cadenas no cambian.
     """
     if preset.video == "copy":
         raise ProjectError("el preset «sin recodificar» no usa filter graph (ver core.keyframes)")
@@ -757,10 +839,19 @@ def build(
         )
 
     # -- textos: se queman sobre el video ya compuesto (tiempo global) --------------------
-    filters = text_filters(project, size[1])
-    if filters:
-        chains.append(f"[{video_out}]{','.join(filters)}[vtext]")
-        video_out = "vtext"
+    baked_texts = text_clips or {}
+    transformed = any(_text_needs_bake(overlay) for overlay in project.texts)
+    if transformed:
+        # Orden de `Project.texts` con una mezcla de `drawtext` y overlays horneados.
+        video_out = _text_overlays(
+            project, video_out, chains, inputs, size,
+            first_input=inputs.count("-i"), text_clips=baked_texts,
+        )
+    else:
+        filters = text_filters(project, size[1])
+        if filters:
+            chains.append(f"[{video_out}]{','.join(filters)}[vtext]")
+            video_out = "vtext"
 
     # -- audio --------------------------------------------------------------------------
     audio_out = ""

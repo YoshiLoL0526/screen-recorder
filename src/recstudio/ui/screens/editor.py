@@ -350,7 +350,7 @@ def _texts_layer(project, stage_w: int, stage_h: int):  # noqa: ANN001, ANN202
     for overlay in project.texts:
         if not (overlay.start <= t < overlay.end):
             continue
-        if any(a.channel in ("x", "y") for a in overlay.animations):
+        if any(a.channel in ("x", "y", "scale", "rotation") for a in overlay.animations):
             continue  # la caja seguiría la animación pero el arrastre edita la base: mejor el inspector
         frame_box = element_overlay.text_box(project, overlay, (stage_w, stage_h))
         if frame_box is None or frame_box.width < 2 or frame_box.height < 2:
@@ -683,7 +683,7 @@ def _animation_controls(kind: str, item, channels) -> object:
         "La clave usa el valor actual del campo en el playhead; mover el playhead no cambia "
         "el campo. La interpolación es lineal."
     )
-    if kind == "element":
+    if kind in ("element", "text"):
         note += " Escala 1.0 = tamaño base; rotación en grados horarios."
     return section(
         "Animación",
@@ -997,6 +997,10 @@ def inspector():
                                    key="insp-text-y")),
             _row("Opacidad", number_input(state.insp_text_opacity, min=0.0, max=1.0,
                                           step=0.05, decimals=2, key="insp-text-opacity")),
+            _row("Escala", number_input(state.insp_text_scale, min=0.05, max=4.0, step=0.05,
+                                        decimals=2, key="insp-text-scale")),
+            _row("Rotación", number_input(state.insp_text_rotation, min=-360.0, max=360.0,
+                                          step=1.0, decimals=0, key="insp-text-rotation")),
             _row("Estilo", select(state.insp_text_bold,
                                   [(False, "Normal"), (True, "Negrita")], key="insp-text-bold")),
             overlay.subtitle and chip("Subtítulo", tone="accent"),
@@ -1005,7 +1009,9 @@ def inspector():
                 variant="soft", padding=(4, 9), font_size=11, key="insp-text-subtitle-style",
             ),
             _animation_controls(
-                "text", overlay, [("x", "X"), ("y", "Y"), ("opacity", "Opacidad")],
+                "text", overlay,
+                [("x", "X"), ("y", "Y"), ("opacity", "Opacidad"),
+                 ("scale", "Escala"), ("rotation", "Rotación")],
             ),
             text("Se quema en el video exportado; en el preview se dibuja con la misma posición.",
                  size=11, color="$muted", line_height=1.35),

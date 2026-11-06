@@ -41,11 +41,12 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 @dataclass(frozen=True)
 class ElementClip:
-    """Vídeo RGBA intermedio de un elemento con escala/rotación animadas (docs/33).
+    """Vídeo RGBA intermedio de una capa con escala/rotación animadas (docs/33 y docs/35).
 
-    Lo genera `services.element_animation`: cada frame ya trae la escala y la rotación aplicadas
-    y el contenido centrado en un lienzo de tamaño fijo (`width`×`height`). El graph solo tiene
-    que superponerlo en `(x, y)`, igual que un PNG estático.
+    Lo generan `services.element_animation` (elementos) y `services.text_animation` (textos):
+    cada frame ya trae la escala y la rotación aplicadas y el contenido centrado en un lienzo de
+    tamaño fijo (`width`×`height`). El graph solo tiene que superponerlo en `(x, y)`, igual que
+    un PNG estático.
     """
 
     path: str
@@ -53,6 +54,10 @@ class ElementClip:
     height: int
     frames: int
     duration: float
+
+
+#: El mismo formato de vídeo RGBA intermedio sirve para elementos y textos.
+TextClip = ElementClip
 
 
 def _num(value: float) -> str:

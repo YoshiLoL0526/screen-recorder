@@ -1254,13 +1254,15 @@ def remove_text(p: Project, text_id: str) -> Project:
     return replace(p, texts=tuple(t for t in p.texts if t.id != text_id))
 
 
-def text_values(overlay: TextOverlay, t: float) -> tuple[float, float, float]:
-    """`(x, y, opacity)` del texto en `t`, con sus keyframes aplicados."""
+def text_values(overlay: TextOverlay, t: float) -> tuple[float, float, float, float, float]:
+    """`(x, y, opacity, scale, rotation)` del texto en `t`, con sus keyframes aplicados."""
     local = max(0.0, float(t) - overlay.start)
     x = anim.value_at(overlay.animations, "x", local, overlay.x)
     y = anim.value_at(overlay.animations, "y", local, overlay.y)
     opacity = anim.value_at(overlay.animations, "opacity", local, overlay.opacity)
-    return x, y, opacity
+    scale = anim.value_at(overlay.animations, "scale", local, 1.0)
+    rotation = anim.value_at(overlay.animations, "rotation", local, 0.0)
+    return x, y, opacity, scale, rotation
 
 
 # -- snap --------------------------------------------------------------------------

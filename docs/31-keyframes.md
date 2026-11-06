@@ -4,12 +4,14 @@
 > Añade curvas lineales por canal, evaluadas en el preview y traducidas a expresiones de FFmpeg
 > en el export. Solo se animan los canales que FFmpeg puede evaluar por frame: **X/Y** de textos
 > y elementos y **opacidad** de textos. La escala y la rotación de elementos llegaron después con
-> un vídeo intermedio ([docs/33](33-escala-rotacion.md)); no forman parte de este documento.
+> un vídeo intermedio ([docs/33](33-escala-rotacion.md)), y las de textos con el mismo bake
+> ([docs/35](35-textos-escala-rotacion.md)); no forman parte de este documento.
 
 ## Qué se puede hacer
 
 - Añadir claves a un **elemento** (imagen, figura, PiP o clip V2/V3): **X** e **Y**.
-- Añadir claves a un **texto/subtítulo**: **X**, **Y** y **Opacidad**.
+- Añadir claves a un **texto/subtítulo**: **X**, **Y**, **Opacidad**, **Escala** y **Rotación**
+  (las dos últimas, desde [docs/35](35-textos-escala-rotacion.md)).
 - La clave se graba en el **playhead actual** con el valor que tenga el campo en ese momento.
 - Repetir en otro instante para crear la curva; el preview y el export interpolan linealmente.
 - **Quitar** una animación de un canal con un clic.
@@ -21,7 +23,7 @@
 ```python
 Keyframe(t=0.0, value=0.2)     # t local: 0 = inicio del elemento/texto
 Animation(
-    channel="x",               # x | y | opacity
+    channel="x",               # x | y | opacity | scale | rotation
     points=(Keyframe(0.0, 0.2), Keyframe(1.0, 0.8)),
 )
 Element(..., animations=(...))
@@ -34,16 +36,18 @@ TextOverlay(..., animations=(...))
   interpolación **lineal**.
 - `core/animation.py` es puro: `value_at`, `expr`, `set_keyframe`, `clear_channel` y `validate`.
 - Los elementos admiten `x`/`y`/`scale`/`rotation` (los dos últimos llegaron en
-  [docs/33](33-escala-rotacion.md)); los textos admiten `x`/`y`/`opacity`. Un elemento con
-  `opacity` animada lanza `ProjectError` (no se puede exportar con el filtro actual).
+  [docs/33](33-escala-rotacion.md)); los textos admiten `x`/`y`/`opacity` y, desde
+  [docs/35](35-textos-escala-rotacion.md), `scale`/`rotation`. Un elemento con `opacity` animada
+  lanza `ProjectError` (no se puede exportar con el filtro actual).
 - Los proyectos v8 se migran a v9 sin cambios (`animations=()`).
 
 ## Preview
 
 - **Elementos**: `core.elements.effective(element, t)` devuelve una copia con `x`/`y` animados y
   la usa `core/overlays.apply_frame` y `playback._video_element_image` para la caja y el overlay.
-- **Textos**: `timeline.text_values(overlay, t)` devuelve `(x, y, opacity)`; `_draw_texts` los
-  aplica sobre una capa RGBA (la opacidad se compone sin tocar el resto del frame).
+- **Textos**: `timeline.text_values(overlay, t)` devuelve `(x, y, opacity, scale, rotation)`;
+  `_draw_texts` aplica posición y opacidad sobre una capa RGBA y, si hay escala/rotación, usa
+  `text_rgba` para rasterizar el texto transformado ([docs/35](35-textos-escala-rotacion.md)).
 - La interpolación es la misma función que usa el export, así que no hay dos fórmulas.
 
 ## Export
@@ -53,7 +57,8 @@ TextOverlay(..., animations=(...))
   overlay=x='main_w*if(lt(t,0),0.2,if(lt(t,1),0.2+(0.8-0.2)*(t-0)/1,0.8))-overlay_w/2'
   ```
 - **Textos**: `drawtext` usa `x='...'`, `y='...'` y `alpha='...'` con la misma expresión (tiempo
-  global; la clave local 0 equivale a `start`).
+  global; la clave local 0 equivale a `start`). Si el texto tiene escala o rotación, se hornea a
+  un vídeo RGBA y X/Y pasan a expresiones de `overlay` ([docs/35](35-textos-escala-rotacion.md)).
 - Sin animación, las cadenas son **las de siempre** (los golden de textos y elementos no cambian).
 - La expresión se acota en los extremos y se evalúa por frame; verificado con export real de
   posición de un PiP y de opacidad de un texto.
@@ -73,9 +78,9 @@ TextOverlay(..., animations=(...))
 
 ## Límites
 
-- No hay animación de **tamaño, color** ni de la transformación de un clip de V1. Los elementos
-  ampliaron los canales con **escala y rotación** en [docs/33](33-escala-rotacion.md); los textos
-  siguen solo con X/Y/opacidad.
+- No hay animación de **color** ni de la transformación de un clip de V1. Los elementos
+  ampliaron los canales con **escala y rotación** en [docs/33](33-escala-rotacion.md) y los textos
+  en [docs/35](35-textos-escala-rotacion.md).
 - Interpolación **lineal**; no hay curvas Bézier/easing ni copiar/pegar claves.
 - Las claves son **explícitas**: no hay modo «grabar automáticamente al mover el playhead».
 - La caja del preview no se muestra para capas con geometría animada; la posición y la escala se
@@ -88,9 +93,10 @@ TextOverlay(..., animations=(...))
   borrado de claves, `effective` y canales permitidos, y `drawtext` con opacidad estática/animada.
 - `tests/test_animation_export.py` (2): preview + export real de un PiP que se mueve y de un texto
   que se desplaza y se apaga; texto animado solo en X conserva la opacidad.
-- `tests/test_project_panel.py`: claves de elemento y de opacidad de texto desde el inspector,
-  con undo.
-- `uv run pytest -q`: **446 passed**.
+- `tests/test_text_transform.py` (9): escala/rotación de textos en modelo, preview y export real.
+- `tests/test_project_panel.py`: claves de elemento y de texto (incluida escala/rotación) desde el
+  inspector, con undo.
+- `uv run pytest -q`: **479 passed**.
 - `uv run aurora check main.py`: OK.
 
 ## Archivos tocados

@@ -21,7 +21,6 @@ el resultado vive en el directorio temporal del export (se borra con él).
 from __future__ import annotations
 
 import math
-import re
 from pathlib import Path
 
 from PIL import Image
@@ -34,26 +33,14 @@ from ..core.project import Element, Project
 from ..core.timeline import total_duration
 from ..platform import ffmpeg as F
 from . import element_assets, playback
+from .rgba_video import encoder_args, safe_name
 
-GEOMETRY_CHANNELS = ("scale", "rotation")
+GEOMETRY_CHANNELS = anim.TRANSFORM_CHANNELS
 
 
 def needs_bake(element: Element) -> bool:
     """¿El elemento tiene claves de escala o rotación? (x/y solos no necesitan bake)."""
     return any(anim.is_animated(element.animations, channel) for channel in GEOMETRY_CHANNELS)
-
-
-def _safe_name(value: str) -> str:
-    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value) or "element"
-
-
-def _encoder_args(exe: str, width: int, height: int, fps: int, target: Path) -> list[str]:
-    return [
-        exe, "-hide_banner", "-loglevel", "error", "-y",
-        "-f", "rawvideo", "-pix_fmt", "rgba", "-s", f"{width}x{height}",
-        "-r", str(fps), "-i", "-",
-        "-an", "-c:v", "qtrle", "-pix_fmt", "argb", str(target),
-    ]
 
 
 def _frame_count(element: Element, project: Project, fps: int) -> int:
@@ -103,7 +90,7 @@ def _bake(
     sources: dict[str, str],
 ) -> overlays.ElementClip:
     frames = _frame_count(element, project, fps)
-    target = folder / f"element-{_safe_name(element.id)}.mov"
+    target = folder / f"element-{safe_name(element.id)}.mov"
     base: Image.Image | None = None
     pool: playback.DecoderPool | None = None
     if element.kind == "video":
@@ -128,8 +115,8 @@ def _bake(
 
         # 2) Frames RGBA por stdin → qtrle con alfa.
         proc = F.run_capture_process(
-            _encoder_args(F.ffmpeg_exe(), width, height, fps, target),
-            folder / f"element-{_safe_name(element.id)}.log",
+            encoder_args(F.ffmpeg_exe(), width, height, fps, target),
+            folder / f"element-{safe_name(element.id)}.log",
         )
         stdin = proc.stdin
         assert stdin is not None
@@ -159,7 +146,7 @@ def _bake(
                 proc.wait(timeout=10)
             raise
         if code != 0 or not target.is_file() or target.stat().st_size == 0:
-            detail = F.stderr_tail(folder / f"element-{_safe_name(element.id)}.log", lines=8)
+            detail = F.stderr_tail(folder / f"element-{safe_name(element.id)}.log", lines=8)
             raise MediaError(
                 "no se pudo generar el vídeo animado del elemento"
                 + (f": {detail.splitlines()[-1]}" if detail else "")

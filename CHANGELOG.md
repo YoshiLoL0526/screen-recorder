@@ -7,10 +7,14 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Animación de escala y rotación de textos** (docs/35; modelo v10 sin cambios): canales `scale`
+  (`0.05…4.0`) y `rotation` (`-360…360`) en `TextOverlay.animations`, campos no persistidos y
+  claves desde el inspector. El texto transformado se rasteriza con PIL (la misma función del
+  preview) y se hornea a un vídeo RGBA `qtrle` para el export; los textos estáticos siguen usando
+  `drawtext` en el mismo orden.
 - **Animación de escala y rotación de elementos** (docs/33; modelo v9): canales `scale`
   (`0.05…4.0`) y `rotation` (`-360…360`) en `Element.animations`, claves desde el inspector y un
-  vídeo RGBA intermedio (`qtrle` con PIL) para que preview y export compartan la geometría. Los
-  textos siguen sin escala/rotación.
+  vídeo RGBA intermedio (`qtrle` con PIL) para que preview y export compartan la geometría.
 - **Subtítulos SRT/VTT** (docs/30; modelo v9): importación desde Capas, cues como textos
   `subtitle=True` (timeline teal, estilo global) y exportación a SRT.
 - **Keyframes de posición y opacidad** (docs/31; modelo v9): X/Y de elementos y textos + opacidad

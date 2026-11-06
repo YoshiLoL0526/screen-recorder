@@ -142,7 +142,7 @@ class TextOverlay:
     bold: bool = False
     opacity: float = 1.0  # v9: opacidad base (los keyframes la sustituyen)
     subtitle: bool = False  # v9: cue importada de SRT/VTT (docs/30)
-    animations: tuple[anim.Animation, ...] = ()  # v9: x, y, opacity (docs/31)
+    animations: tuple[anim.Animation, ...] = ()  # v9: x, y, opacity (docs/31) y escala/rotación (docs/35)
 
     def __post_init__(self) -> None:
         if not self.text.strip():

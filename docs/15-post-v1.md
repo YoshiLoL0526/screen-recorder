@@ -341,8 +341,26 @@ Resultados y decisiones completas en [33 — Escala y rotación](33-escala-rotac
   cadenas del graph son las de antes; el audio del PiP sigue usando el archivo original.
 - **UI**: campo **Escala** (no persistido), claves **Escala** y **Rotación**, «Quitar» y caja del
   preview oculta si hay geometría animada.
-- **Límite**: los textos no tienen escala ni rotación animadas.
+- **Límite**: los textos no tienen escala ni rotación animadas (llegaron en B22).
 - Tests nuevos en `test_scale_rotation` y `test_project_panel`; **454 tests** en verde.
+
+### B22 - Escala y rotación animadas de textos (✅ · M)
+
+Resultados y decisiones completas en [35 — Textos con escala y rotación](35-textos-escala-rotacion.md).
+
+- **Modelo v10 sin cambios**: `TextOverlay.animations` acepta `scale` (multiplicador `0.05…4.0`
+  del `size`) y `rotation` (`-360…360`, grados absolutos); `text_values` devuelve también ambos.
+- **Preview**: `services.playback.text_rgba` rasteriza el texto con PIL (escala, opacidad y
+  rotación horneadas) y `_draw_texts` lo compone centrado en X/Y. Los textos sin transformar
+  conservan el camino anterior.
+- **Export**: los textos con escala/rotación se hornean a un `.mov` `qtrle` RGBA con la misma
+  función del preview y se superponen con `overlay` (X/Y como expresiones). Los estáticos siguen
+  usando `drawtext` en orden; sin textos transformados, las cadenas del graph no cambian.
+- **UI**: campos **Escala** y **Rotación** no persistidos, claves **Escala**/**Rotación**,
+  «Quitar» y caja del preview oculta si hay geometría animada.
+- **Límite**: sin animación de color ni rotación base; interpolación lineal; el corte rápido
+  sigue bloqueado por `Project.texts`.
+- Tests nuevos en `test_text_transform` y `test_project_panel`; **479 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

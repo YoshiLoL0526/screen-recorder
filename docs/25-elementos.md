@@ -181,8 +181,9 @@ cancela.
   `services.element_assets`) y **volume** (solo el audio de un video PiP, ver
   [docs/28](28-pip-video.md)). `Element.effects` está preparado para más.
 - Hay **keyframes de X/Y** (position) desde [docs/31](31-keyframes.md) y de **escala/rotación**
-  para elementos desde [docs/33](33-escala-rotacion.md); los textos siguen sin escala ni rotación
-  animadas. La caja del preview se oculta cuando hay geometría animada.
+  para elementos desde [docs/33](33-escala-rotacion.md); los textos añadieron escala/rotación
+  en [docs/35](35-textos-escala-rotacion.md). La caja del preview se oculta cuando hay geometría
+  animada.
 - El color de figura se elige de una paleta (o se conserva un valor personalizado del proyecto);
   no hay selector de color libre en la UI.
 - Las imágenes se referencian por ruta (no se copian al `.rsproj`). `export.offline_assets`

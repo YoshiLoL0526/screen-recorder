@@ -34,7 +34,7 @@ from ..core.errors import FfmpegError, MediaError, ProjectError, RecStudioError
 from ..core.project import Project
 from ..platform import ffmpeg as F
 from ..platform import paths
-from . import element_animation, element_assets, media
+from . import element_animation, element_assets, media, text_animation
 
 ETA_WINDOW = 20
 DURATION_TOLERANCE = 0.2  # s (docs/04: verificación con ffprobe ±0.2 s)
@@ -226,8 +226,9 @@ class Exporter:
         encoder = G.resolve_encoder(preset, available)
         element_sources = None
         element_clips = None
+        text_clips = None
+        size = G.output_size(project, preset) if (project.elements or project.texts) else None
         if project.elements:
-            size = G.output_size(project, preset)
             try:
                 element_sources = element_assets.materialize(project, size)
                 element_clips = element_animation.materialize(
@@ -237,10 +238,20 @@ class Exporter:
                 raise
             except Exception as exc:  # OSError/PIL: un elemento no debe perderse en silencio
                 raise MediaError(f"no se pudieron preparar los elementos: {exc}") from exc
+        if project.texts:
+            try:
+                text_clips = text_animation.materialize(
+                    project, size, fps=project.fps, folder=workdir,
+                ) or None
+            except RecStudioError:
+                raise
+            except Exception as exc:  # OSError/PIL: un texto no debe perderse en silencio
+                raise MediaError(f"no se pudieron preparar los textos animados: {exc}") from exc
         while True:
             spec = G.build(
                 project, preset, partial, encoder=encoder, exe=exe, span=span,
                 element_sources=element_sources, element_clips=element_clips,
+                text_clips=text_clips,
             )
             base = replace(base, encoder=encoder, duration=spec.duration, message="")
             self._tolerance = max(DURATION_TOLERANCE, 2.0 / spec.fps)
