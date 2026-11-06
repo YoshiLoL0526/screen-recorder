@@ -415,6 +415,11 @@ def _element_audio_mixes(
         ]
         if abs(gain - 1.0) > 1e-6:
             steps.append(f"volume={num(gain)}")
+        if element.envelope:
+            # La fuente se lee desde `in_` y se recorta al intervalo: `t=0` es el inicio del
+            # elemento, igual que la curva local. El `adelay` hasta `start` va después.
+            expression = env.expr(element.envelope)
+            steps.append(f"volume=volume='{expression}':eval=frame")
         # Microfundidos en los bordes del intervalo: evitan el chasquido de entrar a mitad de
         # una onda. No son los fundidos del usuario (el PiP todavía no tiene handles propios).
         fade = min(fx.MICRO_FADE, duration / 2)

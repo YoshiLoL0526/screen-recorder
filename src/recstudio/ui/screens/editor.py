@@ -624,6 +624,32 @@ def _envelope_controls(clip, *, active: bool = True):
     )
 
 
+def _element_envelope_controls(element):
+    """Envolvente del audio de un video superpuesto (docs/34)."""
+    count = len(element.envelope)
+    return section(
+        "Envolvente de volumen",
+        row(gap=8, align="center")[
+            text(
+                f"{count} clave{'s' if count != 1 else ''}" if count else "Sin claves",
+                size=11.5, color="$muted" if not count else "$text", grow=1, width=0,
+            ),
+            button(
+                "Clave volumen", _call("add_element_audio_keyframe"), variant="soft",
+                padding=(3, 7), font_size=10.5, key="insp-el-env-key",
+            ),
+            count > 0 and button(
+                "Quitar", _call("clear_element_audio_envelope"), variant="ghost",
+                padding=(3, 7), font_size=10.5, key="insp-el-env-clear",
+            ),
+        ],
+        text("La clave usa el volumen actual del elemento en el playhead. La curva multiplica "
+             "su volumen: 1.0 deja el sonido como está y 0 lo silencia.",
+             size=11, color="$muted", line_height=1.35),
+        gap=8,
+    )
+
+
 def _video_audio_controls(project, clip):
     note = (
         "El audio del clip se separó a una pista absoluta."
@@ -745,6 +771,7 @@ def _element_controls(project, element):
                         button("Original", _call("restore_element_audio"), variant="ghost",
                                padding=(4, 9), font_size=11.5, key="insp-el-unmute"),
                     ],
+                    _element_envelope_controls(element),
                 ]
             else:
                 children.append(text("Este video no tiene pista de audio.", size=11,

@@ -33,16 +33,17 @@ preview/export; `docs/28`). Después llegaron las **pistas de video V2/V3** (mod
 `Element.video_track`, composición por capas y filas propias en el timeline; `docs/29`) y los
 **subtítulos SRT/VTT + keyframes** (modelo **v9**, `TextOverlay.subtitle/opacity/animations` y
 `Element.animations`; `docs/30` y `docs/31`), las **envolventes de volumen de audio** (modelo
-**v10**, `Clip.envelope`, `core/audio_envelope.py`; `docs/32`) y la **animación de escala y
+**v10**, `Clip.envelope`, `core/audio_envelope.py`; `docs/32`), la **animación de escala y
 rotación de elementos** (`core/animation.py`, `core/elements.py`,
-`services/element_animation.py`; `docs/33`). Lo siguiente es el resto de la fase 4 (más
+`services/element_animation.py`; `docs/33`) y las **envolventes de audio de elementos**
+(modelo **v11**, `Element.envelope`; `docs/34`). Lo siguiente es el resto de la fase 4 (más
 composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 470 tests; la integración usa FFmpeg real
+uv run pytest                                   # 480 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -92,8 +93,9 @@ depender de monitor, GPU ni audio reales del runner.
   expresiones `if(lt(t,…))` para `overlay` y `drawtext`; la escala/rotación de elementos se
   hornea a un vídeo RGBA intermedio (`services/element_animation.py`) porque `overlay` necesita
   un tamaño constante. No hay animación de color. Las **envolventes de volumen**
-  (`core/audio_envelope.py`, `Clip.envelope`) son un modelo aparte: ganancias 0…4 en tiempo
-  local al clip, `volume=…:eval=frame` en el export y preview por `build_audio` (docs/32).
+  (`core/audio_envelope.py`, `Clip.envelope` y `Element.envelope`) son un modelo aparte:
+  ganancias 0…4 en tiempo local al clip/elemento, `volume=…:eval=frame` en el export y preview
+  por `build_audio` (docs/32 y docs/34).
 - La UI nunca bloquea: nada de IO/subprocess en handlers. Lo asíncrono comunica por `Signal`
   (único canal cross-thread) o `app.spawn()`. Todo el estado de la app vive en
   `src/recstudio/state.py`.
@@ -208,13 +210,16 @@ depender de monitor, GPU ni audio reales del runner.
   cadenas del graph son las de antes. La caja del preview se oculta si hay geometría animada
   (x/y/scale/rotation en elementos; x/y en textos). `format_srt` exporta solo `subtitle=True`.
   `TextOverlay` es de una línea (los cues multilínea se unen con espacios).
-- Envolventes de volumen (docs/32): `Clip.envelope` es independiente de `Animation`; sus claves
-  son locales al clip (0…duración) y la ganancia 0…4. El export añade
-  `volume=volume='<expr>':eval=frame` **después** del volumen estático, así que la curva
-  multiplica; en un clip entrante con transición la expresión usa `start=-skip` para alinear el
-  tramo audible. Sin envolvente la cadena no cambia. El preview usa `build_audio` si
-  `graph.has_audio_envelope` (WAV cacheado con el proyecto entero). El corte rápido se bloquea.
-  No hay `Element.envelope` (PiP/V2/V3) ni asas sobre la waveform.
+- Envolventes de volumen (docs/32 y docs/34): `Clip.envelope` y `Element.envelope` son
+  independientes de `Animation`; sus claves son locales al clip/elemento (0…duración) y la
+  ganancia 0…4. El export añade `volume=volume='<expr>':eval=frame` **después** del volumen
+  estático, así que la curva multiplica; en un clip entrante con transición la expresión usa
+  `start=-skip` para alinear el tramo audible y en un elemento usa `start=0` (la fuente se lee
+  desde su `in_`; el `adelay` va después de la curva). Sin envolvente la cadena no cambia. El
+  preview usa `build_audio` si hay audio de elemento o `graph.has_audio_envelope` (WAV cacheado
+  con el proyecto entero). El corte rápido se bloquea. No hay asas sobre la waveform ni
+  polilínea en las barras de elemento (solo **◆ env**); el audio de un elemento con gain 0 sigue
+  en silencio aunque tenga curva.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -278,7 +283,8 @@ depender de monitor, GPU ni audio reales del runner.
   globales). `docs/27` cubre el panel de medios, la selección directa y las capas del timeline;
   `docs/28` el PiP de video (modelo v7), `docs/29` las pistas V2/V3 (modelo v8), `docs/30`/
   `docs/31` los subtítulos y keyframes (modelo v9), `docs/32` las envolventes de volumen de audio
-  (modelo v10) y `docs/33` la animación de escala/rotación de elementos.
+  (modelo v10), `docs/33` la animación de escala/rotación de elementos y `docs/34` las
+  envolventes de audio de elementos (modelo v11).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

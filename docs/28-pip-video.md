@@ -125,8 +125,9 @@ apad/atrim a la duración, adelay hasta el inicio, apad/atrim al total
 - Un PiP con `video_track=0` comparte la fila «Elementos» con imágenes y figuras. Para varias
   capas de video con varios clips por capa están las pistas **V2/V3**
   ([docs/29](29-pistas-video.md)), que siguen siendo elementos agrupados por `video_track`.
-- El audio del PiP no tiene **handles de fundido propios** ni animación de volumen: solo el
-  control lineal del inspector y los microfundidos de 30 ms de los bordes.
+- El audio del PiP no tiene **handles de fundido propios**: además del control lineal del
+  inspector y los microfundidos de 30 ms de los bordes, su volumen se puede animar con
+  `Element.envelope` ([docs/34](34-envolventes-elementos.md)).
 - El blur de un elemento de video no se aplica; la UI lo oculta.
 - El corte rápido sigue bloqueado por `Project.elements` (como cualquier elemento).
 - El volumen del PiP no aparece en la pista «Elementos» del timeline (solo en el inspector).

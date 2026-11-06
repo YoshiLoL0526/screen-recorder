@@ -26,7 +26,7 @@ from . import animation as anim
 from . import audio_envelope as env
 from .errors import ProjectError
 
-SCHEMA_VERSION = 10  # v10: envolventes de volumen de audio (docs/32)
+SCHEMA_VERSION = 11  # v11: envolventes de audio de elementos (docs/34)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -174,8 +174,10 @@ class Element:
     las imágenes y los videos usan `asset_id` y `fit` para encajar en la caja. En un video,
     `in_` es el segundo de la fuente por el que empieza el intervalo (el resto se reproduce a 1×).
     `effects` reutiliza `Effect` (`blur` para la imagen y `volume` para el audio del PiP), con
-    parámetros float. `video_track` agrupa los videos superpuestos en las pistas V2/V3
-    (0 = capa «Elementos»); el orden de `Project.elements` sigue siendo el z-order.
+    parámetros float. `envelope` es la envolvente de volumen del audio de un video (claves
+    locales al elemento, 0 = su `start`; docs/34). `video_track` agrupa los videos superpuestos
+    en las pistas V2/V3 (0 = capa «Elementos»); el orden de `Project.elements` sigue siendo el
+    z-order.
     """
 
     id: str
@@ -195,6 +197,7 @@ class Element:
     video_track: int = 0  # 0 = Elementos; 1..VIDEO_TRACKS_MAX = V2/V3
     animations: tuple[anim.Animation, ...] = ()  # x, y, scale, rotation (docs/31 y docs/33)
     effects: tuple[Effect, ...] = ()
+    envelope: tuple[env.VolumePoint, ...] = ()  # v11: volumen del audio (docs/34)
 
     def __post_init__(self) -> None:
         if self.kind not in ELEMENT_KINDS:
@@ -231,6 +234,11 @@ class Element:
                 f"elemento {self.id}: solo un video puede ir en V{self.video_track + 1}"
             )
         anim.validate(self.animations, anim.ELEMENT_CHANNELS)
+        env.validate(self.envelope)
+        if self.envelope and self.kind != "video":
+            raise ProjectError(
+                f"elemento {self.id}: solo un video superpuesto tiene envolvente de audio"
+            )
         for effect in self.effects:
             if not isinstance(effect, Effect):
                 raise ProjectError(f"elemento {self.id}: efecto inválido")
@@ -646,6 +654,7 @@ def to_dict(project: Project) -> dict[str, Any]:
                 "video_track": e.video_track,
                 "animations": [animation_dict(a) for a in e.animations],
                 "effects": [{"kind": fx.kind, "params": [list(p) for p in fx.params]} for fx in e.effects],
+                "envelope": [{"t": point.t, "gain": point.gain} for point in e.envelope],
             }
             for e in project.elements
         ],
@@ -773,6 +782,10 @@ def from_dict(data: dict[str, Any]) -> Project:
                     video_track=int(e.get("video_track", 0)),
                     animations=tuple(animation_of(a) for a in e.get("animations", ())),
                     effects=tuple(effect_of(fx) for fx in e.get("effects", ())),
+                    envelope=tuple(
+                        env.VolumePoint(t=float(p["t"]), gain=float(p["gain"]))
+                        for p in e.get("envelope", ())
+                    ),
                 )
                 for e in data.get("elements", ())
             ),

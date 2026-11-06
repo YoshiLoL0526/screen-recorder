@@ -8,7 +8,8 @@
 ## Qué se puede hacer
 
 - Añadir claves de volumen a un **clip de video** (su audio original) y a un **clip de una pista
-  de audio** (música, audio separado o voz).
+  de audio** (música, audio separado o voz). El audio de un video superpuesto (PiP/V2/V3) tiene
+  su propia envolvente en `Element.envelope` ([docs/34](34-envolventes-elementos.md)).
 - La clave se graba en el **playhead** con el volumen estático actual del clip; el tiempo es
   **local al clip** (`0` = inicio del clip en el timeline).
 - Repetir en otro instante para crear la curva; preview y export interpolan linealmente.
@@ -87,9 +88,9 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 
 ## Límites y pendientes
 
-- No hay claves en el **audio de un video superpuesto** (PiP, V2/V3): requeriría
-  `Element.envelope` y tocar `_element_audio_mixes`. Queda documentado como pendiente; el resto
-  del audio del proyecto sí se cubre.
+- El **audio de un video superpuesto** (PiP, V2/V3) usa `Element.envelope`, implementado en
+  [docs/34](34-envolventes-elementos.md); este documento cubre solo los clips de V1 y las pistas
+  de audio.
 - Sin asas de arrastre sobre la waveform: las claves se graban desde el inspector. Tampoco hay
   edición de una clave existente más allá de volver a grabarla en el mismo instante.
 - Interpolación lineal, sin easing ni curvas Bézier. No hay copiar/pegar claves ni modo de

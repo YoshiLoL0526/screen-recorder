@@ -15,7 +15,8 @@ Orden de una imagen de elemento:
 edición devuelven proyectos nuevos (todo es frozen) y no tocan clips, audio ni textos.
 
 El audio de un video superpuesto usa `Element.effects` con el efecto `volume` (el mismo de los
-clips): `audio_gain()` lo lee y `set_audio_gain()` lo edita.
+clips): `audio_gain()` lo lee y `set_audio_gain()` lo edita. Su envolvente opcional vive en
+`Element.envelope` (docs/34) y se edita con `update_element(..., envelope=…)`.
 
 `video_track` agrupa los videos en V2/V3 sin crear `Track` nuevas: `_insert_ordered` mantiene el
 z-order V2 < V3 < Elementos y `set_video_track` recoloca el elemento al cambiar de capa.
@@ -385,7 +386,7 @@ def update_element(project: Project, element_id: str, **changes) -> Project:  # 
     current = project.element(element_id)
     allowed = {
         "start", "end", "x", "y", "width", "height", "rotation", "opacity", "color",
-        "fit", "in_", "video_track", "animations", "effects",
+        "fit", "in_", "video_track", "animations", "effects", "envelope",
     }
     unknown = set(changes) - allowed
     if unknown:
