@@ -67,6 +67,8 @@ def blockers(project: Project) -> list[str]:
         reasons.append("hay clips con velocidad distinta de 1×")
     if any(fx.has_effects(c) for c in track.clips):
         reasons.append("hay clips con efectos")
+    if any(c.envelope for c in track.clips):
+        reasons.append("tiene envolventes de volumen")
     if track.muted or abs(track.gain - 1.0) > 1e-6:
         reasons.append("el volumen del audio original no es el 100 %")
     if any(t.solo for t in project.audio):

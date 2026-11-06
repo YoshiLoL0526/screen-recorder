@@ -23,9 +23,10 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Literal
 
 from . import animation as anim
+from . import audio_envelope as env
 from .errors import ProjectError
 
-SCHEMA_VERSION = 9  # v9: subtítulos y keyframes de textos/elementos (docs/30 y docs/31)
+SCHEMA_VERSION = 10  # v10: envolventes de volumen de audio (docs/32)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -304,6 +305,7 @@ class Clip:
     audio_enabled: bool = True  # solo con sentido en la pista de video
     link_id: str | None = None  # clip de audio separado → clip de video enlazado
     transform: Transform | None = None  # solo con sentido en la pista de video (fase 2)
+    envelope: tuple[env.VolumePoint, ...] = ()  # v10: volumen animado (docs/32)
 
     def __post_init__(self) -> None:
         if self.in_ < 0:
@@ -318,6 +320,7 @@ class Clip:
             raise ProjectError(f"clip {self.id}: inicio inválido ({self.start})")
         if self.transform is not None and not isinstance(self.transform, Transform):
             raise ProjectError(f"clip {self.id}: transformación inválida")
+        env.validate(self.envelope)
 
     @property
     def duration(self) -> float:
@@ -581,6 +584,7 @@ def to_dict(project: Project) -> dict[str, Any]:
                 "flip_v": c.transform.flip_v,
                 "crop": list(c.transform.crop),
             },
+            "envelope": [{"t": point.t, "gain": point.gain} for point in c.envelope],
         }
 
     def animation_dict(a: anim.Animation) -> dict[str, Any]:
@@ -699,6 +703,10 @@ def from_dict(data: dict[str, Any]) -> Project:
                 audio_enabled=bool(d.get("audio_enabled", True)),
                 link_id=None if d.get("link_id") is None else str(d["link_id"]),
                 transform=transform_of(d.get("transform")),
+                envelope=tuple(
+                    env.VolumePoint(t=float(p["t"]), gain=float(p["gain"]))
+                    for p in d.get("envelope", ())
+                ),
             )
 
         def track_of(d: dict[str, Any], kind: str) -> Track:

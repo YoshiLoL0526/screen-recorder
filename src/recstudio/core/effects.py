@@ -25,12 +25,14 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from .audio_envelope import GAIN_MAX
 from .errors import ProjectError
 from .project import Clip, Effect, Project
 
 EQ_DEFAULTS = {"brightness": 0.0, "contrast": 1.0, "saturation": 1.0}
 EQ_RANGES = {"brightness": (-1.0, 1.0), "contrast": (0.0, 3.0), "saturation": (0.0, 3.0)}
-GAIN_MAX = 4.0
+# `GAIN_MAX` se comparte con las envolventes de volumen (docs/32); se reexporta aquí para no
+# romper el resto del código, que ya lo lee como `fx.GAIN_MAX`.
 ZOOM_MAX = 4.0
 MICRO_FADE = 0.03  # anti-click en las fronteras internas del audio (s)
 

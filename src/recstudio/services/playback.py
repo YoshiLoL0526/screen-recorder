@@ -653,7 +653,10 @@ class AudioPreview:
             if not self.muted:
                 # Con pistas extra o audio de un PiP la mezcla exacta del export se renderiza a
                 # un WAV cacheado; sin ellos se decodifica el video pista a pista (más ligero).
-                mixed = bool(project.audio) or graph_mod.has_element_audio(project)
+                mixed = (
+                    bool(project.audio) or graph_mod.has_element_audio(project)
+                    or graph_mod.has_audio_envelope(project)
+                )
                 self._start_locked(project, t, mixed=mixed)
 
     def stop(self) -> None:

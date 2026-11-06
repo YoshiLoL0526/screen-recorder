@@ -16,14 +16,14 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 |---|---|
 | Pistas | V1 + **V2/V3** (varios videos superpuestos, agrupados por `Element.video_track`) + hasta 6 de audio. Las pistas de audio pueden ser secuenciales (música) o absolutas (audio separado/voz) y tienen mute, solo, bloqueo y volumen. Al importar a V1, el audio del video se separa a «Audio del video» y queda enlazado (`link_id`). Textos/elementos y las pistas V2/V3 tienen su propia fila sobre V1 (docs/27–29). |
 | Medios | `Project.assets` se ve en el panel de medios/capas: miniaturas, inserción en el playhead, arrastre al timeline/preview y quitar medios sin usar (docs/27). |
-| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop). Se mueven/redimensionan sobre el canvas del preview (docs/23). |
+| Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop) y envolventes de volumen (docs/32). Se mueven/redimensionan sobre el canvas del preview (docs/23). |
 | Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
 | Textos | `TextOverlay` con intervalo, posición, tamaño, color, negrita, opacidad y keyframes de X/Y/opacidad; caja y asas en el preview, barra en el timeline y `drawtext`/PIL con el mismo contorno (docs/27 y docs/31). Los subtítulos SRT/VTT se marcan con `subtitle` (docs/30). |
 | Elementos | `Element` (imagen, video, rectángulo, elipse, triángulo) con intervalo, posición/tamaño normalizados, rotación, opacidad, z-order, fit, blur y keyframes de X/Y; composición en preview y export (docs/25), selección directa y capa en el timeline (docs/27). El video superpuesto añade `in_`, se compone como PiP, mezcla su audio con `Effect("volume")` (docs/28), puede agruparse en V2/V3 con `video_track` (docs/29) y animarse con keyframes (docs/31). |
 | Efectos globales | `Project.effects`: color, blur, viñeta y blanco y negro sobre V1 + V2/V3, antes de la capa Elementos y de los textos (docs/26 y docs/29). |
 | Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio + marcadores + In/Out), playhead frame-accurate, waveform, filmstrip, marquesina que mueve en bloque, razor, marcadores, In/Out, portapapeles (copiar/cortar/pegar/duplicar), Q/W y drags de audio; filas para textos, elementos, V2/V3 y V1 con mover/recortar. |
 | Preview | Play/pause, scrub, ±1 frame, J/K/L (2×–8×, marcha atrás sin audio), loop del rango In/Out o del timeline, resolución adaptativa, audio (mezcla completa best-effort), proxy 540p y edición directa de clip, elemento y texto sobre el lienzo. |
-| Proyecto | `.rsproj/project.json` versionado (schema 9), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores, In/Out, elementos (incluido video PiP y pistas V2/V3), subtítulos, keyframes y efectos globales. |
+| Proyecto | `.rsproj/project.json` versionado (schema 10), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores, In/Out, elementos (incluido video PiP y pistas V2/V3), subtítulos, keyframes, envolventes de volumen y efectos globales. |
 | Export | MP4 H.264, presets, todo el timeline o el rango In/Out, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)
@@ -87,6 +87,7 @@ class Clip:
     audio_enabled: bool = True  # solo pista de video
     link_id: str | None = None  # audio separado → clip de video
     transform: Transform | None = None  # None = sin transformación propia (docs/20)
+    envelope: tuple[VolumePoint, ...] = ()  # v10: volumen animado (docs/32)
 
     @property
     def duration(self) -> float:            # duración en el timeline
@@ -142,7 +143,7 @@ class Element:                              # v6, docs/22/25
 
 @dataclass(frozen=True)
 class Project:
-    schema_version: int = 6
+    schema_version: int = 10
     name: str = "Sin título"
     assets: tuple[MediaAsset, ...] = ()
     video: Track = Track("video")
@@ -163,6 +164,8 @@ class Project:
 Invariantes que valida `core/project.py` al construir (y que los tests cubren):
 
 - `0 ≤ in_ < out_ ≤ asset.duration`; `0.25 ≤ speed ≤ 4`.
+- `Clip.envelope` tiene claves ordenadas, `t ≥ 0` local al clip y `gain` 0…4; el preview y el
+  export comparten `core/audio_envelope.value_at`/`expr` (docs/32).
 - `len(transitions) == max(0, len(clips) − 1)`; cada transición `0.2 ≤ d ≤ min(dur_a, dur_b) / 2`.
 - Assets referenciados existen (o se marcan offline); un asset de solo audio tiene `width=height=0`
   y `fps=0`.
@@ -390,7 +393,9 @@ Cadena **por clip de audio** (tramo audible: el entrante de una transición empi
 
 ```
 atrim=start=SOLAPE·SPEED (si hay), asetpts=PTS-STARTPTS, aresample=48000, aformat=fltp:stereo,
-atempo=SPEED (0.5–2.0 en cadena), volume=GAIN, afade in/out (efecto o 30 ms anti-click),
+atempo=SPEED (0.5–2.0 en cadena), volume=GAIN,
+volume=volume='<expr>':eval=frame (solo con envolvente; docs/32),
+afade in/out (efecto o 30 ms anti-click),
 apad=whole_dur=D, atrim=duration=D           # D = la duración en frames del tramo de video
 ```
 
@@ -468,7 +473,7 @@ avisa si movió el corte (típico ≤ 1 s, el precio de cortar sin recodificar).
 
 ```json
 {
-  "schema_version": 4,
+  "schema_version": 10,
   "name": "Demo del dashboard",
   "fps": 60, "width": 1920, "height": 1080,
   "background": "#000000", "default_fit": "fit",
@@ -481,6 +486,7 @@ avisa si movió el corte (típico ≤ 1 s, el precio de cortar sin recodificar).
     "clips": [
       { "id": "c1", "asset_id": "a1", "in_": 2.0, "out_": 14.2, "speed": 1.0,
         "effects": [{ "kind": "eq", "params": [["brightness", 0.03]] }],
+        "envelope": [{"t": 0.0, "gain": 1.0}, {"t": 8.0, "gain": 0.25}],
         "transform": null },
       { "id": "c2", "asset_id": "a1", "in_": 20.0, "out_": 30.0, "speed": 1.5,
         "effects": [],

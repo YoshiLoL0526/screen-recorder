@@ -17,6 +17,7 @@ import math
 from dataclasses import dataclass, replace
 
 from . import animation as anim
+from . import audio_envelope as env
 from .errors import ProjectError
 from .project import (
     AUDIO_VIDEO_TRACK_NAME,
@@ -454,7 +455,11 @@ def _split_track_impl(
     cut = max(clip.in_ + min_len, min(cut, clip.out_ - min_len))
     left_effects = tuple(e for e in clip.effects if e.kind not in ("fade_out", "audio_fade_out"))
     right_effects = tuple(e for e in clip.effects if e.kind not in ("fade_in", "audio_fade_in"))
-    left = replace(clip, out_=cut, effects=left_effects)
+    left_duration = (cut - clip.in_) / clip.speed
+    left = replace(
+        clip, out_=cut, effects=left_effects,
+        envelope=env.slice_envelope(clip.envelope, 0.0, left_duration),
+    )
     right = replace(
         clip,
         id=new_id("a" if index is not None else "c"),
@@ -462,6 +467,7 @@ def _split_track_impl(
         effects=right_effects,
         start=round(t, 6) if track.mode == "absolute" else None,
         link_id=relink if relink is not None else (clip.link_id if keep_link else None),
+        envelope=env.slice_envelope(clip.envelope, left_duration),
     )
     clips = list(track.clips)
     transitions = list(track.transitions)
@@ -572,6 +578,7 @@ def trim(p: Project, clip_id: str, new_in: float, new_out: float) -> Project:
     trimmed = _trim_clip(p, p.video, clip, new_in, new_out)
     if trimmed is None:
         return p
+    trimmed = replace(trimmed, envelope=env.slice_envelope(clip.envelope, 0.0, trimmed.duration))
     clips = list(p.video.clips)
     clips[index] = trimmed
     return _with_track(p, clips, list(p.video.transitions))
@@ -592,7 +599,10 @@ def trim_audio(p: Project, track_index: int, clip_id: str, new_in: float, new_ou
         return p
     moved_in = abs(new_in - clip.in_) > 1e-9
     moved_out = abs(new_out - clip.out_) > 1e-9
-    if track.mode == "absolute" and moved_in and not moved_out and trimmed.in_ != clip.in_:
+    if (
+        track.mode == "absolute" and moved_in and not moved_out
+        and trimmed.in_ != clip.in_
+    ):
         # El asa izquierda de una pista absoluta mueve el inicio en el timeline y deja fijo el
         # borde derecho (a diferencia de una pista secuencial, donde manda el orden).
         delta = (trimmed.in_ - clip.in_) / clip.speed
@@ -601,7 +611,14 @@ def trim_audio(p: Project, track_index: int, clip_id: str, new_in: float, new_ou
             raise ProjectError("el recorte se sale del timeline (inicio negativo)")
         if _absolute_overlap(track, new_start, trimmed.duration, exclude=clip.id):
             raise ProjectError("el recorte se solaparía con otro clip de la misma pista")
-        trimmed = replace(trimmed, start=round(max(0.0, new_start), 6))
+        trimmed = replace(
+            trimmed, start=round(max(0.0, new_start), 6),
+            envelope=env.slice_envelope(clip.envelope, delta, clip.duration),
+        )
+    else:
+        trimmed = replace(
+            trimmed, envelope=env.slice_envelope(clip.envelope, 0.0, trimmed.duration),
+        )
     clips = list(track.clips)
     clips[index] = trimmed
     return _with_track_index(p, track_index, replace(track, clips=tuple(clips)))
@@ -878,6 +895,7 @@ def detach_audio(p: Project, clip_id: str) -> tuple[Project, str]:
     audio = Clip(
         id=new_id("a"), asset_id=clip.asset_id, in_=clip.in_ + overlap * clip.speed,
         out_=clip.out_, speed=clip.speed, effects=audio_effects, start=start, link_id=clip.id,
+        envelope=env.slice_envelope(clip.envelope, overlap),
     )
     clips = _ordered_absolute_clips([*track.clips, audio])
     tracks[track_index] = replace(track, clips=clips, transitions=tuple(None for _ in range(len(clips) - 1)))

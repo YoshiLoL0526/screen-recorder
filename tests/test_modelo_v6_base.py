@@ -41,7 +41,7 @@ def _project(**changes) -> Project:  # noqa: ANN001
 
 
 def test_defaults_v9_y_round_trip() -> None:
-    assert SCHEMA_VERSION == 9
+    assert SCHEMA_VERSION == 10
     assert Project().elements == () and Project().effects == ()
     element = Element(
         "e1", "rect", 1.0, 5.0, x=0.25, y=0.75, width=0.4, height=0.3,

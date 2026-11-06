@@ -26,6 +26,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 
 from . import animation as anim
+from . import audio_envelope as env
 from . import effects as fx
 from . import elements as el
 from . import global_effects
@@ -286,6 +287,11 @@ def _audio_steps(clip: Clip, *, skip: float, duration: float, gain: float,
     ]
     if abs(gain - 1.0) > 1e-6:
         steps.append(f"volume={num(gain)}")
+    if clip.envelope:
+        # La envolvente es local al clip: el tramo audible de un clip entrante empieza `skip` s
+        # después, así que las claves se desplazan con `start=-skip`.
+        expression = env.expr(clip.envelope, start=-skip)
+        steps.append(f"volume=volume='{expression}':eval=frame")
     steps += _fade_steps(clip, duration, micro_in, micro_out)
     steps += [f"apad=whole_dur={num(duration)}", f"atrim=duration={num(duration)}"]
     return steps
@@ -624,6 +630,13 @@ def element_audio(project: Project) -> list[tuple[Element, MediaAsset, float, fl
 def has_element_audio(project: Project) -> bool:
     """¿Hay algún video superpuesto cuyo audio haya que mezclar?"""
     return bool(element_audio(project))
+
+
+def has_audio_envelope(project: Project) -> bool:
+    """¿Algún clip de audio (video o pista extra) tiene envolvente de volumen? (docs/32)"""
+    if any(clip.envelope for clip in project.video.clips):
+        return True
+    return any(clip.envelope for track in project.audio for clip in track.clips)
 
 
 def project_has_audio(project: Project) -> bool:
