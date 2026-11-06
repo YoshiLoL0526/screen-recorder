@@ -31,6 +31,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..core import animation as anim
 from ..core import effects as fx
 from ..core import elements as el
 from ..core import global_effects
@@ -338,6 +339,80 @@ def text_font(bold: bool, size: int):
     return _font(bold, size)
 
 
+_TEXT_STROKE = 2.0  # px de contorno a la altura del proyecto (igual que `drawtext`)
+
+
+def _text_layout(overlay, t: float, frame_size: tuple[int, int], project_height: int):  # noqa: ANN001, ANN202
+    """Métricas compartidas por el preview y el bake de export (docs/35).
+
+    Devuelve `(x, y, opacity, font, border, (left, top, width, height), rotation)` o `None` si
+    el texto no se ve en `t`. `left/top` son la caja de la fuente respecto al centro; la imagen
+    aislada se dibuja desplazada `(-left, -top)`.
+    """
+    x, y, opacity, value_scale, rotation = tl.text_values(overlay, t)
+    if opacity <= 1e-4:
+        return None
+    frame_h = max(1, int(frame_size[1]))
+    project_h = max(1, int(project_height))
+    size = max(8, int(round(overlay.size * frame_h / project_h * value_scale)))
+    font = _font(overlay.bold, size)
+    border = max(1, int(round(_TEXT_STROKE * frame_h / project_h)))
+    try:
+        left, top, right, bottom = font.getbbox(overlay.text, anchor="mm", stroke_width=border)
+    except (AttributeError, TypeError, ValueError):
+        left, top, right, bottom = font.getbbox(overlay.text)
+    width = max(1, int(round(right - left)))
+    height = max(1, int(round(bottom - top)))
+    return x, y, opacity, font, border, (int(left), int(top), width, height), rotation
+
+
+def text_extent(
+    overlay, t: float, frame_size: tuple[int, int], *, project_height: int,  # noqa: ANN001
+) -> tuple[int, int]:
+    """Tamaño del texto ya rotado en `t` (lienzo que necesita el bake)."""
+    metrics = _text_layout(overlay, t, frame_size, project_height)
+    if metrics is None:
+        return (1, 1)
+    _x, _y, _opacity, _font, _border, (left, top, width, height), rotation = metrics
+    return el.rotated_size(width, height, rotation)
+
+
+def text_rgba(
+    overlay, t: float, frame_size: tuple[int, int], *, project_height: int,  # noqa: ANN001
+):
+    """Texto RGBA aislado con escala, rotación y opacidad horneadas (docs/35).
+
+    Es la única rasterización del texto transformado: la usan el preview y el bake del export,
+    así que ambos ven exactamente los mismos píxeles (salvo la codificación del intermedio).
+    """
+    from PIL import Image, ImageColor, ImageDraw
+
+    metrics = _text_layout(overlay, t, frame_size, project_height)
+    if metrics is None:
+        return None
+    _x, _y, opacity, font, border, (left, top, width, height), rotation = metrics
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    red, green, blue = ImageColor.getrgb(overlay.color)
+    alpha = max(0, min(255, int(round(opacity * 255))))
+    draw.text((-left, -top), overlay.text, font=font, fill=(red, green, blue, alpha),
+              anchor="mm", stroke_width=border, stroke_fill=(0, 0, 0, alpha))
+    return overlays.rotate_rgba(image, rotation)
+
+
+def _composite_clipped(layer, image, left: int, top: int) -> None:  # noqa: ANN001
+    """Compone `image` en `layer` recortando lo que cae fuera del lienzo."""
+    layer_w, layer_h = layer.size
+    src_left, src_top = max(0, -left), max(0, -top)
+    dst_left, dst_top = max(0, left), max(0, top)
+    width = min(image.width - src_left, layer_w - dst_left)
+    height = min(image.height - src_top, layer_h - dst_top)
+    if width <= 0 or height <= 0:
+        return
+    cropped = image.crop((src_left, src_top, src_left + width, src_top + height))
+    layer.alpha_composite(cropped, (dst_left, dst_top))
+
+
 def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
     """Dibuja los textos activos sobre el frame RGB del preview (misma posición que drawtext)."""
     active = [overlay for overlay in project.texts if overlay.start <= t < overlay.end]
@@ -348,20 +423,27 @@ def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
     base = Image.fromarray(rgb).convert("RGBA")
     layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(layer)
-    scale = base.height / project.height
+    frame_size = base.size
     for overlay in active:
-        size = max(8, int(round(overlay.size * scale)))
-        font = _font(overlay.bold, size)
-        x, y, opacity = tl.text_values(overlay, t)
-        if opacity <= 1e-4:
+        metrics = _text_layout(overlay, t, frame_size, project.height)
+        if metrics is None:
             continue
+        x, y, opacity, font, border, _box, _rotation = metrics
         cx, cy = x * base.width, y * base.height
+        if (anim.is_animated(overlay.animations, "scale")
+                or anim.is_animated(overlay.animations, "rotation")):
+            image = text_rgba(overlay, t, frame_size, project_height=project.height)
+            if image is None:
+                continue
+            _composite_clipped(
+                layer, image, int(round(cx - image.width / 2)), int(round(cy - image.height / 2)),
+            )
+            continue
         red, green, blue = ImageColor.getrgb(overlay.color)
         alpha = max(0, min(255, int(round(opacity * 255))))
         # Mismo contorno que `drawtext` (borderw=2) para que el preview no mienta: antes se
         # dibujaba una sombra desplazada que el export no tenía. La capa RGBA permite animar
         # la opacidad sin alterar el resto del frame.
-        border = max(1, int(round(2 * scale)))
         draw.text((cx, cy), overlay.text, font=font, fill=(red, green, blue, alpha), anchor="mm",
                   stroke_width=border, stroke_fill=(0, 0, 0, alpha))
     return np.asarray(Image.alpha_composite(base, layer).convert("RGB"))

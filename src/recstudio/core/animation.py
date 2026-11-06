@@ -1,10 +1,12 @@
-"""Keyframes de animación (v9, docs/31 y docs/33): posición, escala, rotación y opacidad.
+"""Keyframes de animación (v9, docs/31, docs/33 y docs/35): posición, escala, rotación y opacidad.
 
 Un `Animation` es una lista de puntos `(t, value)` **en segundos locales del elemento/texto**
 (`t = 0` es su `start`). La interpolación es lineal y se evalúa en el preview y en el export:
 
 - **Textos**: `x`, `y` y `opacity` se traducen a expresiones de `drawtext` (`x=`, `y=`, `alpha=`),
-  que FFmpeg evalúa por frame.
+  que FFmpeg evalúa por frame. `scale` y `rotation` no se pueden evaluar en `drawtext` con el
+  rasterizado de PIL: el export hornea el texto a un vídeo RGBA intermedio (docs/35), igual que
+  los elementos.
 - **Elementos** (PiP, imágenes, figuras y V2/V3): `x`, `y`, `scale` y `rotation`. El export
   hornea escala/rotación en un vídeo RGBA intermedio (docs/33); x/y siguen siendo expresiones de
   `overlay`.
@@ -22,8 +24,9 @@ from dataclasses import dataclass
 
 from .errors import ProjectError
 
-#: Rango válido de cada canal. `scale` es un multiplicador sobre la caja del elemento (1 = base);
-#: `rotation` son grados horarios absolutos (el valor base es `Element.rotation`).
+#: Rango válido de cada canal. `scale` es un multiplicador sobre la caja del elemento o el tamaño
+#: del texto (1 = base); `rotation` son grados horarios absolutos (en el texto no hay base: 0° es
+#: sin rotación).
 CHANNEL_RANGES: dict[str, tuple[float, float]] = {
     "x": (0.0, 1.0),
     "y": (0.0, 1.0),
@@ -32,8 +35,10 @@ CHANNEL_RANGES: dict[str, tuple[float, float]] = {
     "rotation": (-360.0, 360.0),
 }
 CHANNELS = tuple(CHANNEL_RANGES)
-TEXT_CHANNELS = ("x", "y", "opacity")
+TEXT_CHANNELS = ("x", "y", "opacity", "scale", "rotation")
 ELEMENT_CHANNELS = ("x", "y", "scale", "rotation")
+#: Canales que obligan a hornear un vídeo RGBA intermedio (docs/33 y docs/35).
+TRANSFORM_CHANNELS = ("scale", "rotation")
 
 
 def channel_range(channel: str) -> tuple[float, float]:
@@ -186,6 +191,7 @@ __all__ = [
     "ELEMENT_CHANNELS",
     "Keyframe",
     "TEXT_CHANNELS",
+    "TRANSFORM_CHANNELS",
     "channel_range",
     "clear_channel",
     "expr",

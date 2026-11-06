@@ -41,8 +41,8 @@ Element(..., animations=(...))
   rango depende del canal y lo valida `Animation`. La serialización (`channel` + `points` con
   `t`/`value`) no cambia: los proyectos v9 anteriores se abren igual.
 - `Animation` rechaza canales desconocidos/duplicados y tiempos no crecientes.
-- `Element.animations` admite `x`, `y`, `scale` y `rotation`; `TextOverlay.animations` mantiene
-  `x`, `y`, `opacity` (ver límites).
+- `Element.animations` admite `x`, `y`, `scale` y `rotation`; `TextOverlay.animations` añadió
+  `scale`/`rotation` después con la misma técnica ([docs/35](35-textos-escala-rotacion.md)).
 - `core.elements.effective(element, t)` aplica x/y, escala y rotación. La escala multiplica
   `width`/`height` y la caja resultante se acota a `ELEMENT_SIZE_MIN…ELEMENT_SIZE_MAX` (4.0); no
   se añade `Element.scale` ni se persiste el valor de la clave.
@@ -102,12 +102,14 @@ Consecuencias:
 - La escala se reinicia a `1.0` al cambiar de elemento seleccionado; el campo de rotación se
   sincroniza con `Element.rotation`.
 - El timeline mantiene el **◆** para cualquier capa con animación.
-- Los textos **no** muestran escala ni rotación: no se implementan (ver límites).
+- Los textos tienen sus propios campos y claves de escala/rotación
+  ([docs/35](35-textos-escala-rotacion.md)).
 
 ## Límites
 
-- **Texto sin escala ni rotación**: `drawtext` no ofrece una rotación fiable con el mismo
-  rasterizado que PIL y el bake de texto exigiría otra técnica; no se expone en la UI.
+- **Texto**: `drawtext` no ofrece una rotación fiable con el mismo rasterizado que PIL; los
+  textos resuelven la escala/rotación con el mismo bake RGBA en
+  [docs/35](35-textos-escala-rotacion.md).
 - La caja efectiva se acota al máximo del modelo (`4.0`): un elemento que ya ocupa 4.0 de ancho
   no crece más aunque la clave de escala llegue a 4.
 - Interpolación lineal, sin easing ni curvas Bézier; las claves son explícitas (no se graban al

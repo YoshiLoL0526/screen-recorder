@@ -35,15 +35,17 @@ preview/export; `docs/28`). Después llegaron las **pistas de video V2/V3** (mod
 `Element.animations`; `docs/30` y `docs/31`), las **envolventes de volumen de audio** (modelo
 **v10**, `Clip.envelope`, `core/audio_envelope.py`; `docs/32`), la **animación de escala y
 rotación de elementos** (`core/animation.py`, `core/elements.py`,
-`services/element_animation.py`; `docs/33`) y las **envolventes de audio de elementos**
-(modelo **v11**, `Element.envelope`; `docs/34`). Lo siguiente es el resto de la fase 4 (más
-composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
+`services/element_animation.py`; `docs/33`), las **envolventes de audio de elementos** (modelo
+**v11**, `Element.envelope`; `docs/34`) y la **escala y rotación animadas de textos**
+(`TextOverlay.animations`, `services/text_animation.py`; `docs/35`). Lo siguiente es el resto de
+la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
+bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 480 tests; la integración usa FFmpeg real
+uv run pytest                                   # 489 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -199,17 +201,20 @@ depender de monitor, GPU ni audio reales del runner.
   video superpuesto. Un solo de audio silencia también V2/V3. `element_assets.materialize` debe
   omitir los videos. El recorte izquierdo de la barra (controller `drag_overlay`) avanza `in_`;
   mover no lo cambia. No hay razor ni transiciones en V2/V3: son elementos, no una `Track`.
-- Subtítulos y keyframes (docs/30, docs/31 y docs/33): `TextOverlay.subtitle` marca los cues
-  importados (SRT/VTT) y `opacity` es la base; `Animation`/`Keyframe` viven en
+- Subtítulos y keyframes (docs/30, docs/31, docs/33 y docs/35): `TextOverlay.subtitle` marca los
+  cues importados (SRT/VTT) y `opacity` es la base; `Animation`/`Keyframe` viven en
   `Element.animations` y `TextOverlay.animations`. Los tiempos de las claves son **locales** al
   elemento/texto. El preview y el export comparten `core.animation.value_at`/`expr`; si tocas
   una expresión, cita con `'…'` los valores de `overlay`/`drawtext` que lleven comas. Los
-  elementos animan x/y/scale/rotation; los textos solo x/y/opacity (sin escala/rotación). La
-  escala/rotación de un elemento se hornea a un `.mov` `qtrle` RGBA con PIL
-  (`services.element_animation.py`) y se superpone con X/Y como siempre; sin esos canales, las
-  cadenas del graph son las de antes. La caja del preview se oculta si hay geometría animada
-  (x/y/scale/rotation en elementos; x/y en textos). `format_srt` exporta solo `subtitle=True`.
-  `TextOverlay` es de una línea (los cues multilínea se unen con espacios).
+  elementos animan x/y/scale/rotation; los textos, x/y/opacity/scale/rotation. La
+  escala/rotación se hornea a un `.mov` `qtrle` RGBA con PIL (`services/element_animation.py`
+  y `services/text_animation.py`) y se superpone con X/Y como siempre; sin esos canales, las
+  cadenas del graph son las de antes. Los textos solo se hornean si tienen scale/rotation; los
+  estáticos siguen con `drawtext` y el orden de `Project.texts` se conserva encadenando cada
+  texto sobre la etiqueta anterior. La caja del preview se oculta si hay geometría animada
+  (x/y/scale/rotation en elementos y textos). `text_values` devuelve
+  `(x, y, opacity, scale, rotation)`; `format_srt` exporta solo `subtitle=True`. `TextOverlay`
+  es de una línea (los cues multilínea se unen con espacios).
 - Envolventes de volumen (docs/32 y docs/34): `Clip.envelope` y `Element.envelope` son
   independientes de `Animation`; sus claves son locales al clip/elemento (0…duración) y la
   ganancia 0…4. El export añade `volume=volume='<expr>':eval=frame` **después** del volumen
@@ -283,8 +288,8 @@ depender de monitor, GPU ni audio reales del runner.
   globales). `docs/27` cubre el panel de medios, la selección directa y las capas del timeline;
   `docs/28` el PiP de video (modelo v7), `docs/29` las pistas V2/V3 (modelo v8), `docs/30`/
   `docs/31` los subtítulos y keyframes (modelo v9), `docs/32` las envolventes de volumen de audio
-  (modelo v10), `docs/33` la animación de escala/rotación de elementos y `docs/34` las
-  envolventes de audio de elementos (modelo v11).
+  (modelo v10), `docs/33` la animación de escala/rotación de elementos, `docs/34` las envolventes
+  de audio de elementos (modelo v11) y `docs/35` la escala/rotación de textos.
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

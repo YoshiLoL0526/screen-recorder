@@ -166,6 +166,7 @@ class EditorController:
         self._marquee_start: float | None = None
         self._clipboard: tl.Clipboard | None = None  # portapapeles del editor (fase 3)
         self._last_element_id: str | None = None  # reinicia la escala de la próxima clave
+        self._last_text_id: str | None = None  # reinicia escala/rotación de la próxima clave
         self.exporter = export_mod.Exporter(self._on_export)
 
     # -- ciclo de vida ---------------------------------------------------------
@@ -345,6 +346,12 @@ class EditorController:
             state.insp_audio_end.set(tl.format_time(start + audio_clip.duration))
         overlay = self.selected_text()
         if overlay is not None:
+            if overlay.id != self._last_text_id:
+                # Escala y rotación son solo el valor de la próxima clave (no hay campo en el
+                # modelo): al cambiar de texto vuelven a los valores neutros.
+                state.insp_text_scale.set(1.0)
+                state.insp_text_rotation.set(0.0)
+                self._last_text_id = overlay.id
             state.insp_text.set(overlay.text)
             state.insp_text_start.set(tl.format_time(overlay.start))
             state.insp_text_end.set(tl.format_time(overlay.end))
@@ -354,6 +361,8 @@ class EditorController:
             state.insp_text_y.set(overlay.y)
             state.insp_text_opacity.set(overlay.opacity)
             state.insp_text_bold.set(overlay.bold)
+        else:
+            self._last_text_id = None
         marker = self.selected_marker()
         if marker is not None:
             state.insp_marker_name.set(marker.name)
@@ -1893,9 +1902,13 @@ class EditorController:
         local = self._key_time(overlay)
         if local is None:
             return
-        animations = anim.set_keyframe(
-            overlay.animations, channel, local, float(getattr(overlay, channel)),
-        )
+        if channel == "scale":
+            value = float(state.insp_text_scale())
+        elif channel == "rotation":
+            value = float(state.insp_text_rotation())
+        else:
+            value = float(getattr(overlay, channel))
+        animations = anim.set_keyframe(overlay.animations, channel, local, value)
         try:
             project = tl.update_text(self.project, overlay.id, animations=animations)
         except ProjectError as exc:
