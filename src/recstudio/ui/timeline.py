@@ -407,7 +407,13 @@ def _element_boxes(
             label = f"{label} · {item.start:.2f}–{item.end:.2f}s"
         if item.animations:
             label = f"{label} ◆"
+        if item.envelope:
+            label = f"{label} ◆ env"
         track = element_mod.video_track_label(item.video_track)
+        tooltip = f"{track} · {tl.format_time(item.start)}–{tl.format_time(item.end)}"
+        if item.envelope:
+            count = len(item.envelope)
+            tooltip += f" · envolvente: {count} clave{'s' if count != 1 else ''}"
         boxes.append(
             box(
                 key=f"tl-element-{item.id}", position="absolute", left=x,
@@ -415,7 +421,7 @@ def _element_boxes(
                 bg=color + "33", border_width=1.5 if selected else 1,
                 border_color=color if selected else color + "66", cursor="grab",
                 padding=(2, 6),
-                tooltip=f"{track} · {tl.format_time(item.start)}–{tl.format_time(item.end)}",
+                tooltip=tooltip,
                 label=f"Capa {track}: {label}",
                 on_drag=_overlay_drag("element", item.id, "move"),
             )[

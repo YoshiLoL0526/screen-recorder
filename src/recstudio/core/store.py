@@ -245,6 +245,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v8_v9(data)
     if version < 10:
         data = _migrate_v9_v10(data)
+    if version < 11:
+        data = _migrate_v10_v11(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -368,6 +370,15 @@ def _migrate_v9_v10(data: dict[str, Any]) -> dict[str, Any]:
 
     Los clips antiguos no tenían `envelope`; `from_dict` los deja en `()` (sin curva), así que
     suena exactamente igual que antes y no hay nada que reescribir.
+    """
+    return {**data}
+
+
+def _migrate_v10_v11(data: dict[str, Any]) -> dict[str, Any]:
+    """v10 → v11: envolventes de volumen del audio de elementos (docs/34).
+
+    Los elementos antiguos no tenían `envelope`; `from_dict` los deja en `()` (sin curva), así
+    que el audio de los PiP y de V2/V3 suena exactamente igual y no hay nada que reescribir.
     """
     return {**data}
 

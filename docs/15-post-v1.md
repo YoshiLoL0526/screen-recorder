@@ -9,8 +9,9 @@
 > [24](24-pistas-av.md), [25](25-elementos.md), [26](26-efectos-globales.md)) y el
 > **panel de medios/capas** ([27](27-panel-medios-y-capas.md)), el **PiP de video**
 > ([28](28-pip-video.md)), las **pistas V2/V3** ([29](29-pistas-video.md)), los
-> **subtítulos** ([30](30-subtitulos.md)), los **keyframes** ([31](31-keyframes.md)) y las
-> **envolventes de volumen de audio** ([32](32-audio-envelopes.md)).
+> **subtítulos** ([30](30-subtitulos.md)), los **keyframes** ([31](31-keyframes.md)), las
+> **envolventes de volumen de audio** ([32](32-audio-envelopes.md)) y las **envolventes de audio
+> de elementos** ([34](34-envolventes-elementos.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -344,10 +345,25 @@ Resultados y decisiones completas en [33 — Escala y rotación](33-escala-rotac
 - **Límite**: los textos no tienen escala ni rotación animadas.
 - Tests nuevos en `test_scale_rotation` y `test_project_panel`; **454 tests** en verde.
 
+### B21 - Envolventes de audio de elementos (✅ · S)
+
+Resultados y decisiones completas en [34 — Envolventes de elementos](34-envolventes-elementos.md).
+
+- **Modelo v11** (`SCHEMA_VERSION=11`): `Element.envelope` reutiliza `VolumePoint` de
+  `core/audio_envelope`; claves locales al elemento (`0` = su `start`) y ganancia 0…4.
+  Migración v10 → v11 sin cambios visibles (`envelope=()`).
+- **Export/preview**: `_element_audio_mixes` añade `volume=volume='…':eval=frame` después del
+  volumen estático y antes de `adelay`; cubre PiP y V2/V3. `build_audio` (preview) usa la misma
+  sección de audio.
+- **UI**: sección «Envolvente de volumen» en el inspector de un video con audio, «Clave volumen»
+  en el playhead local y «Quitar»; **◆ env** en la barra del elemento. Sin polilínea.
+- **Límite**: no hay asas sobre la barra del elemento; el volumen estático 0 sigue silenciando.
+- Tests nuevos en `test_element_audio_envelope`; **480 tests** en verde.
+
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
-> completar composición/export; subtítulos, keyframes, pistas V2/V3 y envolventes de audio ya
-> están hechos.
+> completar composición/export; subtítulos, keyframes, pistas V2/V3 y las envolventes de audio
+> de clips y elementos ya están hechos.
 
 ---
 

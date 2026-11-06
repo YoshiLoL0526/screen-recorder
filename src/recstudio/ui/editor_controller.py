@@ -1979,6 +1979,40 @@ class EditorController:
         if self._replace_envelope(target, (), "quitar envolvente de volumen"):
             state.toast("info", "Envolvente de volumen eliminada")
 
+    def add_element_audio_keyframe(self) -> None:
+        """Graba el volumen actual del elemento en el playhead (tiempo local al elemento)."""
+        element = self.selected_element()
+        if element is None or element.kind != "video":
+            return
+        local = self._key_time(element)
+        if local is None:
+            return
+        gain = max(0.0, min(element_mod.AUDIO_GAIN_MAX, float(state.insp_el_gain())))
+        points = env.set_point(element.envelope, local, gain)
+        if points == element.envelope:
+            return
+        try:
+            project = element_mod.update_element(self.project, element.id, envelope=points)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("añadir clave de volumen del elemento", project):
+            self._sync_inspector()
+            state.toast("success", f"Clave de volumen en {tl.format_time(state.playhead())}")
+
+    def clear_element_audio_envelope(self) -> None:
+        element = self.selected_element()
+        if element is None or not element.envelope:
+            return
+        try:
+            project = element_mod.update_element(self.project, element.id, envelope=())
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("quitar envolvente de volumen del elemento", project):
+            self._sync_inspector()
+            state.toast("info", "Envolvente de volumen eliminada")
+
     def import_images(self, paths: list[Path]) -> None:
         """Añade imágenes al proyecto como assets y las coloca como elementos (sin clip)."""
         if not paths:

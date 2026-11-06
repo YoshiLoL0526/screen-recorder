@@ -7,6 +7,10 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Envolventes de audio de elementos** (docs/34; modelo v11 con migración v10 → v11):
+  `Element.envelope` lleva claves locales de ganancia 0…4 al audio de un PiP o de un clip de
+  V2/V3, multiplica su volumen estático, usa `volume=…:eval=frame` en el export y la misma mezcla
+  WAV en el preview; se edita desde el inspector y la barra del timeline marca **◆ env**.
 - **Animación de escala y rotación de elementos** (docs/33; modelo v9): canales `scale`
   (`0.05…4.0`) y `rotation` (`-360…360`) en `Element.animations`, claves desde el inspector y un
   vídeo RGBA intermedio (`qtrle` con PIL) para que preview y export compartan la geometría. Los

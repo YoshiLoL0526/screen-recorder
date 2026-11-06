@@ -95,7 +95,7 @@ def _asset(has_audio: bool = True) -> MediaAsset:
     return MediaAsset("a", "fuente.mp4", 4.0, 320, 180, 30, has_audio)
 
 
-def test_clip_serializa_la_envolvente_y_migra_v9_a_v10() -> None:
+def test_clip_serializa_la_envolvente_y_migra_v9_al_esquema_actual() -> None:
     points = (env.VolumePoint(0.0, 1.0), env.VolumePoint(1.5, 0.25))
     project = Project(
         assets=(_asset(),),
@@ -103,14 +103,14 @@ def test_clip_serializa_la_envolvente_y_migra_v9_a_v10() -> None:
         fps=30,
     ).validate()
     data = to_dict(project)
-    assert data["schema_version"] == 10
+    assert data["schema_version"] == 11
     assert data["video"]["clips"][0]["envelope"] == [
         {"t": 0.0, "gain": 1.0}, {"t": 1.5, "gain": 0.25},
     ]
     assert from_dict(data).video.clips[0].envelope == points
 
     migrated, read_only = store.migrate({"schema_version": 9, "video": {"clips": []}})
-    assert read_only is False and migrated["schema_version"] == 10
+    assert read_only is False and migrated["schema_version"] == 11
     assert from_dict({
         "schema_version": 10,
         "assets": [{"id": "a", "path": "x.mp4", "duration": 2, "width": 320, "height": 180,

@@ -19,11 +19,11 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 | Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop) y envolventes de volumen (docs/32). Se mueven/redimensionan sobre el canvas del preview (docs/23). |
 | Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
 | Textos | `TextOverlay` con intervalo, posición, tamaño, color, negrita, opacidad y keyframes de X/Y/opacidad; caja y asas en el preview, barra en el timeline y `drawtext`/PIL con el mismo contorno (docs/27 y docs/31). Los subtítulos SRT/VTT se marcan con `subtitle` (docs/30). |
-| Elementos | `Element` (imagen, video, rectángulo, elipse, triángulo) con intervalo, posición/tamaño normalizados, rotación, opacidad, z-order, fit, blur y keyframes de X/Y; composición en preview y export (docs/25), selección directa y capa en el timeline (docs/27). El video superpuesto añade `in_`, se compone como PiP, mezcla su audio con `Effect("volume")` (docs/28), puede agruparse en V2/V3 con `video_track` (docs/29) y animarse con keyframes (docs/31). |
+| Elementos | `Element` (imagen, video, rectángulo, elipse, triángulo) con intervalo, posición/tamaño normalizados, rotación, opacidad, z-order, fit, blur y keyframes de X/Y; composición en preview y export (docs/25), selección directa y capa en el timeline (docs/27). El video superpuesto añade `in_`, se compone como PiP, mezcla su audio con `Effect("volume")` (docs/28), puede agruparse en V2/V3 con `video_track` (docs/29), animarse con keyframes (docs/31) y llevar una envolvente de volumen propia (`Element.envelope`; docs/34). |
 | Efectos globales | `Project.effects`: color, blur, viñeta y blanco y negro sobre V1 + V2/V3, antes de la capa Elementos y de los textos (docs/26 y docs/29). |
 | Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio + marcadores + In/Out), playhead frame-accurate, waveform, filmstrip, marquesina que mueve en bloque, razor, marcadores, In/Out, portapapeles (copiar/cortar/pegar/duplicar), Q/W y drags de audio; filas para textos, elementos, V2/V3 y V1 con mover/recortar. |
 | Preview | Play/pause, scrub, ±1 frame, J/K/L (2×–8×, marcha atrás sin audio), loop del rango In/Out o del timeline, resolución adaptativa, audio (mezcla completa best-effort), proxy 540p y edición directa de clip, elemento y texto sobre el lienzo. |
-| Proyecto | `.rsproj/project.json` versionado (schema 10), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores, In/Out, elementos (incluido video PiP y pistas V2/V3), subtítulos, keyframes, envolventes de volumen y efectos globales. |
+| Proyecto | `.rsproj/project.json` versionado (schema 11), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores, In/Out, elementos (incluido video PiP y pistas V2/V3), subtítulos, keyframes, envolventes de volumen de clips y elementos y efectos globales. |
 | Export | MP4 H.264, presets, todo el timeline o el rango In/Out, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)
@@ -127,7 +127,7 @@ class Marker:                               # fase 3, docs/21
 @dataclass(frozen=True)
 class Element:                              # v6, docs/22/25
     id: str
-    kind: Literal["image", "rect", "ellipse", "triangle"]
+    kind: Literal["image", "video", "rect", "ellipse", "triangle"]
     start: float
     end: float
     x: float = 0.5                          # centro, fracción del lienzo
@@ -137,13 +137,17 @@ class Element:                              # v6, docs/22/25
     rotation: float = 0.0                   # grados horarios
     opacity: float = 1.0                    # 0…1
     color: str = "#FFFFFF"                  # figuras
-    asset_id: str | None = None             # imágenes: MediaAsset(kind="image")
+    asset_id: str | None = None             # imagen/video: MediaAsset del proyecto
     fit: Literal["fit", "fill", "stretch"] = "fit"
-    effects: tuple[Effect, ...] = ()        # p. ej. blur
+    in_: float = 0.0                        # video: segundo de entrada
+    video_track: int = 0                    # 0 = Elementos; 1/2 = V2/V3
+    animations: tuple[Animation, ...] = ()  # x/y/scale/rotation (docs/31/33)
+    effects: tuple[Effect, ...] = ()        # p. ej. blur o volume
+    envelope: tuple[VolumePoint, ...] = ()  # v11: audio del video (docs/34)
 
 @dataclass(frozen=True)
 class Project:
-    schema_version: int = 10
+    schema_version: int = 11
     name: str = "Sin título"
     assets: tuple[MediaAsset, ...] = ()
     video: Track = Track("video")
@@ -164,8 +168,9 @@ class Project:
 Invariantes que valida `core/project.py` al construir (y que los tests cubren):
 
 - `0 ≤ in_ < out_ ≤ asset.duration`; `0.25 ≤ speed ≤ 4`.
-- `Clip.envelope` tiene claves ordenadas, `t ≥ 0` local al clip y `gain` 0…4; el preview y el
-  export comparten `core/audio_envelope.value_at`/`expr` (docs/32).
+- `Clip.envelope` y `Element.envelope` tienen claves ordenadas, `t ≥ 0` local al clip/elemento y
+  `gain` 0…4; el preview y el export comparten `core/audio_envelope.value_at`/`expr` (docs/32 y
+  docs/34). Solo un video superpuesto puede tener envolvente.
 - `len(transitions) == max(0, len(clips) − 1)`; cada transición `0.2 ≤ d ≤ min(dur_a, dur_b) / 2`.
 - Assets referenciados existen (o se marcan offline); un asset de solo audio tiene `width=height=0`
   y `fps=0`.
@@ -179,7 +184,8 @@ Invariantes que valida `core/project.py` al construir (y que los tests cubren):
   `audio_enabled` solo se usa en la pista de video. Detalle en [19](19-fase-0-1-audio.md).
 - `MediaAsset.kind` es `video`/`audio`/`image`; una imagen tiene `duration=0` y no se puede añadir
   como clip. `Element` valida intervalo, centro 0…1, tamaño 0.01…4, rotación finita, opacidad 0…1,
-  color `#RRGGBB` o asset de imagen existente, y efectos conocidos. `Project.effects` no repite
+  color `#RRGGBB` o asset de imagen/video existente, efectos conocidos y, en videos, una
+  envolvente de volumen válida. `Project.effects` no repite
   tipo. Detalle en [22](22-plan-features-editor.md) y [25](25-elementos.md).
 
 ## Matemática del timeline (`core/timeline.py`, puro y testeado)
@@ -399,6 +405,10 @@ afade in/out (efecto o 30 ms anti-click),
 apad=whole_dur=D, atrim=duration=D           # D = la duración en frames del tramo de video
 ```
 
+El audio de un video superpuesto (PiP/V2/V3) usa la misma idea en `_element_audio_mixes`: lee
+desde `in_`, aplica su `volume` estático y, si tiene `Element.envelope`, la curva local con
+`start=0`; después vienen los microfundidos y el `adelay` hasta su `start` (docs/34).
+
 **Transiciones** (`xfade`) encadenadas con la fórmula de offsets de arriba (en frames); los cortes
 consecutivos se unen con un solo `concat`; audio con `concat` (silencio de `anullsrc` si un clip
 no tiene audio) y `amix` con las pistas extra. Golden test (`tests/test_f4_graph.py`) para el
@@ -473,7 +483,7 @@ avisa si movió el corte (típico ≤ 1 s, el precio de cortar sin recodificar).
 
 ```json
 {
-  "schema_version": 10,
+  "schema_version": 11,
   "name": "Demo del dashboard",
   "fps": 60, "width": 1920, "height": 1080,
   "background": "#000000", "default_fit": "fit",
