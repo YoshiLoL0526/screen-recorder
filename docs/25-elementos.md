@@ -180,8 +180,9 @@ cancela.
 - Los efectos de elemento son **blur** (imagen, materializado por
   `services.element_assets`) y **volume** (solo el audio de un video PiP, ver
   [docs/28](28-pip-video.md)). `Element.effects` está preparado para más.
-- Hay **keyframes de X/Y** (position) desde [docs/31](31-keyframes.md); no hay animación de
-  tamaño, rotación, opacidad ni color. La caja del preview se oculta cuando X/Y están animados.
+- Hay **keyframes de X/Y** (position) desde [docs/31](31-keyframes.md) y de **escala/rotación**
+  para elementos desde [docs/33](33-escala-rotacion.md); los textos siguen sin escala ni rotación
+  animadas. La caja del preview se oculta cuando hay geometría animada.
 - El color de figura se elige de una paleta (o se conserva un valor personalizado del proyecto);
   no hay selector de color libre en la UI.
 - Las imágenes se referencian por ruta (no se copian al `.rsproj`). `export.offline_assets`
@@ -194,7 +195,9 @@ cancela.
   error. Es una diferencia deliberada (best-effort en UI, estricto en el archivo final).
 - La rotación de la imagen en el preview es PIL y en el export es el filtro `rotate` de FFmpeg;
   el tamaño se alinea con `rotated_size`, pero el remuestreo puede diferir en el orden de un
-  píxel en los bordes. Color, posición, tamaño, opacidad y blur sí comparten el mismo PNG.
+  píxel en los bordes. Color, posición, tamaño, opacidad y blur sí comparten el mismo PNG. Si la
+  rotación o la escala están **animadas**, el export usa un vídeo RGBA horneado con PIL
+  ([docs/33](33-escala-rotacion.md)), así que preview y export comparten también ese rasterizado.
 - No hay soporte de GIF animado; `probe_image` toma la primera imagen y guarda sus dimensiones.
 
 ## Tests y verificación

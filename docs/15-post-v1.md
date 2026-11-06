@@ -313,7 +313,7 @@ Resultados y decisiones completas en [31 — Keyframes](31-keyframes.md).
 - Tests nuevos en `test_animation`, `test_animation_export` y `test_project_panel`;
   **446 tests** en verde.
 
-### B19 — Envolventes de volumen de audio (✅ · M)
+### B19 - Envolventes de volumen de audio (✅ · M)
 
 Resultados y decisiones completas en [32 — Envolventes de volumen](32-audio-envelopes.md).
 
@@ -327,6 +327,22 @@ Resultados y decisiones completas en [32 — Envolventes de volumen](32-audio-en
 - **Límite**: no hay envolvente en el audio de un PiP/V2/V3 (`Element.envelope`) ni asas de
   arrastre sobre la waveform; el corte rápido se bloquea.
 - Tests nuevos en `test_audio_envelope`; **462 tests** en verde.
+
+### B20 - Animación de escala y rotación de elementos (✅ · M)
+
+Resultados y decisiones completas en [33 — Escala y rotación](33-escala-rotacion.md).
+
+- **Modelo v9 sin cambios**: `Element.animations` acepta `scale` (multiplicador `0.05…4.0`) y
+  `rotation` (grados absolutos `-360…360`); `TextOverlay` sigue solo con X/Y/opacidad.
+- **Preview**: `core.elements.effective` aplica la caja escalada y la rotación; las imágenes
+  escalan su PNG materializado y los PiP/V2/V3 su frame decodificado.
+- **Export**: el elemento animado se hornea a un vídeo RGBA `qtrle` con PIL (misma geometría que
+  el preview) y se superpone con las expresiones X/Y de siempre. Sin animación de geometría, las
+  cadenas del graph son las de antes; el audio del PiP sigue usando el archivo original.
+- **UI**: campo **Escala** (no persistido), claves **Escala** y **Rotación**, «Quitar» y caja del
+  preview oculta si hay geometría animada.
+- **Límite**: los textos no tienen escala ni rotación animadas.
+- Tests nuevos en `test_scale_rotation` y `test_project_panel`; **454 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

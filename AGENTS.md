@@ -32,16 +32,17 @@ en `docs/22`. Después se añadió el **panel de medios/capas** (`ui/project_pan
 preview/export; `docs/28`). Después llegaron las **pistas de video V2/V3** (modelo **v8**,
 `Element.video_track`, composición por capas y filas propias en el timeline; `docs/29`) y los
 **subtítulos SRT/VTT + keyframes** (modelo **v9**, `TextOverlay.subtitle/opacity/animations` y
-`Element.animations`; `docs/30` y `docs/31`). Después se añadieron las **envolventes de volumen
-de audio** (modelo **v10**, `Clip.envelope`, `core/audio_envelope.py`; `docs/32`). Lo siguiente
-es el resto de la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8
-manuales y bloque C).
+`Element.animations`; `docs/30` y `docs/31`), las **envolventes de volumen de audio** (modelo
+**v10**, `Clip.envelope`, `core/audio_envelope.py`; `docs/32`) y la **animación de escala y
+rotación de elementos** (`core/animation.py`, `core/elements.py`,
+`services/element_animation.py`; `docs/33`). Lo siguiente es el resto de la fase 4 (más
+composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 462 tests; la integración usa FFmpeg real
+uv run pytest                                   # 470 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -86,9 +87,11 @@ depender de monitor, GPU ni audio reales del runner.
   misma caja normalizada (`Element.in_` fija la fuente). Su audio se mezcla con
   `_element_audio_mixes` (reutiliza la entrada del overlay) y el volumen vive en
   `Element.effects` como `Effect("volume")`; el preview usa `build_audio` si oye un video.
-  Los keyframes (`core/animation.py`) animan **x/y** de elementos y **x/y/opacity** de textos:
-  el preview evalúa `value_at` y el export genera expresiones `if(lt(t,…))` para `overlay` y
-  `drawtext`; no hay animación de escala/rotación/color. Las **envolventes de volumen**
+  Los keyframes (`core/animation.py`) animan **x/y** de elementos y **x/y/opacity** de textos, y
+  **scale/rotation** de elementos (docs/33): el preview evalúa `value_at` y el export genera
+  expresiones `if(lt(t,…))` para `overlay` y `drawtext`; la escala/rotación de elementos se
+  hornea a un vídeo RGBA intermedio (`services/element_animation.py`) porque `overlay` necesita
+  un tamaño constante. No hay animación de color. Las **envolventes de volumen**
   (`core/audio_envelope.py`, `Clip.envelope`) son un modelo aparte: ganancias 0…4 en tiempo
   local al clip, `volume=…:eval=frame` en el export y preview por `build_audio` (docs/32).
 - La UI nunca bloquea: nada de IO/subprocess en handlers. Lo asíncrono comunica por `Signal`
@@ -194,13 +197,16 @@ depender de monitor, GPU ni audio reales del runner.
   video superpuesto. Un solo de audio silencia también V2/V3. `element_assets.materialize` debe
   omitir los videos. El recorte izquierdo de la barra (controller `drag_overlay`) avanza `in_`;
   mover no lo cambia. No hay razor ni transiciones en V2/V3: son elementos, no una `Track`.
-- Subtítulos y keyframes (docs/30 y docs/31): `TextOverlay.subtitle` marca los cues importados
-  (SRT/VTT) y `opacity` es la base; `Animation`/`Keyframe` viven en `Element.animations` y
-  `TextOverlay.animations`. Los tiempos de las claves son **locales** al elemento/texto. El
-  preview y el export comparten `core.animation.value_at`/`expr`; si tocas una expresión, cita
-  con `'…'` los valores de `overlay`/`drawtext` que lleven comas. Solo se animan x/y (elementos y
-  textos) y opacidad (textos); el `Effect("volume")` del PiP no es un keyframe. La caja del
-  preview se oculta si x/y están animados. `format_srt` exporta solo `subtitle=True`.
+- Subtítulos y keyframes (docs/30, docs/31 y docs/33): `TextOverlay.subtitle` marca los cues
+  importados (SRT/VTT) y `opacity` es la base; `Animation`/`Keyframe` viven en
+  `Element.animations` y `TextOverlay.animations`. Los tiempos de las claves son **locales** al
+  elemento/texto. El preview y el export comparten `core.animation.value_at`/`expr`; si tocas
+  una expresión, cita con `'…'` los valores de `overlay`/`drawtext` que lleven comas. Los
+  elementos animan x/y/scale/rotation; los textos solo x/y/opacity (sin escala/rotación). La
+  escala/rotación de un elemento se hornea a un `.mov` `qtrle` RGBA con PIL
+  (`services.element_animation.py`) y se superpone con X/Y como siempre; sin esos canales, las
+  cadenas del graph son las de antes. La caja del preview se oculta si hay geometría animada
+  (x/y/scale/rotation en elementos; x/y en textos). `format_srt` exporta solo `subtitle=True`.
   `TextOverlay` es de una línea (los cues multilínea se unen con espacios).
 - Envolventes de volumen (docs/32): `Clip.envelope` es independiente de `Animation`; sus claves
   son locales al clip (0…duración) y la ganancia 0…4. El export añade
@@ -270,9 +276,9 @@ depender de monitor, GPU ni audio reales del runner.
   snap por waveform, proxy y reubicar carpetas. `docs/22-plan-features-editor.md` es el plan de la
   composición v6 y `docs/23`–`26` sus resultados (canvas, pistas A/V, elementos y efectos
   globales). `docs/27` cubre el panel de medios, la selección directa y las capas del timeline;
-  `docs/28` el PiP de video (modelo v7), `docs/29` las pistas V2/V3 (modelo v8) y `docs/30`/
-  `docs/31` los subtítulos y keyframes (modelo v9); `docs/32` las envolventes de volumen de
-  audio (modelo v10).
+  `docs/28` el PiP de video (modelo v7), `docs/29` las pistas V2/V3 (modelo v8), `docs/30`/
+  `docs/31` los subtítulos y keyframes (modelo v9), `docs/32` las envolventes de volumen de audio
+  (modelo v10) y `docs/33` la animación de escala/rotación de elementos.
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

@@ -87,8 +87,10 @@ def _open(controller, pilot, path: Path):  # noqa: ANN001
 
 
 def _click_inspector(pilot, key: str) -> None:
-    """El inspector hace scroll; los controles de audio del PiP quedan debajo del pliegue."""
+    """El inspector hace scroll; asegura que el control quede visible antes de pulsarlo."""
     pilot.scroll("insp-scroll", dy=2000)
+    pilot.settle()
+    pilot.a11y_action(key, "scroll_into_view")
     pilot.settle()
     pilot.click(key)
     _settle(pilot)
@@ -503,6 +505,25 @@ def test_keyframes_de_elemento_y_texto_desde_el_inspector(
     assert [p.value for p in curve.points] == [0.5, 0.8]
     assert state.undo_label() == "añadir clave X"
     _click_inspector(pilot, "insp-element-clear-x")
+    assert state.editor_project().element(element.id).animations == ()
+
+    # Escala: el campo (1.0 por defecto) se usa como valor de la clave.
+    state.insp_el_scale.set(2.5)
+    _settle(pilot)
+    _click_inspector(pilot, "insp-element-key-scale")
+    curve = state.editor_project().element(element.id).animations[0]
+    assert curve.channel == "scale" and curve.points[0].value == pytest.approx(2.5)
+    assert state.undo_label() == "añadir clave escala"
+    _click_inspector(pilot, "insp-element-clear-scale")
+    assert state.editor_project().element(element.id).animations == ()
+
+    # Rotación: usa el campo de rotación del inspector (grados absolutos).
+    state.insp_el_rotation.set(30.0)
+    _settle(pilot)
+    _click_inspector(pilot, "insp-element-key-rotation")
+    curve = state.editor_project().element(element.id).animations[0]
+    assert curve.channel == "rotation" and curve.points[0].value == pytest.approx(30.0)
+    _click_inspector(pilot, "insp-element-clear-rotation")
     assert state.editor_project().element(element.id).animations == ()
 
     # Texto: opacidad animada desde el inspector.

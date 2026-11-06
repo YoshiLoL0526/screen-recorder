@@ -22,6 +22,7 @@ rota y mezcla alfa, de modo que preview y export usan los mismos píxeles.
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Mapping
@@ -36,6 +37,22 @@ from .project import Project
 from .timeline import total_duration
 
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+@dataclass(frozen=True)
+class ElementClip:
+    """Vídeo RGBA intermedio de un elemento con escala/rotación animadas (docs/33).
+
+    Lo genera `services.element_animation`: cada frame ya trae la escala y la rotación aplicadas
+    y el contenido centrado en un lienzo de tamaño fijo (`width`×`height`). El graph solo tiene
+    que superponerlo en `(x, y)`, igual que un PNG estático.
+    """
+
+    path: str
+    width: int
+    height: int
+    frames: int
+    duration: float
 
 
 def _num(value: float) -> str:
@@ -53,13 +70,21 @@ def apply_graph(
     first_input: int,
     sources: Mapping[str, str] | None = None,
     video_inputs: dict[str, int] | None = None,
+    element_clips: Mapping[str, ElementClip] | None = None,
     prefix: str = "",
 ) -> tuple[str, int]:
-    """Añade los elementos activos al filter graph (no-op si no hay ninguno)."""
+    """Añade los elementos activos al filter graph (no-op si no hay ninguno).
+
+    `element_clips` (docs/33) trae los vídeos RGBA ya horneados con escala/rotación animadas.
+    Los elementos sin animación de geometría siguen usando su PNG y las cadenas históricas.
+    """
     visible = [e for e in project.elements if el.visible_in_timeline(project, e)]
     if not visible:
         return video_out, first_input
-    if sources is None and any(e.kind != "video" for e in visible):
+    clips = element_clips or {}
+    if sources is None and any(
+        e.kind != "video" and e.id not in clips for e in visible
+    ):
         raise ProjectError(
             "faltan las imágenes de los elementos: usa services.element_assets.materialize"
         )
@@ -72,49 +97,78 @@ def apply_graph(
         layout = el.layout(project, element, size)
         prepared_w, prepared_h = el.prepared_size(layout)
         fps = max(1, int(project.fps))
+        animated_geometry = anim.is_animated(element.animations, "scale") or anim.is_animated(
+            element.animations, "rotation"
+        )
+        clip = clips.get(element.id) if animated_geometry else None
+        if animated_geometry and clip is None:
+            raise ProjectError(
+                f"falta el vídeo animado del elemento {element.id}: "
+                "usa services.element_animation.materialize"
+            )
         steps: list[str]
         if element.kind == "video":
-            asset = project.asset(element.asset_id or "")
-            duration = element.duration
-            inputs += [
-                "-ss", _num(element.in_), "-t", _num(duration + 0.2), "-i", asset.path,
-            ]
-            steps = [
-                "format=rgba",
-                f"setpts=PTS-STARTPTS+{_num(element.start)}/TB",
-                f"fps={fps}",
-            ]
-            if element.fit == "fill":
-                steps += [
-                    f"scale={layout.scale_width}:{layout.scale_height}",
-                    f"crop={layout.draw_width}:{layout.draw_height}",
+            if clip is not None:
+                inputs += ["-i", str(clip.path)]
+                steps = [
+                    "format=rgba",
+                    f"setpts=PTS-STARTPTS+{_num(element.start)}/TB",
+                    f"fps={fps}",
                 ]
             else:
-                steps += [f"scale={prepared_w}:{prepared_h}"]
+                asset = project.asset(element.asset_id or "")
+                duration = element.duration
+                inputs += [
+                    "-ss", _num(element.in_), "-t", _num(duration + 0.2), "-i", asset.path,
+                ]
+                steps = [
+                    "format=rgba",
+                    f"setpts=PTS-STARTPTS+{_num(element.start)}/TB",
+                    f"fps={fps}",
+                ]
+                if element.fit == "fill":
+                    steps += [
+                        f"scale={layout.scale_width}:{layout.scale_height}",
+                        f"crop={layout.draw_width}:{layout.draw_height}",
+                    ]
+                else:
+                    steps += [f"scale={prepared_w}:{prepared_h}"]
         else:
-            path = sources.get(element.id) if sources is not None else None
-            if not path or not Path(path).is_file():
-                raise ProjectError(f"falta la imagen del elemento {element.id} ({element.kind})")
-            inputs += [
-                "-loop", "1", "-framerate", str(fps), "-t", _num(total), "-i", str(path),
-            ]
-            steps = [
-                "format=rgba",
-                f"scale={prepared_w}:{prepared_h}",
-            ]
+            if clip is not None:
+                inputs += ["-i", str(clip.path)]
+                steps = [
+                    "format=rgba",
+                    f"setpts=PTS-STARTPTS+{_num(element.start)}/TB",
+                    f"fps={fps}",
+                ]
+            else:
+                path = sources.get(element.id) if sources is not None else None
+                if not path or not Path(path).is_file():
+                    raise ProjectError(f"falta la imagen del elemento {element.id} ({element.kind})")
+                inputs += [
+                    "-loop", "1", "-framerate", str(fps), "-t", _num(total), "-i", str(path),
+                ]
+                steps = [
+                    "format=rgba",
+                    f"scale={prepared_w}:{prepared_h}",
+                ]
+        if clip is not None:
+            if (clip.width, clip.height) != (prepared_w, prepared_h):
+                steps.append(f"scale={clip.width}:{clip.height}")
         steps.append("setsar=1")
         source = next_input
         next_input += 1
-        if element.kind == "video" and video_inputs is not None:
+        if element.kind == "video" and clip is None and video_inputs is not None:
             video_inputs[element.id] = source
-        rotation = float(element.rotation) % 360.0
-        if abs(rotation) > 1e-6:
-            angle = rotation * 3.141592653589793 / 180.0
-            steps.append(
-                f"rotate={_num(angle)}:ow=rotw({_num(angle)}):oh=roth({_num(angle)}):c=none"
-            )
-        if element.opacity < 0.999999:
-            steps.append(f"colorchannelmixer=aa={_num(element.opacity)}")
+        if clip is None:
+            rotation = float(element.rotation) % 360.0
+            if abs(rotation) > 1e-6:
+                angle = rotation * 3.141592653589793 / 180.0
+                steps.append(
+                    f"rotate={_num(angle)}:ow=rotw({_num(angle)}):oh=roth({_num(angle)}):c=none"
+                )
+            if element.opacity < 0.999999:
+                steps.append(f"colorchannelmixer=aa={_num(element.opacity)}")
         prepared = f"{prefix}el{index}"
         chains.append(f"[{source}:v]{','.join(steps)}[{prepared}]")
         # `between` documenta el intervalo; el `lt` extra excluye el frame exacto del final, que
@@ -124,7 +178,7 @@ def apply_graph(
             f"*lt(t,{_num(element.end)})"
         )
         out = f"{prefix}ov{index}"
-        eof = ":eof_action=pass" if element.kind == "video" else ""
+        eof = ":eof_action=pass" if element.kind == "video" or clip is not None else ""
         x_animated = anim.is_animated(element.animations, "x")
         y_animated = anim.is_animated(element.animations, "y")
         x_value = anim.expr(element.animations, "x", element.start, element.x)
@@ -183,6 +237,16 @@ def rotate_rgba(image: Image.Image, degrees: float) -> Image.Image:
     return rotated
 
 
+@lru_cache(maxsize=32)
+def _load(path: str, mtime_ns: int) -> Image.Image | None:
+    """Carga una imagen RGBA una vez (las claves de escala cambian el tamaño cada frame)."""
+    try:
+        with Image.open(path) as opened:
+            return ImageOps.exif_transpose(opened).convert("RGBA")
+    except (OSError, ValueError):
+        return None
+
+
 @lru_cache(maxsize=64)
 def _prepare(
     path: str,
@@ -195,12 +259,12 @@ def _prepare(
     prepared: bool,
     rotation: float,
     opacity: float,
+    target_width: int,
+    target_height: int,
 ) -> Image.Image | None:
-    """Carga (una vez) y deja el elemento listo para pegar: encaje, alfa y rotación."""
-    try:
-        with Image.open(path) as opened:
-            image = ImageOps.exif_transpose(opened).convert("RGBA")
-    except (OSError, ValueError):
+    """Carga (una vez) y deja el elemento listo para pegar: encaje, escala, alfa y rotación."""
+    image = _load(path, mtime_ns)
+    if image is None:
         return None
     if not prepared:
         # Layout auxiliar solo para reutilizar el encaje (el layout real se descarta).
@@ -213,8 +277,15 @@ def _prepare(
             rotation=rotation, opacity=opacity, blur=0.0, fit=fit,
         )
         image = _resize_fit(image, proxy, fit)
+    elif image.size != (max(1, target_width), max(1, target_height)):
+        # La clave de escala cambia la caja: se escala el PNG materializado (con el blur ya
+        # horneado) al tamaño efectivo, igual que hace el vídeo intermedio del export.
+        image = image.resize(
+            (max(1, target_width), max(1, target_height)), Image.Resampling.LANCZOS
+        )
     # Un PNG materializado ya tiene el tamaño de dibujo **más el margen del blur**; no se toca.
     if opacity < 0.999999:
+        image = image.copy()
         alpha = image.getchannel("A").point(lambda value: int(round(value * opacity)))
         image.putalpha(alpha)
     return rotate_rgba(image, rotation)
@@ -275,7 +346,7 @@ def apply_frame(
         image = _prepare(
             path, stat.st_mtime_ns, layout.draw_width, layout.draw_height,
             layout.scale_width, layout.scale_height, layout.fit, prepared,
-            layout.rotation, layout.opacity,
+            layout.rotation, layout.opacity, *el.prepared_size(layout),
         )
         if image is None:
             continue
@@ -288,4 +359,4 @@ def apply_frame(
     return np.asarray(canvas.convert("RGB"))
 
 
-__all__ = ["PNG_SIGNATURE", "apply_frame", "apply_graph", "rotate_rgba"]
+__all__ = ["ElementClip", "PNG_SIGNATURE", "apply_frame", "apply_graph", "rotate_rgba"]

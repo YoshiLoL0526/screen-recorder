@@ -296,7 +296,7 @@ def _elements_layer(project, stage_w: int, stage_h: int):  # noqa: ANN001, ANN20
     for element in project.elements:
         if not (element.start <= t < element.end) or element.opacity <= 0:
             continue
-        if any(a.channel in ("x", "y") for a in element.animations):
+        if any(a.channel in ("x", "y", "scale", "rotation") for a in element.animations):
             continue
         frame_box = element_overlay.element_box(project, element, (stage_w, stage_h))
         if frame_box is None or frame_box.width < 2 or frame_box.height < 2:
@@ -679,11 +679,16 @@ def _animation_controls(kind: str, item, channels) -> object:
                 padding=(3, 7), font_size=10.5, key=f"insp-{kind}-clear-{channel}",
             ),
         ])
+    note = (
+        "La clave usa el valor actual del campo en el playhead; mover el playhead no cambia "
+        "el campo. La interpolación es lineal."
+    )
+    if kind == "element":
+        note += " Escala 1.0 = tamaño base; rotación en grados horarios."
     return section(
         "Animación",
         *rows,
-        text("La clave usa el valor actual del campo en el playhead; mover el playhead no cambia "
-             "el campo. La interpolación es lineal.", size=11, color="$muted", line_height=1.35),
+        text(note, size=11, color="$muted", line_height=1.35),
         gap=8,
     )
 
@@ -708,6 +713,8 @@ def _element_controls(project, element):
                                    key="insp-el-width")),
         _row("Alto", number_input(state.insp_el_height, min=0.01, max=4.0, step=0.01,
                                   key="insp-el-height")),
+        _row("Escala", number_input(state.insp_el_scale, min=0.05, max=4.0, step=0.05,
+                                    decimals=2, key="insp-el-scale")),
         _row("Rotación", number_input(state.insp_el_rotation, min=0.0, max=360.0, step=1.0,
                                       decimals=0, key="insp-el-rotation")),
         _row("Opacidad", number_input(state.insp_el_opacity, min=0.0, max=1.0, step=0.05,
@@ -754,7 +761,10 @@ def _element_controls(project, element):
             key="insp-el-blur")),
         text("Se compone sobre el video en el preview y en el export; en la lista, lo de arriba "
              "queda encima.", size=11, color="$muted", line_height=1.35),
-        _animation_controls("element", element, [("x", "X"), ("y", "Y")]),
+        _animation_controls(
+            "element", element,
+            [("x", "X"), ("y", "Y"), ("scale", "Escala"), ("rotation", "Rotación")],
+        ),
         row(gap=6)[
             button("Al frente", _call("move_element_z", "front"), variant="ghost",
                    padding=(4, 9), font_size=11.5, key="insp-el-front"),

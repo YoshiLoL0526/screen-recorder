@@ -229,13 +229,31 @@ def active(project: Project, t: float) -> list[Element]:
 
 
 def effective(element: Element, t: float) -> Element:
-    """Elemento con la posición animada en `t` (los canales sin clave usan la base)."""
+    """Elemento con la geometría animada en `t` (los canales sin clave usan la base).
+
+    `scale` multiplica `width`/`height` (1 = tamaño base) y `rotation` es absoluta en grados
+    horarios (su valor base es `Element.rotation`). La caja resultante se acota al rango del
+    modelo (`ELEMENT_SIZE_MIN…ELEMENT_SIZE_MAX`) para que un elemento ya enorme no genere una
+    caja inválida.
+    """
     local = max(0.0, float(t) - element.start)
     x = anim.value_at(element.animations, "x", local, element.x)
     y = anim.value_at(element.animations, "y", local, element.y)
-    if abs(x - element.x) < 1e-9 and abs(y - element.y) < 1e-9:
+    scale = anim.value_at(element.animations, "scale", local, 1.0)
+    rotation = anim.value_at(element.animations, "rotation", local, element.rotation)
+    width = _clamp(element.width * scale, ELEMENT_SIZE_MIN, ELEMENT_SIZE_MAX)
+    height = _clamp(element.height * scale, ELEMENT_SIZE_MIN, ELEMENT_SIZE_MAX)
+    if (
+        abs(x - element.x) < 1e-9
+        and abs(y - element.y) < 1e-9
+        and abs(width - element.width) < 1e-9
+        and abs(height - element.height) < 1e-9
+        and abs(rotation - element.rotation) < 1e-9
+    ):
         return element
-    return replace(element, x=x, y=y)
+    return replace(
+        element, x=x, y=y, width=width, height=height, rotation=rotation,
+    )
 
 
 def visible_in_timeline(project: Project, element: Element) -> bool:

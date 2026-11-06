@@ -47,7 +47,7 @@ def test_set_y_clear_de_claves() -> None:
     with pytest.raises(ProjectError):
         anim.Keyframe(-1.0, 0.5)
     with pytest.raises(ProjectError):
-        anim.Keyframe(0.0, 1.5)
+        anim.Animation("x", (anim.Keyframe(0.0, 1.5),))
     with pytest.raises(ProjectError):
         anim.Animation("x", (anim.Keyframe(1.0, 0.2), anim.Keyframe(1.0, 0.3)))
 

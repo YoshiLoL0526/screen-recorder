@@ -367,6 +367,56 @@ def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
     return np.asarray(Image.alpha_composite(base, layer).convert("RGB"))
 
 
+def video_element_image(
+    project: Project,
+    element,  # noqa: ANN001
+    t: float,
+    size: tuple[int, int],
+    pool: DecoderPool,
+    slot: int = 0,
+):
+    """Frame RGBA de un video superpuesto, encajado, escalado y rotado como su caja.
+
+    Es la única implementación de la imagen de un PiP: la usa el preview y también el bake del
+    export (`services.element_animation`) para que ambos vean exactamente lo mismo.
+    """
+    from PIL import Image
+
+    element = el.effective(element, t)
+    asset = project.asset(element.asset_id or "")
+    layout = el.layout(project, element, size)
+    draw_w = max(1, int(layout.draw_width))
+    draw_h = max(1, int(layout.draw_height))
+    if element.fit == "fill":
+        want_w, want_h = max(1, int(layout.scale_width)), max(1, int(layout.scale_height))
+    else:
+        want_w, want_h = draw_w, draw_h
+    rotation = tx.normalize_rotation(asset.rotation)
+    raw_w, raw_h = (want_h, want_w) if rotation in (90, 270) else (want_w, want_h)
+    source = pool.get(media.preview_path(asset), slot)
+    if source is None:
+        return None
+    try:
+        rgb = source.frame_at(element.in_ + max(0.0, t - element.start), (raw_w, raw_h))
+    except Exception:
+        return None
+    if rgb is None:
+        return None
+    rgb = rotate_rgb(rgb, rotation, clockwise=False)
+    image = Image.fromarray(np.ascontiguousarray(rgb)).convert("RGBA")
+    if element.fit == "fill":
+        left = max(0, (image.width - draw_w) // 2)
+        top = max(0, (image.height - draw_h) // 2)
+        image = image.crop((left, top, left + draw_w, top + draw_h))
+    elif image.size != (draw_w, draw_h):
+        image = image.resize((draw_w, draw_h), Image.Resampling.LANCZOS)
+    image = overlays.rotate_rgba(image, element.rotation)
+    if element.opacity < 0.999999:
+        alpha = image.getchannel("A").point(lambda value: int(round(value * element.opacity)))
+        image.putalpha(alpha)
+    return image
+
+
 class FrameRenderer:
     """Compone el frame del preview para un instante global del proyecto."""
 
@@ -404,42 +454,8 @@ class FrameRenderer:
     def _video_element_image(
         self, project: Project, element, t: float, size: tuple[int, int], slot: int,
     ):  # noqa: ANN001, ANN202
-        """Frame RGBA de un video superpuesto, encajado y rotado como la caja del elemento."""
-        from PIL import Image
-
-        element = el.effective(element, t)
-        asset = project.asset(element.asset_id or "")
-        layout = el.layout(project, element, size)
-        draw_w = max(1, int(layout.draw_width))
-        draw_h = max(1, int(layout.draw_height))
-        if element.fit == "fill":
-            want_w, want_h = max(1, int(layout.scale_width)), max(1, int(layout.scale_height))
-        else:
-            want_w, want_h = draw_w, draw_h
-        rotation = tx.normalize_rotation(asset.rotation)
-        raw_w, raw_h = (want_h, want_w) if rotation in (90, 270) else (want_w, want_h)
-        source = self.element_pool.get(media.preview_path(asset), slot)
-        if source is None:
-            return None
-        try:
-            rgb = source.frame_at(element.in_ + max(0.0, t - element.start), (raw_w, raw_h))
-        except Exception:
-            return None
-        if rgb is None:
-            return None
-        rgb = rotate_rgb(rgb, rotation, clockwise=False)
-        image = Image.fromarray(np.ascontiguousarray(rgb)).convert("RGBA")
-        if element.fit == "fill":
-            left = max(0, (image.width - draw_w) // 2)
-            top = max(0, (image.height - draw_h) // 2)
-            image = image.crop((left, top, left + draw_w, top + draw_h))
-        elif image.size != (draw_w, draw_h):
-            image = image.resize((draw_w, draw_h), Image.Resampling.LANCZOS)
-        image = overlays.rotate_rgba(image, element.rotation)
-        if element.opacity < 0.999999:
-            alpha = image.getchannel("A").point(lambda value: int(round(value * element.opacity)))
-            image.putalpha(alpha)
-        return image
+        """Frame RGBA de un video superpuesto (delegado a `video_element_image`)."""
+        return video_element_image(project, element, t, size, self.element_pool, slot)
 
     def _video_element_images(
         self, project: Project, t: float, size: tuple[int, int],

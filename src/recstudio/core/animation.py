@@ -1,15 +1,18 @@
-"""Keyframes de animación (v9, docs/31): posición y opacidad de textos y elementos.
+"""Keyframes de animación (v9, docs/31 y docs/33): posición, escala, rotación y opacidad.
 
 Un `Animation` es una lista de puntos `(t, value)` **en segundos locales del elemento/texto**
 (`t = 0` es su `start`). La interpolación es lineal y se evalúa en el preview y en el export:
 
 - **Textos**: `x`, `y` y `opacity` se traducen a expresiones de `drawtext` (`x=`, `y=`, `alpha=`),
   que FFmpeg evalúa por frame.
-- **Elementos** (PiP, imágenes, figuras y V2/V3): `x` e `y` se traducen a las expresiones de
-  `overlay`. La opacidad de un elemento no se anima porque `colorchannelmixer` es estático.
+- **Elementos** (PiP, imágenes, figuras y V2/V3): `x`, `y`, `scale` y `rotation`. El export
+  hornea escala/rotación en un vídeo RGBA intermedio (docs/33); x/y siguen siendo expresiones de
+  `overlay`.
 
-Los valores de los tres canales van de 0 a 1. Las curvas se acotan en los extremos (antes del
-primer punto vale el primero; después del último, el último), igual que `value_at`.
+Los valores válidos dependen del canal (`CHANNEL_RANGES`): x/y/opacity van de 0 a 1, `scale` es
+un multiplicador de 0.05 a 4.0 y `rotation` son grados horarios absolutos de -360 a 360. Las
+curvas se acotan en los extremos (antes del primer punto vale el primero; después del último, el
+último), igual que `value_at`.
 """
 
 from __future__ import annotations
@@ -19,9 +22,35 @@ from dataclasses import dataclass
 
 from .errors import ProjectError
 
-CHANNELS = ("x", "y", "opacity")
+#: Rango válido de cada canal. `scale` es un multiplicador sobre la caja del elemento (1 = base);
+#: `rotation` son grados horarios absolutos (el valor base es `Element.rotation`).
+CHANNEL_RANGES: dict[str, tuple[float, float]] = {
+    "x": (0.0, 1.0),
+    "y": (0.0, 1.0),
+    "opacity": (0.0, 1.0),
+    "scale": (0.05, 4.0),
+    "rotation": (-360.0, 360.0),
+}
+CHANNELS = tuple(CHANNEL_RANGES)
 TEXT_CHANNELS = ("x", "y", "opacity")
-ELEMENT_CHANNELS = ("x", "y")
+ELEMENT_CHANNELS = ("x", "y", "scale", "rotation")
+
+
+def channel_range(channel: str) -> tuple[float, float]:
+    """Rango `(mínimo, máximo)` de un canal; `ProjectError` si no existe."""
+    try:
+        return CHANNEL_RANGES[channel]
+    except KeyError as exc:
+        raise ProjectError(f"canal de animación desconocido ({channel!r})") from exc
+
+
+def validate_value(channel: str, value: float) -> None:
+    """Valida un valor para `channel` (la comprobación es por canal, no global)."""
+    low, high = channel_range(channel)
+    if not math.isfinite(float(value)) or not low <= float(value) <= high:
+        raise ProjectError(
+            f"clave de animación: valor fuera de [{low:g}, {high:g}] para {channel} ({value})"
+        )
 
 
 def _num(value: float) -> str:
@@ -37,8 +66,8 @@ class Keyframe:
     def __post_init__(self) -> None:
         if not math.isfinite(float(self.t)) or self.t < 0:
             raise ProjectError(f"clave de animación: tiempo inválido ({self.t})")
-        if not math.isfinite(float(self.value)) or not 0.0 <= self.value <= 1.0:
-            raise ProjectError(f"clave de animación: valor fuera de [0, 1] ({self.value})")
+        if not math.isfinite(float(self.value)):
+            raise ProjectError(f"clave de animación: valor inválido ({self.value})")
 
 
 @dataclass(frozen=True)
@@ -55,6 +84,7 @@ class Animation:
         for point in self.points:
             if point.t <= previous + 1e-9:
                 raise ProjectError("las claves de animación deben tener tiempos crecientes")
+            validate_value(self.channel, point.value)
             previous = point.t
 
     def value_at(self, t: float, default: float) -> float:
@@ -152,14 +182,17 @@ def validate(animations: tuple[Animation, ...], allowed: tuple[str, ...]) -> Non
 __all__ = [
     "Animation",
     "CHANNELS",
+    "CHANNEL_RANGES",
     "ELEMENT_CHANNELS",
     "Keyframe",
     "TEXT_CHANNELS",
+    "channel_range",
     "clear_channel",
     "expr",
     "find",
     "is_animated",
     "set_keyframe",
     "validate",
+    "validate_value",
     "value_at",
 ]

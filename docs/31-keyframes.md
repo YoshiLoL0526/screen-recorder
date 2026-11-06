@@ -3,7 +3,8 @@
 > Implementado el **2026-11-05** sobre textos y elementos (docs/25, docs/28 y docs/29).
 > Añade curvas lineales por canal, evaluadas en el preview y traducidas a expresiones de FFmpeg
 > en el export. Solo se animan los canales que FFmpeg puede evaluar por frame: **X/Y** de textos
-> y elementos y **opacidad** de textos.
+> y elementos y **opacidad** de textos. La escala y la rotación de elementos llegaron después con
+> un vídeo intermedio ([docs/33](33-escala-rotacion.md)); no forman parte de este documento.
 
 ## Qué se puede hacer
 
@@ -13,7 +14,7 @@
 - Repetir en otro instante para crear la curva; el preview y el export interpolan linealmente.
 - **Quitar** una animación de un canal con un clic.
 - El timeline marca con **◆** las capas con animación; en el preview, la caja de manipulación se
-  oculta cuando X/Y están animados (el inspector sigue editando la base).
+  oculta cuando X/Y (o, desde [docs/33](33-escala-rotacion.md), escala/rotación) están animados.
 
 ## Modelo (`SCHEMA_VERSION = 9`)
 
@@ -32,7 +33,8 @@ TextOverlay(..., animations=(...))
 - Antes de la primera clave vale la primera; después de la última, la última. Entre claves,
   interpolación **lineal**.
 - `core/animation.py` es puro: `value_at`, `expr`, `set_keyframe`, `clear_channel` y `validate`.
-- Los elementos solo admiten `x`/`y`; los textos admiten `x`/`y`/`opacity`. Un elemento con
+- Los elementos admiten `x`/`y`/`scale`/`rotation` (los dos últimos llegaron en
+  [docs/33](33-escala-rotacion.md)); los textos admiten `x`/`y`/`opacity`. Un elemento con
   `opacity` animada lanza `ProjectError` (no se puede exportar con el filtro actual).
 - Los proyectos v8 se migran a v9 sin cambios (`animations=()`).
 
@@ -66,17 +68,18 @@ TextOverlay(..., animations=(...))
   campo». Para cambiar una curva se coloca el playhead, se ajusta el campo base y se vuelve a
   grabar en ese instante.
 - La barra del timeline añade **◆** cuando la capa tiene animación.
-- La caja del preview se oculta si X/Y están animados para no mostrar una posición distinta de la
-  que se está editando; el timeline y el inspector siguen funcionando.
+- La caja del preview se oculta si la capa tiene geometría animada (X/Y y, en elementos, escala o
+  rotación); el timeline y el inspector siguen funcionando.
 
 ## Límites
 
-- No hay animación de **escala, rotación, tamaño, color** ni de la transformación de un clip de
-  V1. Solo X/Y (texto y elemento) y opacidad (texto).
+- No hay animación de **tamaño, color** ni de la transformación de un clip de V1. Los elementos
+  ampliaron los canales con **escala y rotación** en [docs/33](33-escala-rotacion.md); los textos
+  siguen solo con X/Y/opacidad.
 - Interpolación **lineal**; no hay curvas Bézier/easing ni copiar/pegar claves.
 - Las claves son **explícitas**: no hay modo «grabar automáticamente al mover el playhead».
-- La caja del preview no se muestra para capas con X/Y animados; la posición se edita con el
-  inspector.
+- La caja del preview no se muestra para capas con geometría animada; la posición y la escala se
+  editan con el inspector.
 - El corte rápido sigue bloqueado por elementos/textos/efectos (docs/18).
 
 ## Tests
