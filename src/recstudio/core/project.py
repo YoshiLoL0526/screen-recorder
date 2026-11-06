@@ -192,7 +192,7 @@ class Element:
     fit: Literal["fit", "fill", "stretch"] = "fit"
     in_: float = 0.0  # solo video: offset de la fuente
     video_track: int = 0  # 0 = Elementos; 1..VIDEO_TRACKS_MAX = V2/V3
-    animations: tuple[anim.Animation, ...] = ()  # v9: x, y (docs/31)
+    animations: tuple[anim.Animation, ...] = ()  # x, y, scale, rotation (docs/31 y docs/33)
     effects: tuple[Effect, ...] = ()
 
     def __post_init__(self) -> None:

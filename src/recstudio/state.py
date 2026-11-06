@@ -252,6 +252,7 @@ insp_el_y = Signal(0.5)
 insp_el_width = Signal(0.35)  # tamaño en fracción del lienzo
 insp_el_height = Signal(0.25)
 insp_el_rotation = Signal(0.0)  # grados horarios
+insp_el_scale = Signal(1.0)  # multiplicador para la próxima clave de escala (no se persiste)
 insp_el_opacity = Signal(1.0)
 insp_el_blur = Signal(0.0)  # radio 0…50 px del lienzo
 insp_el_gain = Signal(1.0)  # volumen del audio del video superpuesto (0 = silencio)

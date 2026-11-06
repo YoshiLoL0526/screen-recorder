@@ -164,6 +164,7 @@ class EditorController:
         self._poster_failed: set[str] = set()
         self._marquee_start: float | None = None
         self._clipboard: tl.Clipboard | None = None  # portapapeles del editor (fase 3)
+        self._last_element_id: str | None = None  # reinicia la escala de la próxima clave
         self.exporter = export_mod.Exporter(self._on_export)
 
     # -- ciclo de vida ---------------------------------------------------------
@@ -357,6 +358,11 @@ class EditorController:
             state.insp_marker_name.set(marker.name)
         element = self.selected_element()
         if element is not None:
+            if element.id != self._last_element_id:
+                # `insp_el_scale` es solo el valor de la próxima clave (no hay campo en el
+                # modelo): al cambiar de elemento vuelve a 1.0 para no arrastrar el anterior.
+                state.insp_el_scale.set(1.0)
+                self._last_element_id = element.id
             state.insp_el_start.set(tl.format_time(element.start))
             state.insp_el_end.set(tl.format_time(element.end))
             state.insp_el_x.set(element.x)
@@ -370,6 +376,8 @@ class EditorController:
             state.insp_el_track.set(element.video_track)
             state.insp_el_color.set(element.color)
             state.insp_el_fit.set(element.fit)
+        else:
+            self._last_element_id = None
 
     def _canvas_key(self, width: int, height: int) -> str:
         for key, (w, h) in CANVAS_SIZES.items():
@@ -1825,7 +1833,10 @@ class EditorController:
 
     @staticmethod
     def _key_label(channel: str) -> str:
-        return {"x": "X", "y": "Y", "opacity": "opacidad"}.get(channel, channel)
+        return {
+            "x": "X", "y": "Y", "opacity": "opacidad",
+            "scale": "escala", "rotation": "rotación",
+        }.get(channel, channel)
 
     def _key_time(self, item) -> float | None:  # noqa: ANN001
         duration = float(getattr(item, "duration", item.end - item.start))
@@ -1842,9 +1853,13 @@ class EditorController:
         local = self._key_time(element)
         if local is None:
             return
-        animations = anim.set_keyframe(
-            element.animations, channel, local, float(getattr(element, channel)),
-        )
+        if channel == "scale":
+            value = float(state.insp_el_scale())
+        elif channel == "rotation":
+            value = float(state.insp_el_rotation())
+        else:
+            value = float(getattr(element, channel))
+        animations = anim.set_keyframe(element.animations, channel, local, value)
         try:
             project = element_mod.update_element(self.project, element.id, animations=animations)
         except ProjectError as exc:

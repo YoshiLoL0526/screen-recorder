@@ -47,6 +47,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 29 | [Pistas de video V2/V3](29-pistas-video.md) | `Element.video_track`, z-order por capas, composición V1→V2→V3→efectos→Elementos, filas del timeline, audio y límites (modelo v8). |
 | 30 | [Subtítulos SRT/VTT](30-subtitulos.md) | Parser, `TextOverlay.subtitle`, importación, estilo global y exportación SRT (modelo v9). |
 | 31 | [Keyframes](31-keyframes.md) | `Animation`/`Keyframe`, X/Y de elementos/textos, opacidad de textos, expresiones de preview/export y UI (modelo v9). |
+| 33 | [Escala y rotación animadas](33-escala-rotacion.md) | Canales `scale`/`rotation`, vídeo RGBA intermedio con PIL/qtrle, paridad preview/export, UI y límites (modelo v9). |
 
 ## Orden de lectura sugerido
 

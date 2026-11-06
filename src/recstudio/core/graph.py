@@ -646,6 +646,7 @@ def build(
     progress: bool = True,
     span: tuple[float, float] | None = None,
     element_sources: Mapping[str, str] | None = None,
+    element_clips: Mapping[str, overlays.ElementClip] | None = None,
 ) -> GraphSpec:
     """Comando de render completo. `ProjectError` si el proyecto no se puede exportar así.
 
@@ -656,6 +657,10 @@ def build(
     `element_sources` (v6, docs/25) son los PNG ya materializados de los elementos. Solo hace
     falta cuando `project.elements` no está vacío; el export los prepara con
     `services.element_assets.materialize` antes de construir el graph.
+
+    `element_clips` (docs/33) son los vídeos RGBA intermedios de los elementos con escala o
+    rotación animadas; los prepara `services.element_animation.materialize`. Sin animación de
+    geometría no se usan y las cadenas quedan como siempre.
     """
     if preset.video == "copy":
         raise ProjectError("el preset «sin recodificar» no usa filter graph (ver core.keyframes)")
@@ -724,7 +729,7 @@ def build(
         video_out, _ = overlays.apply_graph(
             replace(project, elements=video_layer), video_out, chains, inputs, size,
             first_input=inputs.count("-i"), sources=element_sources,
-            video_inputs=element_inputs, prefix="vt",
+            video_inputs=element_inputs, element_clips=element_clips, prefix="vt",
         )
 
     # -- efectos globales: al video base y a las pistas V2/V3 ----------------------------
@@ -735,7 +740,7 @@ def build(
         video_out, _ = overlays.apply_graph(
             replace(project, elements=generic_layer), video_out, chains, inputs, size,
             first_input=inputs.count("-i"), sources=element_sources,
-            video_inputs=element_inputs,
+            video_inputs=element_inputs, element_clips=element_clips,
         )
 
     # -- textos: se queman sobre el video ya compuesto (tiempo global) --------------------
