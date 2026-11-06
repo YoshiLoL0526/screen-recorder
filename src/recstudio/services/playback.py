@@ -26,12 +26,13 @@ import time
 import wave
 from collections import OrderedDict, deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import numpy as np
 
 from ..core import effects as fx
+from ..core import elements as el
 from ..core import global_effects
 from ..core import graph as graph_mod
 from ..core import overlays
@@ -332,26 +333,38 @@ def _font(bold: bool, size: int):
     return font
 
 
+def text_font(bold: bool, size: int):
+    """Fuente pública para medir el texto con la misma que usa el preview."""
+    return _font(bold, size)
+
+
 def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
     """Dibuja los textos activos sobre el frame RGB del preview (misma posición que drawtext)."""
     active = [overlay for overlay in project.texts if overlay.start <= t < overlay.end]
     if not active or project.height <= 0:
         return rgb
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageColor, ImageDraw
 
-    image = Image.fromarray(rgb)
-    draw = ImageDraw.Draw(image)
-    scale = image.height / project.height
+    base = Image.fromarray(rgb).convert("RGBA")
+    layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(layer)
+    scale = base.height / project.height
     for overlay in active:
         size = max(8, int(round(overlay.size * scale)))
         font = _font(overlay.bold, size)
-        cx, cy = overlay.x * image.width, overlay.y * image.height
-        color = overlay.color
-        # Sombra discreta para que el texto se lea sobre fondos claros.
-        draw.text((cx + max(1, size // 24), cy + max(1, size // 24)), overlay.text,
-                  font=font, fill=(0, 0, 0), anchor="mm")
-        draw.text((cx, cy), overlay.text, font=font, fill=color, anchor="mm")
-    return np.asarray(image)
+        x, y, opacity = tl.text_values(overlay, t)
+        if opacity <= 1e-4:
+            continue
+        cx, cy = x * base.width, y * base.height
+        red, green, blue = ImageColor.getrgb(overlay.color)
+        alpha = max(0, min(255, int(round(opacity * 255))))
+        # Mismo contorno que `drawtext` (borderw=2) para que el preview no mienta: antes se
+        # dibujaba una sombra desplazada que el export no tenía. La capa RGBA permite animar
+        # la opacidad sin alterar el resto del frame.
+        border = max(1, int(round(2 * scale)))
+        draw.text((cx, cy), overlay.text, font=font, fill=(red, green, blue, alpha), anchor="mm",
+                  stroke_width=border, stroke_fill=(0, 0, 0, alpha))
+    return np.asarray(Image.alpha_composite(base, layer).convert("RGB"))
 
 
 class FrameRenderer:
@@ -360,12 +373,14 @@ class FrameRenderer:
     def __init__(self, max_height: int = PREVIEW_HEIGHT) -> None:
         self.max_height = max_height
         self.pool = DecoderPool()
+        self.element_pool = DecoderPool(capacity=6)
         self.last_transition: str | None = None
         self._element_key = None
         self._element_sources: dict[str, str] = {}
 
     def close(self) -> None:
         self.pool.close()
+        self.element_pool.close()
 
     def _sources(self, project: Project, size: tuple[int, int]) -> dict[str, str]:
         """PNGs de los elementos del preview, cacheados por proyecto+tamaño (no por frame)."""
@@ -385,6 +400,59 @@ class FrameRenderer:
         self._element_key = key
         self._element_sources = sources
         return sources
+
+    def _video_element_image(
+        self, project: Project, element, t: float, size: tuple[int, int], slot: int,
+    ):  # noqa: ANN001, ANN202
+        """Frame RGBA de un video superpuesto, encajado y rotado como la caja del elemento."""
+        from PIL import Image
+
+        element = el.effective(element, t)
+        asset = project.asset(element.asset_id or "")
+        layout = el.layout(project, element, size)
+        draw_w = max(1, int(layout.draw_width))
+        draw_h = max(1, int(layout.draw_height))
+        if element.fit == "fill":
+            want_w, want_h = max(1, int(layout.scale_width)), max(1, int(layout.scale_height))
+        else:
+            want_w, want_h = draw_w, draw_h
+        rotation = tx.normalize_rotation(asset.rotation)
+        raw_w, raw_h = (want_h, want_w) if rotation in (90, 270) else (want_w, want_h)
+        source = self.element_pool.get(media.preview_path(asset), slot)
+        if source is None:
+            return None
+        try:
+            rgb = source.frame_at(element.in_ + max(0.0, t - element.start), (raw_w, raw_h))
+        except Exception:
+            return None
+        if rgb is None:
+            return None
+        rgb = rotate_rgb(rgb, rotation, clockwise=False)
+        image = Image.fromarray(np.ascontiguousarray(rgb)).convert("RGBA")
+        if element.fit == "fill":
+            left = max(0, (image.width - draw_w) // 2)
+            top = max(0, (image.height - draw_h) // 2)
+            image = image.crop((left, top, left + draw_w, top + draw_h))
+        elif image.size != (draw_w, draw_h):
+            image = image.resize((draw_w, draw_h), Image.Resampling.LANCZOS)
+        image = overlays.rotate_rgba(image, element.rotation)
+        if element.opacity < 0.999999:
+            alpha = image.getchannel("A").point(lambda value: int(round(value * element.opacity)))
+            image.putalpha(alpha)
+        return image
+
+    def _video_element_images(
+        self, project: Project, t: float, size: tuple[int, int],
+    ) -> dict[str, object]:
+        active = [element for element in el.active(project, t) if element.kind == "video"]
+        if not active:
+            return {}
+        images: dict[str, object] = {}
+        for index, element in enumerate(active):
+            image = self._video_element_image(project, element, t, size, index % 4)
+            if image is not None:
+                images[element.id] = image
+        return images
 
     def _clip_frame(
         self, project: Project, clip: Clip, t_source: float, size: tuple[int, int], slot: int,
@@ -502,9 +570,23 @@ class FrameRenderer:
             self.last_transition = tr.transition.kind
         else:
             self.last_transition = None
-        # v6 (docs/22): efectos globales → elementos → textos (mismo orden que el export).
+        # Orden compartido con el export: V1 → V2/V3 → efectos globales → capa «Elementos»
+        # (imágenes, figuras y PiP suelto) → textos.
+        sources = self._sources(project, size)
+        video_elements = self._video_element_images(project, t, size)
+        video_layer = tuple(e for e in project.elements if e.video_track > 0)
+        generic_layer = tuple(e for e in project.elements if e.video_track <= 0)
+        if video_layer:
+            frame = overlays.apply_frame(
+                replace(project, elements=video_layer), t, frame, sources=sources,
+                video_images=video_elements,
+            )
         frame = global_effects.apply_frame(project, frame)
-        frame = overlays.apply_frame(project, t, frame, sources=self._sources(project, size))
+        if generic_layer:
+            frame = overlays.apply_frame(
+                replace(project, elements=generic_layer), t, frame, sources=sources,
+                video_images=video_elements,
+            )
         return _draw_texts(project, t, frame)
 
     def prefetch(self, project: Project, index: int) -> None:
@@ -569,7 +651,10 @@ class AudioPreview:
         with self._control:
             self._stop_locked()
             if not self.muted:
-                self._start_locked(project, t, mixed=bool(project.audio))
+                # Con pistas extra o audio de un PiP la mezcla exacta del export se renderiza a
+                # un WAV cacheado; sin ellos se decodifica el video pista a pista (más ligero).
+                mixed = bool(project.audio) or graph_mod.has_element_audio(project)
+                self._start_locked(project, t, mixed=mixed)
 
     def stop(self) -> None:
         with self._control:

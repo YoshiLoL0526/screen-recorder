@@ -5,7 +5,8 @@
 > transformación y modelo v5 con el flujo de edición; resultados en
 > [19 — Fase 0 y 1](19-fase-0-1-audio.md), [20 — Fase 2](20-fase-2-frame.md) y
 > [21 — Fase 3](21-fase-3-flujo.md)). El resto del documento conserva el análisis y la
-> hoja de ruta propuesta.
+> hoja de ruta propuesta. El **panel de medios, la selección directa y las capas del timeline**
+> se añadieron después (ver [27](27-panel-medios-y-capas.md)).
 >
 > Complementa [04 — Editor](04-editor.md), [12 — F3](12-f3-editor.md), [13 — F4](13-f4-export.md),
 > [17 — Bloque B](17-bloque-b-editor.md) y el backlog de [15](15-post-v1.md). Cuando una fase se
@@ -16,6 +17,9 @@
 El editor actual es un **NLE mínimo**: una pista de video magnética, el audio del video enlazado a
 sus clips y una pista de música secuencial. Eso cubre bien «cortar, reordenar, velocidad,
 transiciones y textos», pero deja fuera casi todo lo que se espera de un editor de video moderno.
+
+> **Nota:** este diagnóstico es el estado inicial del análisis; las tablas de abajo y los docs
+> 19–31 marcan lo que ya se implementó (audio, lienzo, flujo, PiP/V2-V3, subtítulos, keyframes…).
 
 Las dos peticiones concretas —**picar/separar el audio** y **redimensionar el frame**— no son dos
 botones sueltos: tocan el modelo de datos, el timeline, el preview, el export y la persistencia.
@@ -147,8 +151,8 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | A10 | Marcadores y capítulos | ✅ (marcadores; capítulos en el MP4, no) | `Project.markers`, `B`, ↑/↓, regla e inspector (docs/21) | P2 | S |
 | A11 | Loop e in/out de reproducción | ✅ | `I`/`O`, `Ctrl+L` y `Player.set_loop` (docs/21) | — | — |
 | A12 | Scroll vertical cuando hay muchas pistas | ✅ (alternativa) | El panel crece con las pistas y se limita a 6 nuevas; el scroll anidado de Aurora 0.10 no se pudo usar (docs/19) | — | — |
-| A13 | Drag & drop desde el Explorador | ⛔ | `on_drop` de Aurora disponible (docs/05) | P1 | S |
-| A14 | Panel de medios del proyecto | ⛔ | Los assets solo se ven en el inspector de cada clip | P2 | M |
+| A13 | Drag & drop desde el Explorador | ◐ | El panel de medios acepta `on_drop`; falta soltar directo en el timeline | P1 | S |
+| A14 | Panel de medios del proyecto | ✅ | `ui/project_panel.py`: medios, capas, insertar, arrastrar y quitar | — | — |
 | A15 | Menú contextual (clic derecho) | ⛔ | `on_context_menu` de Aurora disponible, sin usar | P2 | S–M |
 | A16 | Herramienta razor visible (cortar donde se pulsa) | ✅ | Botón y `C`; por pista o en todas (docs/21) | — | — |
 | A17 | Zoom que mantenga el playhead/selección a la vista | ◐ | Aurora 0.10 no permite fijar el scroll horizontal (spike en docs/21) | P1 | S |
@@ -186,8 +190,8 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | C6 | Rotar y voltear | ✅ | `Transform.rotation` (0/90/180/270), `flip_h`, `flip_v` | — | — |
 | C7 | Auto-rotación de videos de móvil | ✅ | `media.probe` lee `frame.rotation`; preview y export enderezan (docs/20) | — | — |
 | C8 | Fondo del lienzo: color, blur, imagen | ◐ | Color sólido (`Project.background`); blur/imagen pendientes | P1 | M |
-| C9 | PiP / pista de video superpuesta | ⛔ | Una sola pista de video; C1 webcam PiP del backlog | P2 | L |
-| C10 | Opacidad, borde y sombra de overlays | ⛔ | No hay overlays | P2 | M |
+| C9 | PiP / pista de video superpuesta | ◐ | V2/V3 como grupos de `Element.video` con varios clips, audio y filas propias (docs/29); no son `Track` con razor/transiciones | P2 | L |
+| C10 | Opacidad, borde y sombra de overlays | ◐ | Opacidad sí; borde/sombra de overlays no | P2 | M |
 | C11 | Color avanzado: temperatura, LUT, curvas, HSL, viñeta | ◐ | Solo brillo/contraste/saturación | P2 | M–L |
 | C12 | Scopes: histograma, waveform, vectorscopio | ⛔ | No hay | P2 | M |
 | C13 | Speed ramps / keyframes de velocidad | ⛔ | `Clip.speed` es estático | P2 | L |
@@ -195,7 +199,7 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | C15 | Más transiciones y control de curva | ◐ | 8 `xfade` y duración; sin curvas | P2 | S–M |
 | C16 | Guías de área segura / rejilla | ⛔ | No hay | P1 | S |
 | C17 | Zoom/pan del preview | ⛔ | El preview siempre encaja el lienzo | P1 | S–M |
-| C18 | Arrastrar textos/transformaciones sobre el preview | ⛔ | Solo selects en el inspector | P1 | M |
+| C18 | Arrastrar textos/transformaciones sobre el preview | ✅ | Caja y asas para clip, elemento y texto (docs/27) | — | — |
 
 ### 3.4 Textos, gráficos y subtítulos
 
@@ -203,11 +207,12 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 |---|---|---|---|---|---|
 | D1 | Texto multilínea y ajuste automático | ⛔ | `TextOverlay.text` es una línea; `drawtext` y PIL sin wrap | P1 | S–M |
 | D2 | Fuente, tamaño, color, contorno, caja y alineación | ◐ | Arial fija, tamaño/color/negrita; sin fuente ni caja | P1 | M |
-| D3 | Presets y animaciones de título | ⛔ | Solo texto estático | P2 | M |
-| D4 | Subtítulos SRT/VTT (importar/exportar) | ⛔ | No hay parser ni modelo de cues | P1 | M |
-| D5 | Imágenes, logos y stickers | ⛔ | `probe` solo video/audio; no hay assets de imagen | P2 | M |
+| D3 | Presets y animaciones de título | ◐ | X/Y/opacidad con keyframes (docs/31); sin presets ni escala/rotación | P2 | M |
+| D4 | Subtítulos SRT/VTT (importar/exportar) | ✅ | Parser, importación, estilo global y SRT (docs/30) | — | — |
+| D5 | Imágenes, logos y stickers | ✅ | `Element.kind="image"` con PNG/JPEG/WebP/BMP (docs/25) | — | — |
 | D6 | Formas, máscaras y chroma key | ⛔ | Fuera del alcance simple | P3 | L–XL |
-| D7 | Carril de textos y snap a sus bordes | ⛔ | Los textos solo se listan en el inspector | P2 | M |
+| D7 | Carril de textos y snap a sus bordes | ✅ | Fila Textos en el timeline, mover/recortar y snap (docs/27) | — | — |
+| D8 | Keyframes de posición/opacidad | ✅ | X/Y de elementos/textos y opacidad de textos, preview/export (docs/31); faltan escala/rotación/color | P2 | M |
 
 ### 3.5 Proyecto, medios y export
 
@@ -215,7 +220,7 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 |---|---|---|---|---|---|
 | E1 | Ajustes de proyecto: nombre, resolución, fps, fondo | ✅ (resolución/fps/fondo; nombre aún no editable) | Inspector de proyecto: lienzo, fit, fondo y FPS (docs/20) | — | — |
 | E2 | Nuevo proyecto / guardar como / duplicar | ⛔ | Se crea al importar; no hay «guardar como» | P1 | S–M |
-| E3 | Panel de medios y reemplazo de asset online | ⛔ | Solo «reubicar» cuando falta el archivo | P2 | M |
+| E3 | Panel de medios y reemplazo de asset online | ◐ | Panel de medios y quitar sin usar; falta reemplazar el archivo conservando clips | P2 | M |
 | E4 | Importar imágenes al timeline | ⛔ | Solo videos y audio de música | P2 | M |
 | E5 | Export personalizado (resolución, bitrate, fps, códec) | ⛔ | Cuatro presets cerrados | P1 | M |
 | E6 | Exportar un rango / la selección | ✅ (rango In/Out) | Opción del modal; render y corte rápido (docs/21) | — | — |
@@ -401,10 +406,10 @@ No son la fundación, pero condicionan el diseño:
   (`t`, `between`, `lerp`) o `sendcmd`. Es un salto grande; dejarlo para después de que transform y
   audio funcionen. Para un primer «Ken Burns» se puede hacer un transform con dos puntos fijos
   (inicio/fin) sin keyframes genéricos.
-- **PiP/overlay**: requiere una pista de video absoluta con z-order y composición `overlay` en el
-  graph. Es el mismo `Track.mode="absolute"` de 4.1, pero con un `Project.overlays` o
-  `Project.video_tracks`. C1 (webcam) puede ser el primer caso de uso; no empezar por ahí si el
-  objetivo es audio/frame.
+- **PiP/overlay**: implementado como `Element.video` (modelo v7) y pistas V2/V3 agrupadas por
+  `Element.video_track` (v8, [docs/29](29-pistas-video.md)). Lo que falta para equipararlo a una
+  `Track` de pleno derecho es razor/transiciones por pista y mute/lock por pista; no hace falta un
+  `Project.video_tracks` nuevo para el caso de uso actual.
 - **Subtítulos**: se pueden modelar como `TextOverlay` con `start/end`; importar SRT/VTT es un
   parser + crear overlays; exportar `drawtext` ya funciona. Es más barato que keyframes y aporta
   mucho.

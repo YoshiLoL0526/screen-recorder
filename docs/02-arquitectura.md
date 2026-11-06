@@ -63,6 +63,8 @@ screen-recorder/
 │  │  ├─ project.py           # dataclasses: Project, Track, Clip, Transition, Effect
 │  │  ├─ timeline.py          # t↔x, snapping, ripple, split, trim (puro)
 │  │  ├─ graph.py             # Project → filter_complex de FFmpeg
+│  │  ├─ animation.py         # keyframes, interpolación y expresiones FFmpeg
+│  │  ├─ subtitles.py         # parser SRT/VTT y export SRT
 │  │  ├─ keyframes.py         # índice de keyframes y snap para corte rápido
 │  │  └─ store.py             # JSON, schema_version, undo (snapshots), autosave
 │  ├─ platform/

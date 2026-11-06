@@ -25,13 +25,24 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from . import animation as anim
 from . import effects as fx
+from . import elements as el
 from . import global_effects
 from . import overlays
 from . import timeline as tl
 from . import transform as tx
 from .errors import ProjectError
-from .project import Clip, Project, Track, audio_track_audible, video_audio_gain
+from .project import (
+    Clip,
+    Element,
+    MediaAsset,
+    Project,
+    Track,
+    audio_solo_active,
+    audio_track_audible,
+    video_audio_gain,
+)
 
 AUDIO_RATE = 48_000
 _INPUT_SLACK = 0.1  # s de margen al leer cada clip (lo sobrante lo corta `trim`/`atrim`)
@@ -370,14 +381,62 @@ def _absolute_track_audio(
     return joined, next_input
 
 
+def _element_audio_mixes(
+    project: Project, inputs: list[str], chains: list[str], *, total: float, next_input: int,
+    element_inputs: Mapping[str, int] | None = None,
+) -> tuple[list[str], int]:
+    """Mezcla el audio de los videos superpuestos (PiP) y devuelve sus etiquetas.
+
+    Si `element_inputs` trae la entrada que ya abrió `overlays.apply_graph` para el video, se
+    reutiliza (`[N:a]`) y no se abre el archivo dos veces. El resto se añade aquí, como en
+    `build_audio`, que no compone video.
+    """
+    labels: list[str] = []
+    for index, (element, asset, start, end) in enumerate(element_audio(project)):
+        duration = end - start
+        source = (element_inputs or {}).get(element.id)
+        if source is None:
+            inputs += [
+                "-ss", num(element.in_), "-t", num(duration + _INPUT_SLACK), "-i", asset.path,
+            ]
+            source = next_input
+            next_input += 1
+        gain = el.audio_gain(element)
+        steps = [
+            "asetpts=PTS-STARTPTS",
+            f"aresample={AUDIO_RATE}",
+            "aformat=sample_fmts=fltp:channel_layouts=stereo",
+        ]
+        if abs(gain - 1.0) > 1e-6:
+            steps.append(f"volume={num(gain)}")
+        # Microfundidos en los bordes del intervalo: evitan el chasquido de entrar a mitad de
+        # una onda. No son los fundidos del usuario (el PiP todavía no tiene handles propios).
+        fade = min(fx.MICRO_FADE, duration / 2)
+        if fade > 1e-6:
+            steps += [
+                f"afade=t=in:st=0:d={num(fade)}",
+                f"afade=t=out:st={num(duration - fade)}:d={num(fade)}",
+            ]
+        steps += [f"apad=whole_dur={num(duration)}", f"atrim=duration={num(duration)}"]
+        delay = int(round(start * AUDIO_RATE))
+        if delay > 0:
+            steps.append(f"adelay=delays={delay}S:all=1")
+        steps += [f"apad=whole_dur={num(total)}", f"atrim=duration={num(total)}"]
+        label = f"pip{index}"
+        chains.append(f"[{source}:a]{','.join(steps)}[{label}]")
+        labels.append(label)
+    return labels, next_input
+
+
 def _audio_section(
     project: Project, inputs: list[str], chains: list[str], *, first_extra_input: int,
     total_frames: int, frames: list[int], overlaps: list[int],
+    element_inputs: Mapping[str, int] | None = None,
 ) -> str:
-    """Añade a `chains` el audio del video y las pistas extra; devuelve la etiqueta de salida.
+    """Añade a `chains` el audio del video, el de los PiP y las pistas extra.
 
-    `first_extra_input` es el índice de la primera entrada de las pistas de audio; las entradas
-    de video ya están en `inputs` (una por clip) y se numeran desde 0.
+    `first_extra_input` es el índice de la primera entrada libre después de las de video (y de
+    los overlays que ya están en `inputs`); las entradas de video se numeran desde 0.
 
     Reglas de la fase 1 (docs/19):
     - `Clip.audio_enabled=False` deja el tramo del video en silencio (el sonido vive en la pista
@@ -385,6 +444,9 @@ def _audio_section(
     - Un solo de audio silencia las demás pistas **y** el audio del video.
     - Las pistas `absolute` se mezclan con `adelay` + `amix`; las `sequence` mantienen el
       `concat`/`acrossfade` de la música.
+
+    El audio de un video superpuesto se suma como una fuente más (docs/28). También alimenta el
+    sidechain del ducking: si el PiP lleva una voz, la música baja con ella.
     """
     track = project.video
     by_id = {a.id: a for a in project.assets}
@@ -408,9 +470,26 @@ def _audio_section(
         main = "amain"
         chains.append(_concat(labels, main, video=False))
 
-    mixes = [main]
     total = total_frames / project.fps
     next_input = first_extra_input
+    element_labels, next_input = _element_audio_mixes(
+        project, inputs, chains, total=total, next_input=next_input,
+        element_inputs=element_inputs,
+    )
+    mixes = [main, *element_labels]
+
+    # Sidechain del ducking: video base + PiP (una voz superpuesta también baja la música).
+    sidechain = main
+    if element_labels and any(
+        audio_track_audible(project, extra) and extra.clips and extra.ducking > 0
+        for extra in project.audio
+    ):
+        sidechain = "aside"
+        sources = "".join(f"[{label}]" for label in (main, *element_labels))
+        chains.append(
+            f"{sources}amix=inputs={1 + len(element_labels)}:normalize=0:duration=first[aside]"
+        )
+
     for t_index, extra in enumerate(project.audio):
         if not audio_track_audible(project, extra) or not extra.clips:
             continue
@@ -443,12 +522,12 @@ def _audio_section(
             source = _join_audio_track(chains, extra_labels, extra.transitions, f"m{t_index}c")
             joined = f"m{t_index}"
             chains.append(f"[{source}]apad=whole_dur={num(total)},atrim=duration={num(total)}[{joined}]")
-        if extra.ducking > 0 and video_has_audio(project):
-            # El audio del video (voz/sistema) es el sidechain; la música baja cuando suena.
+        if extra.ducking > 0 and (video_has_audio(project) or element_labels):
+            # El audio del video o del PiP (voz/sistema) es el sidechain; la música baja.
             ratio = 2.0 + 10.0 * extra.ducking
             ducked = f"m{t_index}d"
             chains.append(
-                f"[{joined}][{main}]sidechaincompress=threshold=0.05:ratio={num(ratio)}"
+                f"[{joined}][{sidechain}]sidechaincompress=threshold=0.05:ratio={num(ratio)}"
                 f":attack=20:release=350[{ducked}]"
             )
             joined = ducked
@@ -487,17 +566,64 @@ def text_filters(project: Project, output_height: int) -> list[str]:
         size = max(1, int(round(overlay.size * output_height / project.height)))
         font = FONT_BOLD if overlay.bold else FONT_REGULAR
         color = "0x" + overlay.color.lstrip("#")
+        x_animated = anim.is_animated(overlay.animations, "x")
+        y_animated = anim.is_animated(overlay.animations, "y")
+        x_value = anim.expr(overlay.animations, "x", overlay.start, overlay.x)
+        y_value = anim.expr(overlay.animations, "y", overlay.start, overlay.y)
+        x_part = f"x=(w*{x_value})-(text_w/2)"
+        y_part = f"y=(h*{y_value})-(text_h/2)"
+        if x_animated:
+            x_part = f"x='(w*{x_value})-(text_w/2)'"
+        if y_animated:
+            y_part = f"y='(h*{y_value})-(text_h/2)'"
+        if anim.is_animated(overlay.animations, "opacity"):
+            opacity = anim.expr(overlay.animations, "opacity", overlay.start, overlay.opacity)
+            alpha = f":alpha='{opacity}'"
+        elif overlay.opacity < 0.999999:
+            alpha = f":alpha={num(overlay.opacity)}"
+        else:
+            alpha = ""
         filters.append(
             f"drawtext=fontfile='{_escape_path(font)}':text='{_escape_text(overlay.text)}':"
             f"fontsize={size}:fontcolor={color}:expansion=none:"
-            f"x=(w*{num(overlay.x)})-(text_w/2):y=(h*{num(overlay.y)})-(text_h/2):"
-            f"borderw=2:bordercolor=black@0.55:"
+            f"{x_part}:{y_part}:"
+            f"borderw=2:bordercolor=black@0.55{alpha}:"
             f"enable='between(t,{num(overlay.start)},{num(overlay.end)})'"
         )
     return filters
 
 
 # -- builder ----------------------------------------------------------------------------
+
+
+def element_audio(project: Project) -> list[tuple[Element, MediaAsset, float, float]]:
+    """Videos superpuestos con audio audible: `(elemento, asset, inicio, fin)`.
+
+    El intervalo se recorta al timeline: un PiP que termina después del último clip no alarga
+    la mezcla. Los elementos con `opacity=0` sí suenan si su volumen no es 0 (la opacidad es
+    visual), pero un `gain=0` equivale a silencio.
+    """
+    total = tl.total_duration(project)
+    if total <= 0 or audio_solo_active(project):
+        return []  # un solo de audio silencia también las voces superpuestas
+    by_id = {a.id: a for a in project.assets}
+    items: list[tuple[Element, MediaAsset, float, float]] = []
+    for element in project.elements:
+        if not el.has_audio(element):
+            continue
+        asset = by_id.get(element.asset_id or "")
+        if asset is None or not asset.has_audio:
+            continue
+        start = max(0.0, float(element.start))
+        end = min(float(element.end), total)
+        if end - start > 1e-6:
+            items.append((element, asset, start, end))
+    return items
+
+
+def has_element_audio(project: Project) -> bool:
+    """¿Hay algún video superpuesto cuyo audio haya que mezclar?"""
+    return bool(element_audio(project))
 
 
 def project_has_audio(project: Project) -> bool:
@@ -507,7 +633,7 @@ def project_has_audio(project: Project) -> bool:
         for c in project.video.clips if c.asset_id in by_id
     )
     extra = any(audio_track_audible(project, t) and t.clips for t in project.audio)
-    return video_audio or extra
+    return video_audio or extra or has_element_audio(project)
 
 
 def build(
@@ -589,14 +715,28 @@ def build(
         pending, pending_frames = [label], pending_frames + frames[k] - overlap
     video_out = flush()
 
-    # -- efectos globales: al video ya compuesto (antes de elementos y textos) -----------
+    element_inputs: dict[str, int] = {}
+    video_layer = tuple(e for e in project.elements if e.video_track > 0)
+    generic_layer = tuple(e for e in project.elements if e.video_track <= 0)
+
+    # -- V2/V3: capas de video antes de los efectos globales -----------------------------
+    if video_layer:
+        video_out, _ = overlays.apply_graph(
+            replace(project, elements=video_layer), video_out, chains, inputs, size,
+            first_input=inputs.count("-i"), sources=element_sources,
+            video_inputs=element_inputs, prefix="vt",
+        )
+
+    # -- efectos globales: al video base y a las pistas V2/V3 ----------------------------
     video_out = global_effects.apply_graph(project, video_out, chains, output_height=size[1])
 
-    # -- elementos superpuestos (v6): debajo de los textos -------------------------------
-    video_out, _overlay_input = overlays.apply_graph(
-        project, video_out, chains, inputs, size, first_input=inputs.count("-i"),
-        sources=element_sources,
-    )
+    # -- capa «Elementos» (imágenes, figuras y PiP suelto), debajo de los textos ---------
+    if generic_layer:
+        video_out, _ = overlays.apply_graph(
+            replace(project, elements=generic_layer), video_out, chains, inputs, size,
+            first_input=inputs.count("-i"), sources=element_sources,
+            video_inputs=element_inputs,
+        )
 
     # -- textos: se queman sobre el video ya compuesto (tiempo global) --------------------
     filters = text_filters(project, size[1])
@@ -610,6 +750,7 @@ def build(
         audio_out = _audio_section(
             project, inputs, chains, first_extra_input=inputs.count("-i"),
             total_frames=total_frames, frames=frames, overlaps=overlaps,
+            element_inputs=element_inputs,
         )
 
     # -- rango In/Out: recorte final por frames (mismo número entero de frames que el preview) --
@@ -673,7 +814,7 @@ def build_audio(
     audio_out = _audio_section(
         project, inputs, chains, first_extra_input=len(track.clips), total_frames=total_frames,
         frames=frames, overlaps=overlaps,
-    )
+    )  # sin element_inputs: build_audio no compone video y abre sus propias entradas
     return tuple([
         exe, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *inputs,
         "-filter_complex", ";".join(chains), "-map", f"[{audio_out}]",

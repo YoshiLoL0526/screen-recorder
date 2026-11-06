@@ -6,7 +6,9 @@
 > y las **fases 0, 1, 2 y 3 del editor** ([19 - Fase 0 y 1](19-fase-0-1-audio.md),
 > [20 - Fase 2](20-fase-2-frame.md), [21 - Fase 3](21-fase-3-flujo.md)), más las **features v6**
 > de composición ([22 - plan](22-plan-features-editor.md), [23](23-canvas-resize.md),
-> [24](24-pistas-av.md), [25](25-elementos.md) y [26](26-efectos-globales.md)).
+> [24](24-pistas-av.md), [25](25-elementos.md), [26](26-efectos-globales.md)) y el
+> **panel de medios/capas** ([27](27-panel-medios-y-capas.md)) y el **PiP de video**
+> ([28](28-pip-video.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -225,10 +227,93 @@ Resultados y decisiones completas en [26 — Efectos globales](26-efectos-global
 - Blur escalado al alto de salida, viñeta con la fórmula real de FFmpeg y paridad verificada con
   export real.
 
+### B14 — Panel de medios, selección directa y capas (✅ · M)
+
+Resultados y decisiones completas en [27 — Panel de medios y capas](27-panel-medios-y-capas.md).
+
+- **Panel de medios/capas** a la izquierda del preview (`ui/project_panel.py`): ve todos los
+  assets, inserta en el playhead, arrastra al timeline/preview, acepta `on_drop` del Explorador y
+  quita medios sin usar. Los pósters se generan en un hilo y llegan por `state.posters`.
+- **Selección directa en el preview** de clip, elemento y texto, con caja y asas. Los textos usan
+  `element_overlay.text_box` (métricas reales de la fuente) y se pueden mover y escalar; el clip
+  base ya se puede seleccionar con un clic aunque no tuviera selección.
+- **Capas en el timeline**: filas de Textos y Elementos sobre la pista de video, con barras
+  movibles/recortables, snap y cabeceras. La geometría usa `Tracks.video_top` y
+  `max_tracks_extra` descuenta su alto.
+- **Inspector**: `number_input` para geometría/opacidad de elementos y tamaño/posición de texto;
+  `color_picker` para color de elemento y texto; campo de texto del título con ancho correcto.
+- **Portapapeles**: copiar/duplicar elementos (antes quedaban fuera).
+- **Preview de texto**: mismo contorno que `drawtext`, en vez de una sombra que el export no tenía.
+- Sin cambios de esquema; 13 tests nuevos en `tests/test_project_panel.py` y **407 tests** en verde.
+
+### B15 — PiP de video (✅ · M)
+
+Resultados y decisiones completas en [28 — PiP de video](28-pip-video.md).
+
+- **Modelo v7** (`SCHEMA_VERSION=7`): `Element.kind="video"` y `Element.in_` (segundo de entrada);
+  migración v6 → v7 sin cambios visibles.
+- **Composición**: el video superpuesto se decodifica en preview y se exporta con `-ss/-t`,
+  `setpts` al inicio del elemento, `overlay` con `eof_action=pass` y la misma geometría que la caja
+  del elemento.
+- **UI**: botón PiP en el panel de medios, «Video PiP…» en Capas, recorte izquierdo que avanza la
+  fuente, inspector con Fuente y **Volumen** (0 = silencio, botones Silenciar/Original).
+- **Audio**: se mezcla con el video y las pistas en preview y export. Usa `Effect("volume")` en
+  `Element.effects` (sin cambiar el esquema), reutiliza la entrada del overlay y alimenta el
+  sidechain del ducking. Un solo de audio silencia también los PiP.
+- **Límite**: el PiP no tiene handles de fundido propios ni animación de volumen; el resto de la
+  composición (imagen, posición, rotación, opacidad, intervalo) sí.
+- Tests nuevos en `test_modelo_v6_base`, `test_pip_video` y `test_project_panel`;
+  **421 tests** en verde.
+
+### B16 — Pistas de video V2/V3 (✅ · M)
+
+Resultados y decisiones completas en [29 — Pistas de video](29-pistas-video.md).
+
+- **Modelo v8** (`SCHEMA_VERSION=8`): `Element.video_track` (0 = Elementos, 1 = V2, 2 = V3) y
+  migración v7 → v8 sin cambios visibles. No hay `Track` nuevas: las pistas son grupos de
+  elementos de video, reutilizando composición, audio y drag.
+- **Composición**: V1 → V2 → V3 → efectos globales → Elementos → textos, en preview y export.
+- **UI**: destino Elementos/V2/V3 en Capas, alta desde el panel/`+`/arrastre/`Video en V2…`,
+  filas V3/V2 en el timeline con cabecera y `+`, selector **Pista** en el inspector y prefijo en
+  la lista de capas. A pantalla completa por defecto; se puede reducir a PiP.
+- **Audio**: el de un clip V2/V3 se mezcla como el del PiP; un solo de audio lo silencia.
+- **Límite**: sin razor/transiciones por pista V2/V3 (se recortan como elementos), sin mute/lock
+  por pista y máximo dos pistas extra.
+- Tests nuevos en `test_modelo_v6_base`, `test_video_tracks` y `test_project_panel`;
+  **431 tests** en verde.
+
+### B17 — Subtítulos SRT/VTT (✅ · M)
+
+Resultados y decisiones completas en [30 — Subtítulos](30-subtitulos.md).
+
+- **Parser puro** (`core/subtitles.py`): SRT y VTT, BOM/CRLF, índices, ajustes de cue, `NOTE`,
+  etiquetas HTML/ASS y cues multilínea (unidos con espacios).
+- **Modelo v9**: `TextOverlay.subtitle` y `TextOverlay.opacity`; migración v8 → v9 sin cambios
+  visibles.
+- **UI**: Subtítulos… y SRT… en Capas, cues en la fila Textos en teal, chip Subtítulo y
+  «Aplicar estilo a todos los subtítulos».
+- **Límite**: una línea por cue, Arial fija, sin cajas/estilos ASS ni subtítulos blandos.
+- Tests nuevos en `test_subtitles`, `test_project_panel` y `test_modelo_v6_base`.
+
+### B18 — Keyframes de posición y opacidad (✅ · M)
+
+Resultados y decisiones completas en [31 — Keyframes](31-keyframes.md).
+
+- **Modelo v9**: `Animation`/`Keyframe` en `Element.animations` y `TextOverlay.animations`;
+  tiempos locales, valores 0…1, interpolación lineal.
+- **Canales**: X/Y de elementos y textos; opacidad de textos. La opacidad de un elemento no se
+  anima porque el filtro de export es estático.
+- **Preview/export**: `value_at` compartido y expresiones `if(lt(t,…))` en `overlay` y
+  `drawtext` (`alpha` incluido); sin animación, las cadenas del graph son las de siempre.
+- **UI**: sección Animación con «Clave X/Y/Opacidad» y «Quitar»; ◆ en el timeline; la caja del
+  preview se oculta si X/Y están animados.
+- **Límite**: sin escala/rotación/color/tamaño animados, sin easing ni claves automáticas.
+- Tests nuevos en `test_animation`, `test_animation_export` y `test_project_panel`;
+  **446 tests** en verde.
+
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
-> PiP de video, subtítulos/keyframes; los elementos, el canvas y los efectos globales ya están
-> hechos.
+> completar composición/export; subtítulos, keyframes y pistas V2/V3 ya están hechos.
 
 ---
 
@@ -307,7 +392,7 @@ Ordenadas por relación valor/coste (detalle en la tabla de docs/05):
 
 | Capacidad | Qué desbloquearía | Tamaño |
 |---|---|---|
-| `on_drop` / `on_drop_hover` (0.6) | Importar videos o carpetas arrastrándolos a la Biblioteca/editor | S |
+| `on_drop` / `on_drop_hover` (0.6) | Importar videos o carpetas arrastrándolos a la Biblioteca/editor (**panel de medios hecho**, docs/27; falta soltar directo en el timeline) | S |
 | `App.window` (varias ventanas) | **Overlay de región sobre el escritorio** (hoy es in-app) y ventana de preview desacoplada | M |
 | `splitter` (0.7) | Sustituir los divisores propios del editor (inspector y preview/timeline) | M |
 | `table(...)` (ordenación, columnas, virtualización) | La Biblioteca, hoy con `virtual_list` a mano | M |

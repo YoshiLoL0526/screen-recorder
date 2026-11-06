@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..core import elements as el
-from ..core.project import Element, Project
+from ..core.project import Element, Project, TextOverlay
 from ..services import playback
 
 
@@ -36,6 +36,18 @@ class ElementBox:
     center_x: float
     center_y: float
     rotation: float
+
+
+@dataclass(frozen=True)
+class TextBox:
+    """Caja de un texto activo en píxeles del panel del preview."""
+
+    left: float
+    top: float
+    width: float
+    height: float
+    center_x: float
+    center_y: float
 
 
 def preview_frame(project: Project, panel: tuple[float, float]) -> PreviewFrame:
@@ -73,4 +85,35 @@ def element_box(project: Project, element: Element, panel: tuple[float, float]) 
         center_x=center_x,
         center_y=center_y,
         rotation=layout.rotation,
+    )
+
+
+def text_box(project: Project, overlay: TextOverlay, panel: tuple[float, float]) -> TextBox | None:
+    """Caja del texto en el panel, con la misma fuente y escala que `_draw_texts`.
+
+    `drawtext` del export usa la misma fuente y el centro normalizado; la caja del preview es
+    una aproximación con las métricas reales de la fuente para poder seleccionar y arrastrar.
+    """
+    frame = preview_frame(project, panel)
+    if frame.scale <= 0 or project.height <= 0:
+        return None
+    size = max(8, int(round(overlay.size * frame.frame_height / project.height)))
+    font = playback.text_font(overlay.bold, size)
+    try:
+        left, top, right, bottom = font.getbbox(overlay.text, anchor="mm")
+    except (AttributeError, TypeError, ValueError):
+        left, top, right, bottom = font.getbbox(overlay.text)
+    width = max(2, right - left)
+    height = max(2, bottom - top)
+    # Un pequeño margen para que el borde y las asas no se coman el texto ni el clic.
+    pad = max(3.0, 4.0 * frame.scale)
+    center_x = frame.left + overlay.x * frame.frame_width * frame.scale
+    center_y = frame.top + overlay.y * frame.frame_height * frame.scale
+    return TextBox(
+        left=center_x + left * frame.scale - pad,
+        top=center_y + top * frame.scale - pad,
+        width=width * frame.scale + 2 * pad,
+        height=height * frame.scale + 2 * pad,
+        center_x=center_x,
+        center_y=center_y,
     )

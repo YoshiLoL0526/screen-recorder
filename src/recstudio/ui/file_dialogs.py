@@ -29,6 +29,25 @@ IMAGE_FILTERS = (
     ("Imágenes", ("png", "jpg", "jpeg", "webp", "bmp")),
     ("Todos los archivos", ("*",)),
 )
+MEDIA_FILTERS = (
+    ("Videos e imágenes", ("mp4", "mkv", "mov", "webm", "avi", "png", "jpg", "jpeg", "webp", "bmp")),
+    ("Audio", ("mp3", "wav", "m4a", "aac", "flac", "ogg")),
+    ("Todos los archivos", ("*",)),
+)
+SUBTITLE_FILTERS = (
+    ("Subtítulos", ("srt", "vtt")),
+    ("Todos los archivos", ("*",)),
+)
+SRT_FILTERS = (
+    ("Subtítulos SRT", ("srt",)),
+    ("Todos los archivos", ("*",)),
+)
+
+
+def open_media(initial_dir: str | Path | None = None, *, title: str = "Importar medios") -> list[Path]:
+    """Diálogo «Abrir» con videos, imágenes y audio para el panel de medios."""
+    chosen = dialogs.open_files(title=title, directory=initial_dir, filters=MEDIA_FILTERS)
+    return [Path(p) for p in chosen]
 
 
 def open_videos(initial_dir: str | Path | None = None, *, title: str = "Importar video") -> list[Path]:
@@ -49,4 +68,24 @@ def open_images(initial_dir: str | Path | None = None, *, title: str = "Importar
 def pick_folder(initial_dir: str | Path | None = None, *, title: str = "Elegir carpeta") -> Path | None:
     """Diálogo «Buscar carpeta»; `None` si se cancela."""
     chosen = dialogs.pick_folder(title=title, directory=initial_dir)
+    return Path(chosen) if chosen else None
+
+
+def open_subtitles(
+    initial_dir: str | Path | None = None, *, title: str = "Importar subtítulos",
+) -> Path | None:
+    """Diálogo «Abrir» con un SRT/VTT; `None` si se cancela."""
+    chosen = dialogs.open_file(title=title, directory=initial_dir, filters=SUBTITLE_FILTERS)
+    return Path(chosen) if chosen else None
+
+
+def save_subtitles(
+    initial_dir: str | Path | None = None, *, default_name: str = "subtitulos.srt",
+    title: str = "Exportar subtítulos",
+) -> Path | None:
+    """Diálogo «Guardar como» para un SRT; `None` si se cancela."""
+    chosen = dialogs.save_file(
+        title=title, directory=initial_dir, default_name=default_name,
+        filters=SRT_FILTERS,
+    )
     return Path(chosen) if chosen else None

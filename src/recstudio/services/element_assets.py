@@ -206,6 +206,8 @@ def materialize(project: Project, size: tuple[int, int]) -> dict[str, str]:
         if not el.visible_in_timeline(project, element):
             continue
         layout = el.layout(project, element, size)
+        if element.kind == "video":
+            continue
         if element.kind == "image":
             asset = project.asset(element.asset_id or "")
             path = image_png(asset.path, element, layout)

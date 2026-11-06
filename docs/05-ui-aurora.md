@@ -355,8 +355,8 @@ pasaron sin cambios funcionales. Sí obligó a dos adaptaciones:
 | ✅ ~~`aurora.dialogs` (`open_file`, `open_files`, `save_file`, `pick_folder`) — 0.5~~ | **Hecho**: `ui/file_dialogs.py` envuelve los diálogos de Aurora (con los filtros de video) y sustituye a `platform/dialogs.py` (ctypes, solo Windows). Se llaman desde el hilo de UI, como documenta Aurora. |
 | ✅ ~~`app.tray(...)` + bandeja, menús nativos, `on_context_menu`, `app.notify(...)` — 0.5~~ | **Hecho**: `ui/tray.py` (icono, menú que sigue al estado, cerrar la ventana grabando deja la grabación en la bandeja, aviso al terminar) + `platform/hotkeys.py` (F9/F10 globales con `pynput`, opt-in). Siguen sin usarse los **menús nativos** (`App(menu=…)`) y `on_context_menu`. |
 | ✅ ~~`on_resize` — 0.7~~ | **Hecho**: `ui/shell._on_nav_resize` mide el alto útil (`state.view_h`) sin depender del `on_scroll` de la navegación. |
-| `on_drop` / `on_drop_hover` — 0.6 | Arrastrar videos o carpetas del Explorador a la Biblioteca o al editor; `EditorController.import_paths` ya existe |
-| `number_input`, `combobox`, `date_picker` — 0.6 | Campos numéricos con validación y desplegables filtrables en el inspector/Ajustes (hoy `text_input` + `select`) |
+| `on_drop` / `on_drop_hover` - 0.6 | ◐ **En uso**: el panel de medios acepta archivos del Explorador (docs/27); falta arrastrar directo al timeline y `on_drop_hover` |
+| `number_input`, `combobox`, `date_picker` - 0.6 | **number_input en uso** en el inspector de elementos/textos (docs/27); `combobox`/`date_picker` siguen pendientes |
 | `popover`, `splitter`, `tree`, `time_picker`, `color_picker` — 0.7 | `splitter` podría sustituir los divisores propios del editor; `popover` los menús contextuales; `tree` una biblioteca por carpetas |
 | `rich_text` / `markdown` — 0.7 | Textos de ayuda, changelog o notas del proyecto dentro de la app |
 | `remember="rec-studio"` — 0.7 | Recordar tamaño, posición y maximizado de la ventana entre sesiones (hoy no se persiste) |

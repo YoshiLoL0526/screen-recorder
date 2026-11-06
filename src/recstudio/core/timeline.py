@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass, replace
 
+from . import animation as anim
 from .errors import ProjectError
 from .project import (
     AUDIO_VIDEO_TRACK_NAME,
@@ -23,7 +24,9 @@ from .project import (
     SPEED_MAX,
     SPEED_MIN,
     TRANSITION_MIN,
+    VIDEO_TRACKS_MAX,
     Clip,
+    Element,
     Marker,
     MediaAsset,
     Project,
@@ -1113,16 +1116,75 @@ def add_asset(p: Project, asset: MediaAsset) -> tuple[Project, MediaAsset]:
     return replace(p, assets=(*p.assets, asset)), asset
 
 
-def append_clip(p: Project, asset: MediaAsset, index: int | None = None) -> tuple[Project, Clip]:
-    """Añade el asset (si falta) y un clip con el asset entero al final (o en `index`)."""
+def insert_clip(p: Project, asset: MediaAsset, index: int | None = None) -> tuple[Project, Clip]:
+    """Añade el asset (si falta) y un clip con el asset entero en `index` (0…N)."""
     if asset.kind == "image":
         raise ProjectError("una imagen no se añade como clip: usa un elemento superpuesto")
     p, asset = add_asset(p, asset)
     clip = Clip(id=new_id("c"), asset_id=asset.id, in_=0.0, out_=asset.duration)
     clips = list(p.video.clips)
     transitions = list(p.video.transitions)
-    _insert_at(clips, transitions, len(clips) if index is None else index, clip)
+    position = len(clips) if index is None else max(0, min(int(index), len(clips)))
+    _insert_at(clips, transitions, position, clip)
     return _with_track(p, clips, transitions), clip
+
+
+def append_clip(p: Project, asset: MediaAsset, index: int | None = None) -> tuple[Project, Clip]:
+    """Compatibilidad: añade el clip al final (o en `index`). Ver `insert_clip`."""
+    return insert_clip(p, asset, index)
+
+
+def video_insert_index(p: Project, t: float) -> int:
+    """Hueco de video más cercano a `t` (misma regla de centro que el pegado y el drag)."""
+    return _sequence_index(p.video, frame_round(max(0.0, float(t)), p.fps))
+
+
+def insert_audio_clip(
+    p: Project, track_index: int, asset: MediaAsset, start: float = 0.0,
+) -> tuple[Project, Clip]:
+    """Añade un asset de audio a una pista existente.
+
+    - En una pista `absolute`, el clip empieza en `start` (redondeado a frame) y no puede
+      solaparse con otro.
+    - En una pista `sequence`, se inserta en el hueco más cercano a `start` y el resto se
+      desplaza, igual que la música.
+    """
+    if asset.kind == "image":
+        raise ProjectError("una imagen no se añade como audio")
+    if not asset.has_audio:
+        raise ProjectError(f"«{asset.name}» no tiene pista de audio")
+    if not 0 <= int(track_index) < len(p.audio):
+        raise ProjectError(f"no existe la pista de audio {track_index}")
+    p, asset = add_asset(p, asset)
+    track = p.audio[int(track_index)]
+    _ensure_unlocked(track)
+    start = frame_round(max(0.0, float(start)), p.fps)
+    if track.mode == "absolute":
+        if _absolute_overlap(track, start, asset.duration):
+            raise ProjectError("el audio se solaparía con otro clip de la misma pista")
+        clip = Clip(
+            id=new_id("a"), asset_id=asset.id, in_=0.0, out_=asset.duration,
+            start=round(start, 6),
+        )
+        clips = _ordered_absolute_clips([*track.clips, clip])
+        updated = replace(track, clips=clips, transitions=tuple(None for _ in range(len(clips) - 1)))
+        return _with_track_index(p, int(track_index), updated), clip
+    clip = Clip(id=new_id("a"), asset_id=asset.id, in_=0.0, out_=asset.duration)
+    clips = list(track.clips)
+    transitions = list(track.transitions)
+    _insert_at(clips, transitions, _sequence_index(track, start), clip)
+    updated = replace(track, clips=tuple(clips), transitions=tuple(transitions))
+    return _with_track_index(p, int(track_index), updated), clip
+
+
+def remove_asset(p: Project, asset_id: str) -> Project:
+    """Quita un asset que ya no usa ningún clip ni elemento (los usados no se tocan)."""
+    p.asset(asset_id)  # valida que existe
+    used = any(clip.asset_id == asset_id for track in (p.video, *p.audio) for clip in track.clips)
+    used = used or any(element.asset_id == asset_id for element in p.elements)
+    if used:
+        raise ProjectError("el medio todavía se usa en el proyecto")
+    return replace(p, assets=tuple(asset for asset in p.assets if asset.id != asset_id))
 
 
 # -- textos (B2) -------------------------------------------------------------------
@@ -1131,7 +1193,8 @@ def append_clip(p: Project, asset: MediaAsset, index: int | None = None) -> tupl
 def add_text(
     p: Project, text: str, start: float, duration: float = 3.0, *,
     x: float = 0.5, y: float = 0.82, size: int = 42, color: str = "#FFFFFF",
-    bold: bool = False,
+    bold: bool = False, opacity: float = 1.0, subtitle: bool = False,
+    animations: tuple = (),
 ) -> tuple[Project, TextOverlay]:
     """Añade un texto en `start` (acotado al timeline) y devuelve `(proyecto, overlay)`."""
     total = total_duration(p)
@@ -1146,6 +1209,7 @@ def add_text(
     overlay = TextOverlay(
         id=new_id("t"), text=str(text), start=round(start, 4), end=round(end, 4),
         x=x, y=y, size=int(size), color=color, bold=bold,
+        opacity=opacity, subtitle=subtitle, animations=animations,
     )
     return replace(p, texts=(*p.texts, overlay)), overlay
 
@@ -1153,7 +1217,10 @@ def add_text(
 def update_text(p: Project, text_id: str, **changes) -> Project:  # noqa: ANN003
     """Cambia campos de un texto (valida el resultado)."""
     current = p.text(text_id)
-    allowed = {"text", "start", "end", "x", "y", "size", "color", "bold"}
+    allowed = {
+        "text", "start", "end", "x", "y", "size", "color", "bold",
+        "opacity", "subtitle", "animations",
+    }
     unknown = set(changes) - allowed
     if unknown:
         raise ProjectError(f"campos de texto desconocidos: {', '.join(sorted(unknown))}")
@@ -1167,6 +1234,15 @@ def update_text(p: Project, text_id: str, **changes) -> Project:  # noqa: ANN003
 def remove_text(p: Project, text_id: str) -> Project:
     p.text(text_id)  # valida que existe
     return replace(p, texts=tuple(t for t in p.texts if t.id != text_id))
+
+
+def text_values(overlay: TextOverlay, t: float) -> tuple[float, float, float]:
+    """`(x, y, opacity)` del texto en `t`, con sus keyframes aplicados."""
+    local = max(0.0, float(t) - overlay.start)
+    x = anim.value_at(overlay.animations, "x", local, overlay.x)
+    y = anim.value_at(overlay.animations, "y", local, overlay.y)
+    opacity = anim.value_at(overlay.animations, "opacity", local, overlay.opacity)
+    return x, y, opacity
 
 
 # -- snap --------------------------------------------------------------------------
@@ -1395,12 +1471,13 @@ def trim_to(p: Project, t: float, side: str, track=None) -> Project:  # noqa: AN
 
 @dataclass(frozen=True)
 class ClipboardItem:
-    kind: str  # video | audio | text
+    kind: str  # video | audio | text | element
     offset: float  # segundos desde el inicio del primer elemento copiado
     clip: Clip | None = None
     track_index: int = -1  # pista de audio de origen
     track_mode: str = "absolute"
     text: TextOverlay | None = None
+    element: Element | None = None
     transition: Transition | None = None  # video: con el siguiente clip copiado, si eran contiguos
 
 
@@ -1424,6 +1501,7 @@ def selection_bounds(p: Project, ids) -> tuple[float, float] | None:  # noqa: AN
             if clip.id in ids:
                 spans.append((start, start + clip.duration))
     spans += [(t.start, t.end) for t in p.texts if t.id in ids]
+    spans += [(e.start, e.end) for e in p.elements if e.id in ids]
     if not spans:
         return None
     return min(s for s, _ in spans), max(e for _, e in spans)
@@ -1449,6 +1527,9 @@ def copy_items(p: Project, ids) -> Clipboard:  # noqa: ANN001
     for overlay in p.texts:
         if overlay.id in ids:
             entries.append((overlay.start, ClipboardItem("text", 0.0, text=overlay)))
+    for element in p.elements:
+        if element.id in ids:
+            entries.append((element.start, ClipboardItem("element", 0.0, element=element)))
     if not entries:
         raise ProjectError("no hay nada seleccionado que copiar")
     bounds = selection_bounds(p, ids)
@@ -1456,6 +1537,7 @@ def copy_items(p: Project, ids) -> Clipboard:  # noqa: ANN001
     anchor = bounds[0]
     items = tuple(replace(item, offset=round(start - anchor, 6)) for start, item in entries)
     used = {item.clip.asset_id for item in items if item.clip is not None}
+    used.update(item.element.asset_id for item in items if item.element and item.element.asset_id)
     assets = tuple(a for a in p.assets if a.id in used)
     return Clipboard(items=items, assets=assets, span=round(bounds[1] - anchor, 6))
 
@@ -1590,6 +1672,38 @@ def paste(p: Project, clipboard: Clipboard, t: float) -> tuple[Project, tuple[st
             pasted = replace(overlay, id=new_id("t"), start=round(start, 4), end=round(end, 4))
             project = replace(project, texts=(*project.texts, pasted))
             new_ids.append(pasted.id)
+    elements = [item for item in clipboard.items if item.kind == "element" and item.element is not None]
+    if elements:
+        total = total_duration(project)
+        if total <= 0:
+            raise ProjectError("el timeline está vacío: no hay dónde pegar el elemento")
+        min_len = max(0.2, 1.0 / fps)
+        for item in elements:
+            element = item.element
+            assert element is not None
+            start = min(max(0.0, anchor + item.offset), max(0.0, total - min_len))
+            end = min(total, start + element.duration)
+            if end - start < min_len - 1e-9:
+                continue
+            pasted = replace(
+                element,
+                id=new_id("e"),
+                asset_id=asset_map.get(element.asset_id, element.asset_id) if element.asset_id else None,
+                start=round(start, 4),
+                end=round(end, 4),
+            )
+            # Pegar respeta las capas: V2 < V3 < Elementos (el resto de elementos conserva su
+            # orden relativo). Sin esto, un V2 pegado quedaría por encima de V3.
+            key = pasted.video_track if pasted.video_track > 0 else VIDEO_TRACKS_MAX + 1
+            elements_now = list(project.elements)
+            index = next(
+                (i for i, item in enumerate(elements_now)
+                 if (item.video_track if item.video_track > 0 else VIDEO_TRACKS_MAX + 1) > key),
+                len(elements_now),
+            )
+            elements_now.insert(index, pasted)
+            project = replace(project, elements=tuple(elements_now))
+            new_ids.append(pasted.id)
     return project, tuple(new_ids)
 
 
@@ -1617,6 +1731,8 @@ def remove_items(p: Project, ids) -> Project:  # noqa: ANN001
             project = remove_audio(project, track_index, clip_id)
     if any(t.id in ids for t in project.texts):
         project = replace(project, texts=tuple(t for t in project.texts if t.id not in ids))
+    if any(e.id in ids for e in project.elements):
+        project = replace(project, elements=tuple(e for e in project.elements if e.id not in ids))
     return project
 
 

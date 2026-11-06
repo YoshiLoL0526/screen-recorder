@@ -187,6 +187,9 @@ thumbs = Signal(0)  # versión: sube cada vez que llegan miniaturas del filmstri
 offline_assets = Signal(frozenset())  # ids de assets cuyo archivo no existe
 importing = Signal(())  # nombres de archivo que se están analizando
 import_open = Signal(False)  # modal «Importar»
+project_panel_open = Signal(True)  # panel de medios/capas del editor
+project_panel_tab = Signal("media")  # media | layers
+posters = Signal({})  # id de asset → JPEG del póster (se rellena en un hilo)
 recent_projects = Signal(())  # RecentProject…
 insp_in = Signal("")  # campos de tiempo del inspector (texto editable)
 insp_out = Signal("")
@@ -238,6 +241,7 @@ insp_text_size = Signal(42)
 insp_text_color = Signal("#FFFFFF")
 insp_text_x = Signal(0.5)
 insp_text_y = Signal(0.82)
+insp_text_opacity = Signal(1.0)
 insp_text_bold = Signal(False)
 insp_marker_name = Signal("")  # nombre del marcador seleccionado (fase 3)
 # -- elementos superpuestos (v6, docs/25) -----------------------------------------
@@ -250,8 +254,11 @@ insp_el_height = Signal(0.25)
 insp_el_rotation = Signal(0.0)  # grados horarios
 insp_el_opacity = Signal(1.0)
 insp_el_blur = Signal(0.0)  # radio 0…50 px del lienzo
+insp_el_gain = Signal(1.0)  # volumen del audio del video superpuesto (0 = silencio)
+insp_el_track = Signal(0)  # 0 = Elementos; 1/2 = V2/V3
 insp_el_color = Signal("#FF5470")  # figuras
 insp_el_fit = Signal("fit")  # imágenes: fit | fill | stretch
+video_track_target = Signal(0)  # pista donde insertar los próximos videos (0 = Elementos)
 preview_box = Signal((0.0, 0.0))  # tamaño medido del lienzo del preview (para la caja de selección)
 
 # Efectos globales del proyecto (feature D, docs/26): se editan en «Proyecto» sin selección.

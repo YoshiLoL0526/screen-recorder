@@ -11,12 +11,14 @@ Reglas (las mismas que `controller.py`):
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from dataclasses import replace
 from pathlib import Path
 
 from .. import state
+from ..core import animation as anim
 from ..core import canvas_edit as ce
 from ..core import effects as fx
 from ..core import elements as element_mod
@@ -24,11 +26,14 @@ from ..core import global_effects
 from ..core import graph as graph_mod
 from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
+from ..core import subtitles as subtitles_mod
 from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
 from ..core.project import (
     FPS_CHOICES,
+    VIDEO_TRACKS_MAX,
     Clip,
+    Element,
     MediaAsset,
     Project,
     Track,
@@ -144,6 +149,8 @@ class EditorController:
         )
         self._drag: dict | None = None
         self._canvas_drag: dict | None = None  # mover/escalar sobre el preview (docs/23)
+        self._text_drag: dict | None = None  # mover/escalar un texto sobre el preview
+        self._overlay_drag: dict | None = None  # mover/recortar una capa en el timeline
         self._closing = threading.Event()
         self._io_lock = threading.Lock()  # abrir/guardar/importar: de uno en uno
         self._wave_lock = threading.Lock()
@@ -152,6 +159,9 @@ class EditorController:
         self._thumb_pending: set[str] = set()
         self._proxy_lock = threading.Lock()
         self._proxy_pending: set[str] = set()
+        self._poster_lock = threading.Lock()
+        self._poster_pending: set[str] = set()
+        self._poster_failed: set[str] = set()
         self._marquee_start: float | None = None
         self._clipboard: tl.Clipboard | None = None  # portapapeles del editor (fase 3)
         self.exporter = export_mod.Exporter(self._on_export)
@@ -162,6 +172,8 @@ class EditorController:
         global EDITOR
         EDITOR = self
         state.preview_audio.set(bool(self.settings.preview_audio))
+        state.video_track_target.set(0)
+        state.insp_el_track.set(0)
         self.player.audio.muted = not state.preview_audio()  # type: ignore[union-attr]
         # Los `Signal` son globales y aquí no se guardan los desuscribidores de `subscribe`: tras
         # `shutdown` un controlador viejo (tests con varias apps en el mismo proceso) no debe
@@ -197,12 +209,15 @@ class EditorController:
         state.insp_text_color.subscribe(live(lambda value: self._on_insp_text("color", value)))
         state.insp_text_x.subscribe(live(lambda value: self._on_insp_text("x", value)))
         state.insp_text_y.subscribe(live(lambda value: self._on_insp_text("y", value)))
+        state.insp_text_opacity.subscribe(live(lambda value: self._on_insp_text("opacity", value)))
         state.insp_text_bold.subscribe(live(lambda value: self._on_insp_text("bold", value)))
         for signal, field, label in ELEMENT_FIELDS:
             signal.subscribe(live(lambda value, f=field, lb=label: self._on_insp_element(f, value, lb)))
         state.insp_el_color.subscribe(live(lambda value: self._on_insp_element("color", value, "color del elemento")))
         state.insp_el_fit.subscribe(live(lambda value: self._on_insp_element("fit", value, "encaje del elemento")))
         state.insp_el_blur.subscribe(live(self._on_insp_element_blur))
+        state.insp_el_gain.subscribe(live(self._on_insp_element_gain))
+        state.insp_el_track.subscribe(live(self._on_insp_element_track))
         if self.settings.export_preset in graph_mod.PRESET_IDS:
             state.export_preset.set(self.settings.export_preset)
         self.player.start()
@@ -265,6 +280,7 @@ class EditorController:
             self.seek(total)
         self._sync_loop()
         self._sync_inspector()
+        self._queue_posters(project.assets)
 
     def _sync_meta(self) -> None:
         store = self.store
@@ -334,6 +350,7 @@ class EditorController:
             state.insp_text_color.set(overlay.color)
             state.insp_text_x.set(overlay.x)
             state.insp_text_y.set(overlay.y)
+            state.insp_text_opacity.set(overlay.opacity)
             state.insp_text_bold.set(overlay.bold)
         marker = self.selected_marker()
         if marker is not None:
@@ -349,6 +366,8 @@ class EditorController:
             state.insp_el_rotation.set(element.rotation)
             state.insp_el_opacity.set(element.opacity)
             state.insp_el_blur.set(element_mod.blur_radius(element))
+            state.insp_el_gain.set(element_mod.audio_gain(element))
+            state.insp_el_track.set(element.video_track)
             state.insp_el_color.set(element.color)
             state.insp_el_fit.set(element.fit)
 
@@ -512,6 +531,56 @@ class EditorController:
             return
         if self._apply("desenfoque del elemento", project):
             self._sync_inspector()
+
+    def _on_insp_element_gain(self, gain: float) -> None:
+        element = self.selected_element()
+        if element is not None:
+            self._set_element_audio_gain(element, float(gain))
+
+    def _on_insp_element_track(self, track: int) -> None:
+        element = self.selected_element()
+        if element is None or element.kind != "video":
+            return
+        track = max(0, min(VIDEO_TRACKS_MAX, int(track)))
+        if track == element.video_track:
+            return
+        try:
+            project = element_mod.set_video_track(self.project, element.id, track)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        label = element_mod.video_track_label(track)
+        if self._apply(f"mover video a {label}", project):
+            self._sync_inspector()
+            state.toast("info", f"Video movido a {label}")
+
+    def _set_element_audio_gain(self, element: Element, gain: float) -> None:
+        if element.kind != "video":
+            return
+        gain = round(max(0.0, min(element_mod.AUDIO_GAIN_MAX, float(gain))), 3)
+        if abs(element_mod.audio_gain(element) - gain) < 1e-6:
+            return
+        try:
+            project = element_mod.set_audio_gain(self.project, element.id, gain)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        if self._apply("volumen del video superpuesto", project):
+            self._sync_inspector()
+
+    def mute_element_audio(self) -> None:
+        """Silencia el audio del PiP seleccionado (sin tocar su imagen)."""
+        element = self.selected_element()
+        if element is not None and element.kind == "video":
+            self._set_element_audio_gain(element, 0.0)
+
+    def restore_element_audio(self) -> None:
+        """Devuelve el audio del PiP seleccionado a su volumen original (1.0)."""
+        element = self.selected_element()
+        if element is not None and element.kind == "video":
+            self._set_element_audio_gain(element, 1.0)
 
     def _current_transition(self):  # noqa: ANN202
         index = self._transition_index()
@@ -886,6 +955,24 @@ class EditorController:
         state.multi_selection.set(frozenset())
         state.selection.set(("element", element_id))
 
+    def focus_text(self, text_id: str) -> None:
+        """Selecciona un texto desde Capas; si el playhead queda fuera, salta a su inicio."""
+        if not self.project.has_text(text_id):
+            return
+        self.select_text(text_id)
+        overlay = self.project.text(text_id)
+        if not (overlay.start <= state.playhead() < overlay.end):
+            self.seek(overlay.start)
+
+    def focus_element(self, element_id: str) -> None:
+        """Selecciona un elemento desde Capas; si el playhead queda fuera, salta a su inicio."""
+        if not self.project.has_element(element_id):
+            return
+        self.select_element(element_id)
+        element = self.project.element(element_id)
+        if not (element.start <= state.playhead() < element.end):
+            self.seek(element.start)
+
     def select_all(self) -> None:
         ids = frozenset(c.id for c in self.project.video.clips)
         if not ids:
@@ -1069,9 +1156,6 @@ class EditorController:
         if stage[0] <= 1 or stage[1] <= 1:
             return  # el preview aún no se ha medido (primer frame)
         self.cancel_drag()
-        self.store.begin(
-            "mover clip en el lienzo" if kind == "move" else "redimensionar clip en el lienzo"
-        )
         self._canvas_drag = {
             "kind": "canvas_move" if kind == "move" else "canvas_scale",
             "id": clip.id,
@@ -1080,6 +1164,7 @@ class EditorController:
             "handle": handle,
             "dx": 0.0,
             "dy": 0.0,
+            "begun": False,
         }
 
     def drag_canvas(self, dx: float, dy: float) -> None:
@@ -1089,6 +1174,13 @@ class EditorController:
         drag["dx"], drag["dy"] = float(dx), float(dy)
         if abs(dx) < _CLICK_SLOP_PX and abs(dy) < _CLICK_SLOP_PX:
             return
+        if not drag.get("begun"):
+            self.store.begin(
+                "mover clip en el lienzo"
+                if drag["kind"] == "canvas_move"
+                else "redimensionar clip en el lienzo"
+            )
+            drag["begun"] = True
         base: Project = drag["project"]
         clip = base.clip(drag["id"])
         if drag["kind"] == "canvas_move":
@@ -1102,6 +1194,8 @@ class EditorController:
         drag, self._canvas_drag = self._canvas_drag, None
         if drag is None:
             return
+        if not drag.get("begun"):
+            return  # un clic solo selecciona: no se abrió transacción
         moved = (
             abs(drag.get("dx", 0.0)) >= _CLICK_SLOP_PX
             or abs(drag.get("dy", 0.0)) >= _CLICK_SLOP_PX
@@ -1115,9 +1209,10 @@ class EditorController:
     def _cancel_canvas_drag(self) -> bool:
         if self._canvas_drag is None:
             return False
-        self._canvas_drag = None
-        self.store.cancel()
-        self._sync_meta()
+        drag, self._canvas_drag = self._canvas_drag, None
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
         self.player.seek(state.playhead())
         return True
 
@@ -1492,6 +1587,44 @@ class EditorController:
         if self._apply(f"añadir {label}", project):
             self.select_element(element.id)
 
+    def set_video_track_target(self, track: int) -> None:
+        """Cambia la capa donde se insertan los próximos videos (0 = Elementos)."""
+        state.video_track_target.set(max(0, min(VIDEO_TRACKS_MAX, int(track))))
+
+    def add_video_element(
+        self, asset_id: str, video_track: int | None = None, *, start: float | None = None,
+    ) -> None:
+        """Añade un video del panel al playhead, en V2/V3 si el destino no es «Elementos»."""
+        if not self._guard_editable():
+            return
+        try:
+            asset = self.project.asset(asset_id)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if asset.kind != "video":
+            state.toast("warning", "Ese medio no es un video")
+            return
+        track = state.video_track_target() if video_track is None else int(video_track)
+        track = max(0, min(VIDEO_TRACKS_MAX, track))
+        kwargs = (
+            {"width": 1.0, "height": 1.0, "fit": "fill"} if track > 0 else {}
+        )
+        at = state.playhead() if start is None else max(0.0, float(start))
+        try:
+            project, element = element_mod.add_element(
+                self.project, "video", at, element_mod.ELEMENT_DURATION,
+                asset_id=asset.id, video_track=track, **kwargs,
+            )
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        label = element_mod.video_track_label(track)
+        if self._apply(f"añadir video a {label}", project):
+            self.select_element(element.id)
+            self._queue_proxy(asset)
+            self._queue_posters([asset])
+
     def browse_images(self) -> None:
         """Diálogo de imágenes (modal, hilo de UI); el probe y la cache van a un hilo."""
         from . import file_dialogs
@@ -1503,6 +1636,274 @@ class EditorController:
             return
         if chosen:
             self.import_images(chosen)
+
+    def browse_pip(self, video_track: int | None = None) -> None:
+        """Diálogo de video para añadirlo como superposición (Elementos, V2 o V3)."""
+        from . import file_dialogs
+
+        track = state.video_track_target() if video_track is None else int(video_track)
+        label = element_mod.video_track_label(track)
+        try:
+            chosen = file_dialogs.open_videos(
+                state.recordings_dir(), title=f"Añadir video a {label}",
+            )
+        except Exception as exc:
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen:
+            self.import_pip(chosen, video_track=track)
+
+    def import_pip(self, paths: list[Path], video_track: int | None = None) -> None:
+        """Añade uno o más videos en el playhead, en la pista indicada (0 = Elementos)."""
+        if not paths or not self._guard_editable():
+            return
+        track = state.video_track_target() if video_track is None else int(video_track)
+        track = max(0, min(VIDEO_TRACKS_MAX, track))
+        label = element_mod.video_track_label(track)
+        kwargs = {"width": 1.0, "height": 1.0, "fit": "fill"} if track > 0 else {}
+
+        def worker() -> None:
+            with self._io_lock:
+                project = self.project
+                start = state.playhead()
+                added: list[Element] = []
+                for path in paths:
+                    path = Path(path)
+                    try:
+                        asset = media.probe(path)
+                    except RecStudioError as exc:
+                        state.toast("danger", exc.message)
+                        continue
+                    if asset.kind != "video":
+                        state.toast("warning", f"«{path.name}» no es un video")
+                        continue
+                    project, asset = tl.add_asset(project, asset)
+                    try:
+                        project, element = element_mod.add_element(
+                            project, "video", start, element_mod.ELEMENT_DURATION,
+                            asset_id=asset.id, video_track=track, **kwargs,
+                        )
+                    except ProjectError as exc:
+                        state.toast("warning", exc.message)
+                        continue
+                    added.append(element)
+                    self._queue_proxy(asset)
+                    self._queue_posters([asset])
+                if not added:
+                    return
+                if self._apply(f"añadir {len(added)} video(s) a {label}", project):
+                    self.select_element(added[-1].id)
+                    state.toast("success", f"{len(added)} video(s) añadido(s) a {label}")
+
+        threading.Thread(target=worker, daemon=True, name="import-pip").start()
+
+    def browse_pip_track(self, video_track: int) -> None:
+        """Botón «+» de la cabecera V2/V3: abre el diálogo para esa pista."""
+        self.browse_pip(video_track)
+
+    # -- subtítulos (v9, docs/30) ---------------------------------------------------
+
+    def browse_subtitles(self) -> None:
+        """Diálogo de subtítulos (modal, hilo de UI); el parseo va a un hilo."""
+        from . import file_dialogs
+
+        try:
+            chosen = file_dialogs.open_subtitles(
+                state.recordings_dir(), title="Importar subtítulos (SRT/VTT)",
+            )
+        except Exception as exc:
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen:
+            self.import_subtitles([chosen])
+
+    def import_subtitles(self, paths: list[Path]) -> None:
+        """Importa uno o varios SRT/VTT como textos marcados `subtitle=True`."""
+        if not paths or not self._guard_editable():
+            return
+
+        def worker() -> None:
+            with self._io_lock:
+                project = self.project
+                total = tl.total_duration(project)
+                if total <= 0:
+                    state.toast("info", "Importa un video antes de los subtítulos")
+                    return
+                added = []
+                for path in paths:
+                    path = Path(path)
+                    try:
+                        raw = path.read_bytes()
+                    except OSError as exc:
+                        state.toast("danger", f"No se pudo leer «{path.name}»: {exc}")
+                        continue
+                    data = None
+                    for encoding in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+                        try:
+                            data = raw.decode(encoding)
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                    if data is None:
+                        state.toast("danger", f"«{path.name}» no es un texto legible")
+                        continue
+                    cues = subtitles_mod.parse_subtitles(data)
+                    texts = subtitles_mod.cues_to_texts(cues, total=total)
+                    if not texts:
+                        state.toast("warning", f"«{path.name}» no tiene subtítulos válidos")
+                        continue
+                    project = replace(project, texts=(*project.texts, *texts))
+                    added.extend(texts)
+                if not added:
+                    return
+                if self._apply(f"importar {len(added)} subtítulo(s)", project):
+                    first = added[0]
+                    self.select_text(first.id)
+                    self.seek(first.start)
+                    state.toast("success", f"{len(added)} subtítulo(s) importado(s)")
+
+        threading.Thread(target=worker, daemon=True, name="import-subtitles").start()
+
+    def export_subtitles(self) -> None:
+        """Guarda los textos marcados como subtítulo en un SRT."""
+        if not self._guard_editable():
+            return
+        project = self.project
+        if not any(text.subtitle for text in project.texts):
+            state.toast("info", "No hay subtítulos importados; usa «Subtítulos…» primero")
+            return
+        from . import file_dialogs
+
+        default_name = f"{project.name or 'subtitulos'}.srt"
+        try:
+            chosen = file_dialogs.save_subtitles(
+                state.recordings_dir(), default_name=default_name, title="Exportar subtítulos",
+            )
+        except Exception as exc:
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen is None:
+            return
+        payload = subtitles_mod.format_srt(project.texts)
+
+        def worker() -> None:
+            target = Path(chosen)
+            tmp = target.with_name(target.name + ".tmp")
+            try:
+                tmp.write_text(payload, encoding="utf-8")
+                os.replace(tmp, target)
+            except OSError as exc:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                state.toast("danger", f"No se pudo guardar el SRT: {exc}")
+                return
+            state.toast("success", f"Subtítulos exportados a «{target.name}»")
+
+        threading.Thread(target=worker, daemon=True, name="export-subtitles").start()
+
+    def apply_subtitle_style(self) -> None:
+        """Copia y/tamaño/color/negrita/opacidad del subtítulo seleccionado a todos los cues."""
+        source = self.selected_text()
+        if source is None or not source.subtitle:
+            state.toast("info", "Selecciona un subtítulo para copiar su estilo")
+            return
+        texts = tuple(
+            replace(
+                text, x=0.5, y=source.y, size=source.size, color=source.color,
+                bold=source.bold, opacity=source.opacity,
+            ) if text.subtitle else text
+            for text in self.project.texts
+        )
+        if texts == self.project.texts:
+            return
+        if self._apply("aplicar estilo a los subtítulos", replace(self.project, texts=texts)):
+            state.toast("success", "Estilo aplicado a todos los subtítulos")
+
+    # -- keyframes de texto/elemento (v9, docs/31) ----------------------------------
+
+    @staticmethod
+    def _key_label(channel: str) -> str:
+        return {"x": "X", "y": "Y", "opacity": "opacidad"}.get(channel, channel)
+
+    def _key_time(self, item) -> float | None:  # noqa: ANN001
+        duration = float(getattr(item, "duration", item.end - item.start))
+        local = state.playhead() - float(item.start)
+        if local < -1e-6 or local > duration + 1e-6:
+            state.toast("warning", "El playhead está fuera del elemento; colócalo dentro")
+            return None
+        return round(max(0.0, min(duration, local)), 4)
+
+    def add_element_keyframe(self, channel: str) -> None:
+        element = self.selected_element()
+        if element is None or channel not in anim.ELEMENT_CHANNELS:
+            return
+        local = self._key_time(element)
+        if local is None:
+            return
+        animations = anim.set_keyframe(
+            element.animations, channel, local, float(getattr(element, channel)),
+        )
+        try:
+            project = element_mod.update_element(self.project, element.id, animations=animations)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        label = self._key_label(channel)
+        if self._apply(f"añadir clave {label}", project):
+            self._sync_inspector()
+            state.toast("success", f"Clave {label} en {tl.format_time(state.playhead())}")
+
+    def clear_element_animation(self, channel: str) -> None:
+        element = self.selected_element()
+        if element is None:
+            return
+        animations = anim.clear_channel(element.animations, channel)
+        if animations == element.animations:
+            return
+        try:
+            project = element_mod.update_element(self.project, element.id, animations=animations)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply(f"quitar animación {self._key_label(channel)}", project):
+            self._sync_inspector()
+
+    def add_text_keyframe(self, channel: str) -> None:
+        overlay = self.selected_text()
+        if overlay is None or channel not in anim.TEXT_CHANNELS:
+            return
+        local = self._key_time(overlay)
+        if local is None:
+            return
+        animations = anim.set_keyframe(
+            overlay.animations, channel, local, float(getattr(overlay, channel)),
+        )
+        try:
+            project = tl.update_text(self.project, overlay.id, animations=animations)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        label = self._key_label(channel)
+        if self._apply(f"añadir clave {label}", project):
+            self._sync_inspector()
+            state.toast("success", f"Clave {label} en {tl.format_time(state.playhead())}")
+
+    def clear_text_animation(self, channel: str) -> None:
+        overlay = self.selected_text()
+        if overlay is None:
+            return
+        animations = anim.clear_channel(overlay.animations, channel)
+        if animations == overlay.animations:
+            return
+        try:
+            project = tl.update_text(self.project, overlay.id, animations=animations)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply(f"quitar animación {self._key_label(channel)}", project):
+            self._sync_inspector()
 
     def import_images(self, paths: list[Path]) -> None:
         """Añade imágenes al proyecto como assets y las coloca como elementos (sin clip)."""
@@ -1634,7 +2035,6 @@ class EditorController:
         if display is None:
             return
         self.cancel_drag()
-        self.store.begin("mover elemento" if mode == "move" else "escalar elemento")
         self._drag = {
             "kind": "element",
             "mode": mode,
@@ -1644,6 +2044,7 @@ class EditorController:
             "display": display,
             "dx": 0.0,
             "dy": 0.0,
+            "begun": False,
         }
         state.selection.set(("element", element_id))
 
@@ -1652,6 +2053,11 @@ class EditorController:
         if drag is None or drag["kind"] != "element":
             return
         drag["dx"], drag["dy"] = dx, dy
+        if abs(dx) < _CLICK_SLOP_PX and abs(dy) < _CLICK_SLOP_PX:
+            return
+        if not drag.get("begun"):
+            self.store.begin("mover elemento" if drag["mode"] == "move" else "escalar elemento")
+            drag["begun"] = True
         base: Project = drag["project"]
         element = drag["element"]
         display_w, display_h = drag["display"]
@@ -1686,6 +2092,202 @@ class EditorController:
         except ProjectError:
             return
         self.store.update(project)
+
+    # -- manipulación directa de textos sobre el preview ----------------------------
+
+    def begin_text_drag(self, text_id: str, mode: str = "move") -> None:
+        if not self._guard_editable() or self.player.playing:
+            return
+        if not self.project.has_text(text_id):
+            return
+        display = self._element_display()
+        if display is None:
+            return
+        self.cancel_drag()
+        self._text_drag = {
+            "id": text_id,
+            "mode": mode,
+            "project": self.project,
+            "text": self.project.text(text_id),
+            "display": display,
+            "dx": 0.0,
+            "dy": 0.0,
+            "begun": False,
+        }
+        state.selection.set(("text", text_id))
+
+    def drag_text(self, dx: float, dy: float) -> None:
+        drag = self._text_drag
+        if drag is None:
+            return
+        drag["dx"], drag["dy"] = float(dx), float(dy)
+        if abs(dx) < _CLICK_SLOP_PX and abs(dy) < _CLICK_SLOP_PX:
+            return
+        if not drag.get("begun"):
+            self.store.begin("mover texto" if drag["mode"] == "move" else "escalar texto")
+            drag["begun"] = True
+        base: Project = drag["project"]
+        overlay = drag["text"]
+        display_w, display_h = drag["display"]
+        if display_w <= 0 or display_h <= 0:
+            return
+        if drag["mode"] == "move":
+            changes = {
+                "x": round(max(0.0, min(1.0, overlay.x + dx / display_w)), 4),
+                "y": round(max(0.0, min(1.0, overlay.y + dy / display_h)), 4),
+            }
+        else:
+            from . import element_overlay
+
+            frame = element_overlay.text_box(base, overlay, drag["display"])
+            if frame is None:
+                return
+            sign_x = 1.0 if drag["mode"] in ("se", "ne") else -1.0
+            sign_y = 1.0 if drag["mode"] in ("se", "sw") else -1.0
+            diagonal = max(1.0, frame.width**2 + frame.height**2)
+            factor = 1.0 + (sign_x * dx * frame.width + sign_y * dy * frame.height) / diagonal
+            size = max(8, min(200, int(round(overlay.size * factor))))
+            changes = {"size": size}
+        try:
+            project = tl.update_text(base, overlay.id, **changes)
+        except ProjectError:
+            return
+        self.store.update(project)
+
+    def end_text_drag(self) -> None:
+        drag, self._text_drag = self._text_drag, None
+        if drag is None:
+            return
+        if not drag.get("begun"):
+            return  # un clic solo selecciona
+        if abs(drag.get("dx", 0.0)) >= _CLICK_SLOP_PX or abs(drag.get("dy", 0.0)) >= _CLICK_SLOP_PX:
+            self.store.commit()
+            self._sync_inspector()
+        else:
+            self.store.cancel()  # un clic sin movimiento no crea undo
+        self._sync_meta()
+
+    def _cancel_text_drag(self) -> bool:
+        if self._text_drag is None:
+            return False
+        drag, self._text_drag = self._text_drag, None
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
+        return True
+
+    # -- capas de textos/elementos en el timeline -----------------------------------
+
+    def begin_overlay_drag(self, kind: str, item_id: str, mode: str = "move") -> None:
+        if not self._guard_editable() or self.player.playing:
+            return
+        if kind not in ("text", "element") or mode not in ("move", "trim-l", "trim-r"):
+            return
+        if kind == "text" and not self.project.has_text(item_id):
+            return
+        if kind == "element" and not self.project.has_element(item_id):
+            return
+        self.cancel_drag()
+        item = self.project.text(item_id) if kind == "text" else self.project.element(item_id)
+        self._overlay_drag = {
+            "kind": kind,
+            "id": item_id,
+            "mode": mode,
+            "project": self.project,
+            "item": item,
+            "dx": 0.0,
+            "begun": False,
+        }
+        state.selection.set(("text" if kind == "text" else "element", item_id))
+
+    def drag_overlay(self, dx: float) -> None:
+        drag = self._overlay_drag
+        if drag is None:
+            return
+        drag["dx"] = float(dx)
+        if abs(dx) < _CLICK_SLOP_PX:
+            return
+        if not drag.get("begun"):
+            self.store.begin(
+                ("mover " if drag["mode"] == "move" else "recortar ")
+                + ("texto" if drag["kind"] == "text" else "elemento")
+            )
+            drag["begun"] = True
+        base: Project = drag["project"]
+        item = drag["item"]
+        total = tl.total_duration(base)
+        if total <= 0:
+            return
+        zoom = max(1.0, state.tl_zoom())
+        delta = float(dx) / zoom
+        min_len = max(0.2, 1.0 / max(1, base.fps))
+        start, end = float(item.start), float(item.end)
+        if drag["mode"] == "move":
+            duration = end - start
+            start = max(0.0, min(start + delta, max(0.0, total - duration)))
+            end = start + duration
+        elif drag["mode"] == "trim-l":
+            start = max(0.0, min(start + delta, end - min_len))
+        else:
+            end = min(total, max(start + min_len, end + delta))
+        if state.snap_on():
+            candidates = tl.snap_candidates(base, playhead=state.playhead())
+            for other in (*base.texts, *base.elements):
+                if other.id != drag["id"]:
+                    candidates.extend((other.start, other.end))
+            if drag["mode"] in ("move", "trim-l"):
+                start = tl.snap(start, candidates, zoom, threshold_px=6)
+                if drag["mode"] == "move":
+                    end = min(total, start + (float(item.end) - float(item.start)))
+            if drag["mode"] == "trim-r":
+                end = tl.snap(end, candidates, zoom, threshold_px=6)
+        changes: dict[str, float] = {"start": round(start, 4), "end": round(end, 4)}
+        if drag["kind"] == "element" and item.kind == "video":
+            asset = base.asset(item.asset_id or "")
+            if drag["mode"] == "trim-l":
+                source_in = item.in_ + (start - item.start)
+                if source_in < 0:
+                    source_in = 0.0
+                    start = max(0.0, item.start - item.in_)
+                    changes["start"] = round(start, 4)
+                changes["in_"] = round(source_in, 4)
+            if drag["mode"] in ("move", "trim-r"):
+                max_end = item.start + max(0.2, asset.duration - item.in_)
+                if end > max_end:
+                    end = max_end
+                    changes["end"] = round(end, 4)
+        try:
+            if drag["kind"] == "text":
+                project = tl.update_text(
+                    base, drag["id"], start=round(start, 4), end=round(end, 4),
+                )
+            else:
+                project = element_mod.update_element(base, drag["id"], **changes)
+        except ProjectError:
+            return
+        self.store.update(project)
+
+    def end_overlay_drag(self) -> None:
+        drag, self._overlay_drag = self._overlay_drag, None
+        if drag is None:
+            return
+        if not drag.get("begun"):
+            return
+        if abs(drag.get("dx", 0.0)) >= _CLICK_SLOP_PX:
+            self.store.commit()
+            self._sync_inspector()
+        else:
+            self.store.cancel()
+        self._sync_meta()
+
+    def _cancel_overlay_drag(self) -> bool:
+        if self._overlay_drag is None:
+            return False
+        drag, self._overlay_drag = self._overlay_drag, None
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
+        return True
 
     # -- selección múltiple (B3) ---------------------------------------------------
 
@@ -2075,6 +2677,8 @@ class EditorController:
             return frozenset({selection[1]})
         if selection[0] == "text" and self.project.has_text(selection[1]):
             return frozenset({selection[1]})
+        if selection[0] == "element" and self.project.has_element(selection[1]):
+            return frozenset({selection[1]})
         audio = self.selected_audio()
         if audio is not None:
             return frozenset({audio[2].id})
@@ -2083,7 +2687,7 @@ class EditorController:
     def copy(self) -> bool:
         ids = self._selected_ids()
         if not ids:
-            state.toast("info", "Selecciona clips o un texto para copiar")
+            state.toast("info", "Selecciona un clip, un texto o un elemento para copiar")
             return False
         try:
             self._clipboard = tl.copy_items(self.project, ids)
@@ -2099,7 +2703,7 @@ class EditorController:
             return
         ids = self._selected_ids()
         if not ids:
-            state.toast("info", "Selecciona clips o un texto para cortar")
+            state.toast("info", "Selecciona un clip, un texto o un elemento para cortar")
             return
         try:
             clipboard = tl.copy_items(self.project, ids)
@@ -2131,7 +2735,7 @@ class EditorController:
             return
         ids = self._selected_ids()
         if not ids:
-            state.toast("info", "Selecciona clips o un texto para duplicar")
+            state.toast("info", "Selecciona un clip, un texto o un elemento para duplicar")
             return
         try:
             project, new_ids = tl.duplicate(self.project, ids)
@@ -2146,7 +2750,15 @@ class EditorController:
         if len(new_ids) == 1 and project.has_text(new_ids[0]):
             self.select_text(new_ids[0])
             return
-        clips = frozenset(i for i in new_ids if not project.has_text(i))
+        if len(new_ids) == 1 and project.has_element(new_ids[0]):
+            self.select_element(new_ids[0])
+            return
+        clips = frozenset(
+            i for i in new_ids if not project.has_text(i) and not project.has_element(i)
+        )
+        if not clips:
+            state.selection.set(None)
+            return
         state.multi_selection.set(clips if len(clips) > 1 else frozenset())
         self._select_primary(project, clips)
 
@@ -2580,6 +3192,8 @@ class EditorController:
         if drag is None:
             return
         state.tl_drag.set(None)
+        if not drag.get("begun", True):
+            return  # clic sin transacción (selección de una capa en el preview)
         if drag["kind"] in ("move", "audio_move", "block") and abs(drag.get("dx", 0.0)) < _CLICK_SLOP_PX:
             self.store.cancel()  # fue un clic: solo selecciona
         else:
@@ -2592,10 +3206,15 @@ class EditorController:
         """Esc: deshace el drag en curso (vuelve al snapshot del `begin`)."""
         if self._cancel_canvas_drag():
             return True
+        if self._cancel_text_drag():
+            return True
+        if self._cancel_overlay_drag():
+            return True
         drag, self._drag = self._drag, None
         if drag is None:
             return False
-        self.store.cancel()
+        if drag.get("begun", True):
+            self.store.cancel()
         state.tl_drag.set(None)
         self.player.seek(state.playhead())
         return True
@@ -2692,6 +3311,11 @@ class EditorController:
             return None
         if e.matches("mod+i"):
             self.open_import()
+            return True
+        if e.matches("mod+b"):
+            if from_input:
+                return None
+            self.toggle_project_panel()
             return True
         # Portapapeles (fase 3): en un campo enfocado copian/pegan texto, no clips.
         for combo, action in (("mod+c", self.copy), ("mod+x", self.cut), ("mod+v", self.paste),
@@ -2932,6 +3556,8 @@ class EditorController:
         self.cancel_drag()
         if self.player.playing:
             self.player.pause()
+        state.posters.set({})
+        self._poster_failed.clear()
         self.store.reset(project, path, saved=saved)
         self.store.read_only = read_only
         state.selection.set(None)
@@ -2983,6 +3609,156 @@ class EditorController:
             self.open_project(existing)
             return
         self.import_paths([Path(mp4)], new_project=True)
+
+    # -- panel de medios / capas ---------------------------------------------------
+
+    def toggle_project_panel(self) -> None:
+        state.project_panel_open.set(not state.project_panel_open())
+
+    def set_project_panel_tab(self, tab: str) -> None:
+        if tab in ("media", "layers"):
+            state.project_panel_tab.set(tab)
+
+    def browse_media(self) -> None:
+        """Diálogo de medios del proyecto (videos, audio e imágenes) para el panel."""
+        from . import file_dialogs
+
+        try:
+            chosen = file_dialogs.open_media(state.recordings_dir(), title="Importar medios")
+        except Exception as exc:  # diálogo nativo: cualquier fallo debe acabar en un toast
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen:
+            self.add_media(chosen)
+
+    def add_media(self, paths: list[Path]) -> None:
+        """Añade medios al proyecto sin crear clips (quedan disponibles en el panel)."""
+        if not paths:
+            return
+
+        def worker() -> None:
+            with self._io_lock:
+                if not state.project_open():
+                    state.toast("info", "Abre un proyecto antes de importar medios")
+                    return
+                project = self.project
+                added: list[MediaAsset] = []
+                known = {asset.id for asset in project.assets}
+                images = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+                for path in paths:
+                    path = Path(path)
+                    state.importing.set((*state.importing(), path.name))
+                    try:
+                        asset = (
+                            media.probe_image(path)
+                            if path.suffix.lower() in images
+                            else media.probe(path)
+                        )
+                    except RecStudioError as exc:
+                        state.toast("danger", exc.message)
+                        continue
+                    finally:
+                        state.importing.set(tuple(n for n in state.importing() if n != path.name))
+                    project, effective = tl.add_asset(project, asset)
+                    if effective.id not in known:
+                        known.add(effective.id)
+                        added.append(effective)
+                if not added:
+                    state.toast("info", "No hay medios nuevos que añadir")
+                    return
+                if not self._apply(f"importar {len(added)} medio(s)", project):
+                    return
+                for asset in added:
+                    self._poster_failed.discard(asset.path)
+                    self._queue_posters([asset])
+                    self._queue_waveform(asset)
+                    self._queue_thumbs(asset)
+                    self._queue_proxy(asset)
+                state.toast("success", f"{len(added)} medio(s) añadidos al panel")
+
+        threading.Thread(target=worker, daemon=True, name="add-media").start()
+
+    def remove_asset(self, asset_id: str) -> None:
+        """Quita del proyecto un medio que ya no usa ningún clip ni elemento."""
+        if not self._guard_editable():
+            return
+        try:
+            project = tl.remove_asset(self.project, asset_id)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        self._apply("quitar medio", project)
+
+    def insert_asset(self, asset_id: str) -> None:
+        """Inserta un medio del panel en el playhead."""
+        self.insert_asset_at(asset_id, state.playhead())
+
+    def drop_asset(self, asset_id: str, window_x: float, target: str) -> None:
+        """Suelta un medio del panel en el timeline (posición del puntero) o en el preview."""
+        if target == "timeline":
+            t = tl.time_at_x(self.content_x(window_x), state.tl_zoom())
+        else:
+            t = state.playhead()
+        self.insert_asset_at(asset_id, t)
+
+    def select_first_clip(self) -> None:
+        clips = self.project.video.clips
+        if not clips:
+            return
+        pos = tl.locate(self.project, state.playhead())
+        self.select_clip(pos.clip.id if pos is not None else clips[0].id)
+
+    def insert_asset_at(self, asset_id: str, t: float) -> None:
+        """Inserta un medio del panel en el instante `t` (video/audio) o como elemento (imagen)."""
+        if not self._guard_editable():
+            return
+        try:
+            asset = self.project.asset(asset_id)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        t = max(0.0, float(t))
+        try:
+            if asset.kind == "image":
+                project, element = element_mod.add_element(
+                    self.project, "image", t, element_mod.ELEMENT_DURATION, asset_id=asset.id,
+                )
+                if self._apply("insertar imagen", project):
+                    self.select_element(element.id)
+                return
+            if asset.kind == "audio":
+                project = self.project
+                track_index = next(
+                    (i for i, track in enumerate(project.audio) if track.mode == "sequence"), None
+                )
+                if track_index is None:
+                    project, track_index = tl.add_audio_track(project, "Música", mode="sequence")
+                project, clip = tl.insert_audio_clip(project, track_index, asset, t)
+                if self._apply("insertar audio", project):
+                    self.select_audio(track_index, project.audio[track_index].index_of(clip.id))
+                    self._queue_waveform(asset)
+                return
+            if state.video_track_target() > 0:
+                # El destino del panel manda: un video se superpone en V2/V3 en vez de ir a V1.
+                self.add_video_element(asset.id, start=t)
+                return
+            index = tl.video_insert_index(self.project, t)
+            project, clip = tl.insert_clip(self.project, asset, index)
+            if asset.has_audio:
+                # Mismo contrato que la importación: audio separado y enlazado por defecto.
+                try:
+                    project, _audio_id = tl.detach_audio(project, clip.id)
+                except ProjectError as exc:
+                    state.toast("warning", f"No se pudo separar el audio: {exc.message}")
+            if self._apply("insertar video", project):
+                self.select_clip(clip.id)
+                effective = project.asset(clip.asset_id)
+                self._queue_posters([effective])
+                self._queue_thumbs(effective)
+                self._queue_proxy(effective)
+                self._queue_waveform(effective)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
 
     def _probe_all(self, paths: list[Path]) -> list[MediaAsset]:
         assets: list[MediaAsset] = []
@@ -3115,6 +3891,7 @@ class EditorController:
                 state.selection.set(None)
                 state.multi_selection.set(frozenset())
                 state.marquee.set(None)
+                state.posters.set({})
                 state.preview_frame.set(b"")
                 state.playhead.set(0.0)
                 self.settings.last_project = ""
@@ -3122,6 +3899,48 @@ class EditorController:
             self.refresh_recent()
 
         threading.Thread(target=worker, daemon=True, name="close-project").start()
+
+    # -- panel de medios: pósters de los assets ------------------------------------
+
+    def _set_poster(self, asset_id: str, data: bytes) -> None:
+        if self._closing.is_set():
+            return
+        with self._poster_lock:
+            posters = dict(state.posters())
+            posters[asset_id] = bytes(data)
+            state.posters.set(posters)
+
+    def _queue_posters(self, assets) -> None:  # noqa: ANN001
+        """Rellena en segundo plano los pósters de video del panel de medios."""
+        for asset in assets:
+            if asset.kind != "video" or media.is_offline(asset):
+                continue
+            if asset.id in state.posters():
+                continue
+            if asset.path in self._poster_failed:
+                continue
+            cached = media.cached_poster(asset.path, height=96)
+            if cached is not None:
+                self._set_poster(asset.id, cached)
+                continue
+            with self._poster_lock:
+                if asset.path in self._poster_pending:
+                    continue
+                self._poster_pending.add(asset.path)
+
+            def worker(a=asset) -> None:
+                try:
+                    data = media.poster(a.path, at_s=0.5, height=96)
+                except (RecStudioError, OSError):
+                    with self._poster_lock:
+                        self._poster_failed.add(a.path)
+                    return
+                finally:
+                    with self._poster_lock:
+                        self._poster_pending.discard(a.path)
+                self._set_poster(a.id, data)
+
+            threading.Thread(target=worker, daemon=True, name="media-poster").start()
 
     # -- miniaturas del filmstrip -------------------------------------------------
 

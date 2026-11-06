@@ -51,17 +51,17 @@ El mismo en el graph y en el preview:
    (0…`π/2`), con centro en el frame. `strength=0.5` ⇒ `angle=0.785398`.
 4. **Blanco y negro** (`hue=s=0`): luma BT.601.
 
-El graph aplica la cadena sobre la etiqueta del video ya compuesto (después de `concat`/`xfade` y
-de las transformaciones por clip) y antes de elementos y textos. Con efectos, el resultado es una
-sola cadena:
+El graph aplica la cadena sobre la etiqueta del video ya compuesto (después de `concat`/`xfade`,
+de las transformaciones por clip y de las pistas V2/V3 de [docs/29](29-pistas-video.md)) y antes
+de la capa «Elementos» y de los textos. Con efectos, el resultado es una sola cadena:
 
 ```text
 [v0]eq=brightness=0.1:contrast=1.25:saturation=0.5,gblur=sigma=8,
     vignette=angle=0.785398,hue=s=0[vglobal]
 ```
 
-La etiqueta final (`vglobal`) la consumen los hooks de elementos y textos; el audio y el recorte
-In/Out no se tocan.
+La etiqueta final (`vglobal`) la consumen los hooks de la capa «Elementos» y de los textos; el
+audio y el recorte In/Out no se tocan.
 
 ## Decisión de paridad
 
@@ -112,8 +112,8 @@ la selección del clip con la del proyecto.
 - El blur es isotrópico; no se expone `sigmaV` ni un blur direccional.
 - El corte rápido sigue bloqueado por `core/keyframes.blockers` en cuanto hay `Project.effects`
   (no se tocó esa regla).
-- Los efectos globales se aplican después de las transformaciones por clip y antes de elementos y
-  textos; mover un elemento o un texto no cambia su orden.
+- Los efectos globales se aplican después de las transformaciones por clip y de V2/V3, y antes de
+  la capa «Elementos» y de los textos; mover un elemento o un texto no cambia su orden.
 - Al cambiar el tamaño del lienzo, el radio guardado se interpreta en píxeles del **nuevo**
   lienzo; no se reescala el valor del modelo (es una decisión de esta feature, documentada aquí).
 - No se editaron `docs/15-post-v1.md`, `AGENTS.md`, `CHANGELOG.md` ni `SCHEMA_VERSION`.

@@ -12,17 +12,18 @@ el decoder de PyAV y se pinta con `image(bytes)`.
 
 ## Alcance funcional (editor)
 
-| Área | v1 + bloques + fases 0–3 + features v6 |
+| Área | v1 + bloques + fases 0–3 + features v6/v7/v8 |
 |---|---|
-| Pistas | 1 de video + hasta 6 de audio. Las pistas pueden ser secuenciales (música) o absolutas (audio separado/voz) y tienen mute, solo, bloqueo y volumen. Al importar, el audio del video se separa a «Audio del video» y queda enlazado (`link_id`). |
+| Pistas | V1 + **V2/V3** (varios videos superpuestos, agrupados por `Element.video_track`) + hasta 6 de audio. Las pistas de audio pueden ser secuenciales (música) o absolutas (audio separado/voz) y tienen mute, solo, bloqueo y volumen. Al importar a V1, el audio del video se separa a «Audio del video» y queda enlazado (`link_id`). Textos/elementos y las pistas V2/V3 tienen su propia fila sobre V1 (docs/27–29). |
+| Medios | `Project.assets` se ve en el panel de medios/capas: miniaturas, inserción en el playhead, arrastre al timeline/preview y quitar medios sin usar (docs/27). |
 | Clips | `in`/`out` frame-accurate, velocidad 0.25×–4×, gain, fades de audio (imagen y audio independientes), eq (brillo/contraste/saturación), zoom/escala, lienzo y transformación (fit/fill/stretch, posición, rotación, flip y crop). Se mueven/redimensionan sobre el canvas del preview (docs/23). |
 | Transiciones | 8 del catálogo `xfade`, entre clips adyacentes, 0.2–2 s, con preview aproximado; en música, `acrossfade`. |
-| Textos | `TextOverlay` con intervalo, posición, tamaño, color y negrita; `drawtext` en export y PIL en preview. |
-| Elementos | `Element` (imagen, rectángulo, elipse, triángulo) con intervalo, posición/tamaño normalizados, rotación, opacidad, z-order, fit y blur; composición en preview y export (docs/25). |
-| Efectos globales | `Project.effects`: color, blur, viñeta y blanco y negro sobre el video compuesto, antes de elementos y textos (docs/26). |
-| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio + marcadores + In/Out), playhead frame-accurate, waveform, filmstrip, marquesina que mueve en bloque, razor, marcadores, In/Out, portapapeles (copiar/cortar/pegar/duplicar), Q/W y drags de audio. |
-| Preview | Play/pause, scrub, ±1 frame, J/K/L (2×–8×, marcha atrás sin audio), loop del rango In/Out o del timeline, resolución adaptativa, audio (mezcla completa best-effort), proxy 540p y edición directa del clip/elemento sobre el lienzo. |
-| Proyecto | `.rsproj/project.json` versionado (schema 6), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores, In/Out, elementos y efectos globales. |
+| Textos | `TextOverlay` con intervalo, posición, tamaño, color, negrita, opacidad y keyframes de X/Y/opacidad; caja y asas en el preview, barra en el timeline y `drawtext`/PIL con el mismo contorno (docs/27 y docs/31). Los subtítulos SRT/VTT se marcan con `subtitle` (docs/30). |
+| Elementos | `Element` (imagen, video, rectángulo, elipse, triángulo) con intervalo, posición/tamaño normalizados, rotación, opacidad, z-order, fit, blur y keyframes de X/Y; composición en preview y export (docs/25), selección directa y capa en el timeline (docs/27). El video superpuesto añade `in_`, se compone como PiP, mezcla su audio con `Effect("volume")` (docs/28), puede agruparse en V2/V3 con `video_track` (docs/29) y animarse con keyframes (docs/31). |
+| Efectos globales | `Project.effects`: color, blur, viñeta y blanco y negro sobre V1 + V2/V3, antes de la capa Elementos y de los textos (docs/26 y docs/29). |
+| Timeline | Zoom (5–600 px/s), pan con rueda/scrollbar, snap (bordes + picos de audio + marcadores + In/Out), playhead frame-accurate, waveform, filmstrip, marquesina que mueve en bloque, razor, marcadores, In/Out, portapapeles (copiar/cortar/pegar/duplicar), Q/W y drags de audio; filas para textos, elementos, V2/V3 y V1 con mover/recortar. |
+| Preview | Play/pause, scrub, ±1 frame, J/K/L (2×–8×, marcha atrás sin audio), loop del rango In/Out o del timeline, resolución adaptativa, audio (mezcla completa best-effort), proxy 540p y edición directa de clip, elemento y texto sobre el lienzo. |
+| Proyecto | `.rsproj/project.json` versionado (schema 9), autosave, undo/redo por snapshots, lienzo/fondo/encaje configurables, marcadores, In/Out, elementos (incluido video PiP y pistas V2/V3), subtítulos, keyframes y efectos globales. |
 | Export | MP4 H.264, presets, todo el timeline o el rango In/Out, progreso/ETA/cancelar, "corte rápido" sin recodificar. |
 
 ## Modelo de datos (`core/project.py`)

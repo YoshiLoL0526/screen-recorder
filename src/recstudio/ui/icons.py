@@ -62,6 +62,13 @@ IMAGE = _svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/>'
              '<circle cx="8.5" cy="9.5" r="1.6"/><path d="M4 17l5-5 4 4 2.5-2.5 4.5 4.5"/>')
 MUSIC = _svg('<path d="M9 18V6l9-2v12"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="15.5" cy="16" r="2.5"/>')
 SELECT = _svg('<rect x="4" y="4" width="16" height="16" rx="2" stroke-dasharray="3 3"/>')
+ADD = _svg('<path d="M12 5v14M5 12h14"/>')
+MEDIA = _svg('<rect x="3.5" y="5.5" width="17" height="13" rx="2"/>'
+             '<path d="M3.5 9.5h17M7.5 5.5v4M16.5 5.5v4"/>')
+PIP = _svg('<rect x="3.5" y="5.5" width="17" height="13" rx="2"/>'
+           '<rect x="12" y="11" width="6.5" height="5" rx="1" fill="#0B0D14"/>')
+LAYERS = _svg('<path d="M12 3.5l8.5 4.5-8.5 4.5L3.5 8z"/><path d="M3.5 12l8.5 4.5 8.5-4.5"/>'
+              '<path d="M3.5 16l8.5 4.5 8.5-4.5"/>')
 
 # -- audio editable (fase 1, docs/19) ---------------------------------------------
 LOCK = _svg('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>')

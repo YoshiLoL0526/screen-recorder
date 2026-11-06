@@ -173,12 +173,15 @@ cancela.
 
 ## Límites y decisiones pendientes
 
-- Los elementos **no tienen pista propia en el timeline** ni se representan como clips: son
-  overlays globales con intervalo. No se pueden recortar arrastrando en el timeline; el intervalo
-  se edita en el inspector. Es el límite principal de esta entrega.
-- Solo hay **blur** como efecto de elemento (`Element.effects` está preparado para más, pero la
-  UI y `services.element_assets` solo implementan `blur`).
-- No hay animación/keyframes de posición, tamaño, rotación ni opacidad.
+- Los elementos viven en filas de capa (Textos, Elementos y, desde [docs/29](29-pistas-video.md),
+  V2/V3 para los videos), pero no son clips de una `Track`: el intervalo se edita con las asas de
+  su barra o en el inspector. Las imágenes y figuras comparten la fila «Elementos»; los videos
+  pueden agruparse en V2/V3 con `Element.video_track`.
+- Los efectos de elemento son **blur** (imagen, materializado por
+  `services.element_assets`) y **volume** (solo el audio de un video PiP, ver
+  [docs/28](28-pip-video.md)). `Element.effects` está preparado para más.
+- Hay **keyframes de X/Y** (position) desde [docs/31](31-keyframes.md); no hay animación de
+  tamaño, rotación, opacidad ni color. La caja del preview se oculta cuando X/Y están animados.
 - El color de figura se elige de una paleta (o se conserva un valor personalizado del proyecto);
   no hay selector de color libre en la UI.
 - Las imágenes se referencian por ruta (no se copian al `.rsproj`). `export.offline_assets`

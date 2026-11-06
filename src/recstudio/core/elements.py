@@ -1,10 +1,10 @@
-"""Elementos superpuestos al video (v6, docs/22): geometría pura y edición del modelo.
+"""Elementos superpuestos al video (v8, docs/28 y docs/29): geometría pura y edición del modelo.
 
-Un `Element` (ver `core/project.py`) es una imagen o una figura con un intervalo de tiempo y una
-caja **normalizada**: `x`/`y` son el centro en fracciones del lienzo y `width`/`height` el tamaño
-en fracciones del lienzo. Esta es la única implementación de la geometría: la usan el preview
-(`services/playback.py`), el export (`core/graph.py` + `core/overlays.py`) y la capa de
-interacción del preview.
+Un `Element` (ver `core/project.py`) es una imagen, un video PiP o una figura con un intervalo de
+tiempo y una caja **normalizada**: `x`/`y` son el centro en fracciones del lienzo y
+`width`/`height` el tamaño en fracciones del lienzo. Esta es la única implementación de la
+geometría: la usan el preview (`services/playback.py`), el export (`core/graph.py` +
+`core/overlays.py`) y la capa de interacción del preview.
 
 Orden de una imagen de elemento:
 
@@ -13,6 +13,12 @@ Orden de una imagen de elemento:
 
 `z-order` = orden de `Project.elements`: el último de la tupla va **encima**. Las operaciones de
 edición devuelven proyectos nuevos (todo es frozen) y no tocan clips, audio ni textos.
+
+El audio de un video superpuesto usa `Element.effects` con el efecto `volume` (el mismo de los
+clips): `audio_gain()` lo lee y `set_audio_gain()` lo edita.
+
+`video_track` agrupa los videos en V2/V3 sin crear `Track` nuevas: `_insert_ordered` mantiene el
+z-order V2 < V3 < Elementos y `set_video_track` recoloca el elemento al cambiar de capa.
 """
 
 from __future__ import annotations
@@ -21,10 +27,13 @@ import math
 from dataclasses import dataclass, replace
 from typing import Literal
 
+from . import animation as anim
+from . import effects as fx
 from .errors import ProjectError
 from .project import (
     ELEMENT_SIZE_MAX,
     ELEMENT_SIZE_MIN,
+    VIDEO_TRACKS_MAX,
     Element,
     Effect,
     MediaAsset,
@@ -38,9 +47,12 @@ ELEMENT_LABELS = {
     "ellipse": "Elipse",
     "triangle": "Triángulo",
     "image": "Imagen",
+    "video": "Vídeo",
 }
 SHAPE_KINDS = ("rect", "ellipse", "triangle")
 BLUR_KIND = "blur"
+AUDIO_KIND = "volume"  # ganancia de audio del PiP (mismo efecto que en los clips)
+AUDIO_GAIN_MAX = fx.GAIN_MAX  # mismo tope que el volumen de un clip
 BLUR_MAX = 50.0  # px en el espacio del lienzo del proyecto (docs/22)
 ELEMENT_DURATION = 3.0
 ELEMENT_COLOR = "#FF5470"
@@ -144,7 +156,7 @@ def layout(project: Project, element: Element, canvas: tuple[int, int] | None = 
 
     box_width = _pixel(element.width * canvas_width)
     box_height = _pixel(element.height * canvas_height)
-    if element.kind == "image":
+    if element.kind in ("image", "video"):
         asset: MediaAsset = project.asset(element.asset_id or "")
         source_width = max(1, int(asset.width))
         source_height = max(1, int(asset.height))
@@ -185,7 +197,7 @@ def layout(project: Project, element: Element, canvas: tuple[int, int] | None = 
         rotation=float(element.rotation),
         opacity=float(element.opacity),
         blur=blur,
-        fit=element.fit if element.kind == "image" else "stretch",
+        fit=element.fit if element.kind in ("image", "video") else "stretch",
     )
 
 
@@ -199,9 +211,31 @@ def blur_radius(element: Element) -> float:
     return 0.0
 
 
+def audio_gain(element: Element) -> float:
+    """Ganancia del audio de un video superpuesto (0 = silencio, 1 = original)."""
+    if element.kind != "video":
+        return 0.0
+    return max(0.0, min(AUDIO_GAIN_MAX, fx.param_in(element.effects, AUDIO_KIND, "gain", 1.0)))
+
+
+def has_audio(element: Element) -> bool:
+    """¿El elemento puede sonar? (video con ganancia > 0; el asset se valida aparte)."""
+    return element.kind == "video" and audio_gain(element) > 0
+
+
 def active(project: Project, t: float) -> list[Element]:
     """Elementos visibles en `t`, en orden de apilado (el último va encima)."""
     return [element for element in project.elements if element.start <= t < element.end]
+
+
+def effective(element: Element, t: float) -> Element:
+    """Elemento con la posición animada en `t` (los canales sin clave usan la base)."""
+    local = max(0.0, float(t) - element.start)
+    x = anim.value_at(element.animations, "x", local, element.x)
+    y = anim.value_at(element.animations, "y", local, element.y)
+    if abs(x - element.x) < 1e-9 and abs(y - element.y) < 1e-9:
+        return element
+    return replace(element, x=x, y=y)
 
 
 def visible_in_timeline(project: Project, element: Element) -> bool:
@@ -226,6 +260,23 @@ def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, float(value)))
 
 
+def video_track_label(track: int) -> str:
+    """Nombre de la capa: «Elementos» (0) o «V2»/«V3» (1/2)."""
+    return "Elementos" if int(track) <= 0 else f"V{int(track) + 1}"
+
+
+def _track_key(element: Element) -> int:
+    """Clave de z-order: V2 < V3 < Elementos (los gráficos van encima de las pistas)."""
+    return element.video_track if element.video_track > 0 else VIDEO_TRACKS_MAX + 1
+
+
+def _insert_ordered(elements: tuple[Element, ...], element: Element) -> tuple[Element, ...]:
+    """Inserta el elemento respetando el orden de capas (misma capa: al final)."""
+    key = _track_key(element)
+    index = next((i for i, item in enumerate(elements) if _track_key(item) > key), len(elements))
+    return (*elements[:index], element, *elements[index:])
+
+
 def _fit_interval(project: Project, start: float, duration: float) -> tuple[float, float]:
     total = total_duration(project)
     if total <= 0:
@@ -240,7 +291,7 @@ def _fit_interval(project: Project, start: float, duration: float) -> tuple[floa
 
 def add_element(
     project: Project,
-    kind: Literal["image", "rect", "ellipse", "triangle"],
+    kind: Literal["image", "video", "rect", "ellipse", "triangle"],
     start: float,
     duration: float = ELEMENT_DURATION,
     *,
@@ -254,32 +305,61 @@ def add_element(
     opacity: float = 1.0,
     rotation: float = 0.0,
     blur: float = 0.0,
+    audio_gain: float = 1.0,
+    in_: float = 0.0,
+    video_track: int = 0,
+    animations: tuple[anim.Animation, ...] = (),
 ) -> tuple[Project, Element]:
-    """Añade un elemento al final (encima) y devuelve `(proyecto, elemento)`."""
-    if kind not in ("image", *SHAPE_KINDS):
+    """Añade un elemento en su capa y devuelve `(proyecto, elemento)`."""
+    if kind not in ("image", "video", *SHAPE_KINDS):
         raise ProjectError(f"tipo de elemento desconocido ({kind!r})")
-    if kind == "image":
+    video_track = int(video_track)
+    if not 0 <= video_track <= VIDEO_TRACKS_MAX:
+        raise ProjectError(f"pista de video inválida ({video_track})")
+    if video_track and kind != "video":
+        raise ProjectError(f"solo un video puede ir en V{video_track + 1}")
+    if kind in ("image", "video"):
         if not asset_id:
-            raise ProjectError("una imagen necesita un asset")
+            raise ProjectError(f"un {kind} necesita un asset")
         asset = project.asset(asset_id)
-        if asset.kind != "image":
-            raise ProjectError(f"el asset {asset_id} no es una imagen ({asset.kind})")
+        expected = "imagen" if kind == "image" else "video"
+        if asset.kind != kind:
+            raise ProjectError(f"el asset {asset_id} no es un {expected} ({asset.kind})")
         auto_w, auto_h = default_image_box(project, asset)
         if width == 0.35 and height == 0.25:
-            width, height = auto_w, auto_h
+            if video_track > 0:
+                # Un clip de una pista V2/V3 ocupa el lienzo salvo que se pida otra caja.
+                width, height, fit = 1.0, 1.0, "fill"
+            else:
+                width, height = auto_w, auto_h
+        if kind == "video":
+            in_ = max(0.0, float(in_))
+            available = max(0.0, asset.duration - in_)
+            if available <= 0:
+                raise ProjectError("el video no tiene metraje desde esa entrada")
+            duration = min(float(duration), available)
     start, end = _fit_interval(project, start, duration)
-    effects: tuple[Effect, ...] = ()
+    if kind == "video":
+        asset = project.asset(asset_id or "")
+        if in_ + (end - start) > asset.duration + 1e-6:
+            end = start + max(0.2, asset.duration - in_)
+    effects: list[Effect] = []
     if blur > 0:
-        effects = (Effect(BLUR_KIND, (("radius", round(_clamp(blur, 0.0, BLUR_MAX), 3)),)),)
+        effects.append(Effect(BLUR_KIND, (("radius", round(_clamp(blur, 0.0, BLUR_MAX), 3)),)))
+    if kind == "video" and abs(float(audio_gain) - 1.0) > 1e-6:
+        effects.append(
+            Effect(AUDIO_KIND, (("gain", round(_clamp(audio_gain, 0.0, AUDIO_GAIN_MAX), 3)),))
+        )
     element = Element(
         id=new_id("e"), kind=kind, start=start, end=end,
         x=_clamp(x, 0.0, 1.0), y=_clamp(y, 0.0, 1.0),
         width=_clamp(width, ELEMENT_SIZE_MIN, ELEMENT_SIZE_MAX),
         height=_clamp(height, ELEMENT_SIZE_MIN, ELEMENT_SIZE_MAX),
         rotation=float(rotation), opacity=_clamp(opacity, 0.0, 1.0),
-        color=color, asset_id=asset_id, fit=fit, effects=effects,
+        color=color, asset_id=asset_id, fit=fit, in_=max(0.0, float(in_)),
+        video_track=video_track, animations=animations, effects=tuple(effects),
     )
-    return replace(project, elements=(*project.elements, element)), element
+    return replace(project, elements=_insert_ordered(project.elements, element)), element
 
 
 def update_element(project: Project, element_id: str, **changes) -> Project:  # noqa: ANN003
@@ -287,16 +367,38 @@ def update_element(project: Project, element_id: str, **changes) -> Project:  # 
     current = project.element(element_id)
     allowed = {
         "start", "end", "x", "y", "width", "height", "rotation", "opacity", "color",
-        "fit", "effects",
+        "fit", "in_", "video_track", "animations", "effects",
     }
     unknown = set(changes) - allowed
     if unknown:
         raise ProjectError(f"campos de elemento desconocidos: {', '.join(sorted(unknown))}")
     element = replace(current, **changes)
+    if element.kind == "video":
+        asset = project.asset(element.asset_id or "")
+        if element.in_ < 0:
+            raise ProjectError("la entrada de fuente no puede ser negativa")
+        if element.in_ + element.duration > asset.duration + 1e-6:
+            raise ProjectError("el video superpuesto se sale del final del archivo")
+    if "video_track" in changes and element.video_track != current.video_track:
+        others = tuple(item for item in project.elements if item.id != element_id)
+        return replace(project, elements=_insert_ordered(others, element))
     return replace(
         project,
         elements=tuple(element if item.id == element_id else item for item in project.elements),
     )
+
+
+def set_video_track(project: Project, element_id: str, track: int) -> Project:
+    """Mueve un video entre «Elementos» y V2/V3, recolocando su z-order."""
+    current = project.element(element_id)
+    if current.kind != "video":
+        raise ProjectError("solo un video puede cambiar de pista")
+    track = int(track)
+    if not 0 <= track <= VIDEO_TRACKS_MAX:
+        raise ProjectError(f"pista de video inválida ({track})")
+    if track == current.video_track:
+        return project
+    return update_element(project, element_id, video_track=track)
 
 
 def set_blur(project: Project, element_id: str, radius: float) -> Project:
@@ -310,45 +412,78 @@ def set_blur(project: Project, element_id: str, radius: float) -> Project:
     return update_element(project, element_id, effects=(*others, effect))
 
 
+def set_audio_gain(project: Project, element_id: str, gain: float) -> Project:
+    """Fija el volumen del audio de un video superpuesto; 1 (neutro) quita el efecto."""
+    current = project.element(element_id)
+    if current.kind != "video":
+        raise ProjectError("solo un video superpuesto tiene audio")
+    gain = _clamp(gain, 0.0, AUDIO_GAIN_MAX)
+    others = tuple(effect for effect in current.effects if effect.kind != AUDIO_KIND)
+    if abs(gain - 1.0) < 1e-6:
+        return update_element(project, element_id, effects=others)
+    effect = Effect(AUDIO_KIND, (("gain", round(gain, 3)),))
+    return update_element(project, element_id, effects=(*others, effect))
+
+
 def remove_element(project: Project, element_id: str) -> Project:
     project.element(element_id)  # valida que existe
     return replace(project, elements=tuple(e for e in project.elements if e.id != element_id))
 
 
 def _move_z(project: Project, element_id: str, offset: int) -> Project:
+    """Mueve un paso **dentro de su capa** (V2, V3 o Elementos), sin cruzar de capa."""
     items = list(project.elements)
     index = next((i for i, e in enumerate(items) if e.id == element_id), None)
     if index is None:
         raise ProjectError(f"no existe el elemento {element_id}")
-    target = max(0, min(len(items) - 1, index + offset))
-    if target == index:
+    key = _track_key(items[index])
+    layer = [i for i, item in enumerate(items) if _track_key(item) == key]
+    pos = layer.index(index)
+    target_pos = pos + (1 if offset > 0 else -1)
+    if not 0 <= target_pos < len(layer):
         return project
-    item = items.pop(index)
-    items.insert(target, item)
+    target = layer[target_pos]
+    items[index], items[target] = items[target], items[index]
     return replace(project, elements=tuple(items))
 
 
 def raise_element(project: Project, element_id: str) -> Project:
-    """Sube un paso el elemento (más cerca del espectador)."""
+    """Sube un paso el elemento dentro de su capa (más cerca del espectador)."""
     return _move_z(project, element_id, 1)
 
 
 def lower_element(project: Project, element_id: str) -> Project:
-    """Baja un paso el elemento (más al fondo)."""
+    """Baja un paso el elemento dentro de su capa (más al fondo)."""
     return _move_z(project, element_id, -1)
 
 
 def bring_to_front(project: Project, element_id: str) -> Project:
-    project.element(element_id)
-    items = [e for e in project.elements if e.id != element_id]
-    items.append(project.element(element_id))
+    """Pone el elemento al frente de su capa; no lo saca de V2/V3/Elementos."""
+    current = project.element(element_id)
+    key = _track_key(current)
+    items = list(project.elements)
+    index = next(i for i, item in enumerate(items) if item.id == element_id)
+    layer = [i for i, item in enumerate(items) if _track_key(item) == key]
+    if layer[-1] == index:  # ya está al frente de su capa
+        return project
+    others = [i for i in layer if i != index]
+    item = items.pop(index)
+    items.insert(others[-1], item)  # la última de su capa ya se desplazó una posición
     return replace(project, elements=tuple(items))
 
 
 def send_to_back(project: Project, element_id: str) -> Project:
-    project.element(element_id)
-    items = [e for e in project.elements if e.id != element_id]
-    items.insert(0, project.element(element_id))
+    """Envía el elemento al fondo de su capa; no lo saca de V2/V3/Elementos."""
+    current = project.element(element_id)
+    key = _track_key(current)
+    items = list(project.elements)
+    index = next(i for i, item in enumerate(items) if item.id == element_id)
+    layer = [i for i, item in enumerate(items) if _track_key(item) == key]
+    if layer[0] == index:  # ya está al fondo de su capa
+        return project
+    others = [i for i in layer if i != index]
+    item = items.pop(index)
+    items.insert(others[0], item)
     return replace(project, elements=tuple(items))
 
 
@@ -371,6 +506,7 @@ def with_effect(element: Element, kind: str, **params: float) -> Element:
 
 
 __all__ = [
+    "AUDIO_GAIN_MAX",
     "BLUR_MAX",
     "ELEMENT_COLOR",
     "ELEMENT_DURATION",
@@ -381,9 +517,11 @@ __all__ = [
     "SHAPE_KINDS",
     "active",
     "add_element",
+    "audio_gain",
     "blur_radius",
     "bring_to_front",
     "default_image_box",
+    "effective",
     "image_padding",
     "layout",
     "lower_element",
@@ -392,9 +530,12 @@ __all__ = [
     "remove_element",
     "rotated_size",
     "send_to_back",
+    "set_audio_gain",
     "set_blur",
+    "set_video_track",
     "source_size",
     "update_element",
+    "video_track_label",
     "visible_in_timeline",
     "with_effect",
     "z_index",

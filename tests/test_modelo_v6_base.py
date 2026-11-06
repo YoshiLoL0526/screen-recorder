@@ -1,4 +1,4 @@
-"""Base del modelo v6 (docs/22): elementos superpuestos, efectos globales y tipo de asset.
+"""Base del modelo v6/v7 (docs/22 y docs/28): elementos, efectos globales y tipo de asset.
 
 Las features de composición construyen encima de este contrato; aquí se comprueba que la base
 no cambia lo visible de un proyecto v5 y que los hooks de preview/export son no-op.
@@ -10,6 +10,8 @@ import json
 
 import pytest
 
+from recstudio.core import animation as anim
+from recstudio.core import elements as el
 from recstudio.core import keyframes, store as store_mod
 from recstudio.core.errors import ProjectError
 from recstudio.core.project import (
@@ -19,6 +21,7 @@ from recstudio.core.project import (
     Element,
     MediaAsset,
     Project,
+    TextOverlay,
     Track,
     from_dict,
     to_dict,
@@ -37,8 +40,8 @@ def _project(**changes) -> Project:  # noqa: ANN001
     return Project(**{**base.__dict__, **changes})
 
 
-def test_defaults_v6_y_round_trip() -> None:
-    assert SCHEMA_VERSION == 6
+def test_defaults_v9_y_round_trip() -> None:
+    assert SCHEMA_VERSION == 9
     assert Project().elements == () and Project().effects == ()
     element = Element(
         "e1", "rect", 1.0, 5.0, x=0.25, y=0.75, width=0.4, height=0.3,
@@ -72,6 +75,142 @@ def test_validacion_de_elementos_y_efectos_globales() -> None:
     with pytest.raises(ProjectError):
         _project(effects=(Effect("blur"), Effect("blur"))).validate()
     _project(elements=(Element("e", "image", 0.0, 1.0, asset_id="img"),)).validate()
+
+
+def test_elemento_video_pip_round_trip_y_limites() -> None:
+    element = Element("v1", "video", 1.0, 3.0, asset_id="a", in_=2.0, width=0.4, height=0.3)
+    project = _project(elements=(element,)).validate()
+    data = json.loads(json.dumps(to_dict(project)))
+    assert data["elements"][0]["kind"] == "video" and data["elements"][0]["in"] == 2.0
+    assert from_dict(data) == project
+
+    with pytest.raises(ProjectError):
+        Element("v2", "video", 0.0, 2.0)  # sin asset
+    with pytest.raises(ProjectError):
+        _project(elements=(Element("v3", "video", 0.0, 2.0, asset_id="img"),)).validate()
+    with pytest.raises(ProjectError):
+        _project(elements=(Element("v4", "video", 0.0, 9.5, asset_id="a", in_=1.0),)).validate()
+
+
+def test_pistas_de_video_v2_v3_por_capa() -> None:
+    project = _project()
+    project, v2 = el.add_element(project, "video", 0.0, 1.0, asset_id="a", video_track=1)
+    project, v3 = el.add_element(project, "video", 0.0, 1.0, asset_id="a", video_track=2)
+    project, generic = el.add_element(project, "rect", 0.0, 1.0)
+    # z-order: V2 < V3 < Elementos, aunque se añada la figura al final.
+    assert [e.id for e in project.elements] == [v2.id, v3.id, generic.id]
+    assert (v2.video_track, v3.video_track, generic.video_track) == (1, 2, 0)
+    assert (v2.width, v2.height, v2.fit) == (1.0, 1.0, "fill")
+
+    data = json.loads(json.dumps(to_dict(project)))
+    assert data["elements"][0]["video_track"] == 1
+    assert from_dict(data) == project
+
+    with pytest.raises(ProjectError):
+        el.set_video_track(project, generic.id, 1)  # una figura no va a V2
+    with pytest.raises(ProjectError):
+        Element("e", "rect", 0.0, 1.0, video_track=1)
+    with pytest.raises(ProjectError):
+        Element("e", "video", 0.0, 1.0, asset_id="a", video_track=3)
+
+    reordered = el.set_video_track(project, v2.id, 2)
+    assert [e.video_track for e in reordered.elements] == [2, 2, 0]
+    assert [e.id for e in reordered.elements] == [v3.id, v2.id, generic.id]
+
+
+def test_zorder_respeta_las_capas_de_video() -> None:
+    project = _project()
+    project, v2a = el.add_element(project, "video", 0.0, 1.0, asset_id="a", video_track=1)
+    project, v2b = el.add_element(project, "video", 0.0, 1.0, asset_id="a", video_track=1)
+    project, v3 = el.add_element(project, "video", 0.0, 1.0, asset_id="a", video_track=2)
+    project, generic = el.add_element(project, "rect", 0.0, 1.0)
+    ids = lambda p: [e.id for e in p.elements]  # noqa: E731
+
+    front = el.bring_to_front(project, v2a.id)
+    assert ids(front) == [v2b.id, v2a.id, v3.id, generic.id]
+    assert el.bring_to_front(project, v2b.id) == project  # ya está al frente de V2
+    back = el.send_to_back(project, v2b.id)
+    assert ids(back) == [v2b.id, v2a.id, v3.id, generic.id]
+    assert el.send_to_back(project, v2a.id) == project  # ya está al fondo de V2
+    assert ids(el.raise_element(project, v2a.id)) == [v2b.id, v2a.id, v3.id, generic.id]
+    assert el.raise_element(project, v3.id) == project  # única de V3
+    assert el.send_to_back(project, generic.id) == project  # única de Elementos
+
+
+def test_subtitulos_y_keyframes_round_trip_y_migracion() -> None:
+    curve = anim.Animation("x", (
+        anim.Keyframe(0.0, 0.2),
+        anim.Keyframe(1.0, 0.8),
+    ))
+    fade = anim.Animation("opacity", (
+        anim.Keyframe(0.0, 1.0),
+        anim.Keyframe(2.0, 0.0),
+    ))
+    text = TextOverlay(
+        "t1", "Hola", 1.0, 3.0, opacity=0.75, subtitle=True,
+        animations=(curve, fade),
+    )
+    element = Element(
+        "e1", "video", 0.0, 2.0, asset_id="a", animations=(curve,),
+    )
+    project = _project(texts=(text,), elements=(element,)).validate()
+    data = json.loads(json.dumps(to_dict(project)))
+    assert data["texts"][0]["subtitle"] is True and data["texts"][0]["opacity"] == 0.75
+    assert data["texts"][0]["animations"][0]["channel"] == "x"
+    assert data["elements"][0]["animations"][0]["points"][1]["value"] == 0.8
+    assert from_dict(data) == project
+
+    # Un v8 sin los campos nuevos migra con opacidad 1, subtítulo apagado y sin animaciones.
+    legacy = to_dict(project)
+    legacy["schema_version"] = 8
+    legacy["texts"][0].pop("opacity", None)
+    legacy["texts"][0].pop("subtitle", None)
+    legacy["texts"][0].pop("animations", None)
+    legacy["elements"][0].pop("animations", None)
+    migrated, read_only = store_mod.migrate(legacy)
+    assert not read_only and migrated["schema_version"] == SCHEMA_VERSION
+    restored = from_dict(migrated)
+    assert restored.text("t1").opacity == 1.0 and not restored.text("t1").subtitle
+    assert restored.text("t1").animations == ()
+    assert restored.element("e1").animations == ()
+
+
+def test_audio_del_pip_usa_el_efecto_volume() -> None:
+    project, element = el.add_element(
+        _project(), "video", 0.0, 2.0, asset_id="a", blur=8.0, audio_gain=0.4,
+    )
+    assert el.audio_gain(element) == pytest.approx(0.4)
+    assert el.blur_radius(element) == pytest.approx(8.0)
+    data = json.loads(json.dumps(to_dict(project)))
+    effects = data["elements"][0]["effects"]
+    assert {"kind": "volume", "params": [["gain", 0.4]]} in effects
+    assert {"kind": "blur", "params": [["radius", 8.0]]} in effects
+    assert from_dict(data) == project
+
+    # 1.0 es el neutro: el efecto desaparece, pero el blur sigue.
+    neutral = el.set_audio_gain(project, element.id, 1.0)
+    assert el.audio_gain(neutral.element(element.id)) == 1.0
+    assert [fx.kind for fx in neutral.element(element.id).effects] == ["blur"]
+    muted = el.set_audio_gain(project, element.id, 0.0)
+    assert not el.has_audio(muted.element(element.id))
+    assert el.audio_gain(muted.element(element.id)) == 0.0
+
+    rect = el.add_element(project, "rect", 0.0, 1.0)[1]
+    with pytest.raises(ProjectError):
+        el.set_audio_gain(project, rect.id, 0.5)
+
+
+def test_migracion_v6_v7_conserva_elementos() -> None:
+    element = Element("e1", "image", 0.0, 2.0, asset_id="img", width=0.3, height=0.2)
+    project = _project(elements=(element,)).validate()
+    v6 = to_dict(project)
+    v6["schema_version"] = 6
+    v6["elements"][0].pop("in", None)
+    migrated, read_only = store_mod.migrate(v6)
+    assert not read_only and migrated["schema_version"] == SCHEMA_VERSION
+    restored = from_dict(migrated)
+    assert restored.element("e1").in_ == 0.0
+    assert restored.elements[0].kind == "image"
 
 
 def test_migracion_v5_v6_abre_identico_y_tipos_de_asset() -> None:

@@ -237,6 +237,12 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v4_v5(data)
     if version < 6:
         data = _migrate_v5_v6(data)
+    if version < 7:
+        data = _migrate_v6_v7(data)
+    if version < 8:
+        data = _migrate_v7_v8(data)
+    if version < 9:
+        data = _migrate_v8_v9(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -327,6 +333,32 @@ def _migrate_v5_v6(data: dict[str, Any]) -> dict[str, Any]:
     if assets or "assets" in migrated:
         migrated["assets"] = assets
     return migrated
+
+
+def _migrate_v6_v7(data: dict[str, Any]) -> dict[str, Any]:
+    """v6 → v7: video superpuesto (PiP) en los elementos (docs/28).
+
+    Los elementos antiguos no tenían `in`; `from_dict` lo deja en 0. No hay nada más que migrar.
+    """
+    return {**data}
+
+
+def _migrate_v7_v8(data: dict[str, Any]) -> dict[str, Any]:
+    """v7 → v8: pistas de video V2/V3 (docs/29).
+
+    Los elementos antiguos no tenían `video_track`; `from_dict` los deja en 0 («Elementos»), así
+    que visualmente todo sigue igual. No hay nada más que migrar.
+    """
+    return {**data}
+
+
+def _migrate_v8_v9(data: dict[str, Any]) -> dict[str, Any]:
+    """v8 → v9: subtítulos y keyframes de textos/elementos (docs/30 y docs/31).
+
+    Los textos antiguos no tenían `opacity`, `subtitle` ni `animations`; los elementos no tenían
+    `animations`. `from_dict` los deja en 1.0, `False` y `()`, así que no hay nada que reescribir.
+    """
+    return {**data}
 
 
 def _backup_path(path: Path) -> Path:

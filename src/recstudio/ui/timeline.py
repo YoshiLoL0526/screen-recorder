@@ -28,8 +28,9 @@ from aurora import Canvas, box, canvas, column, component, image, row, scroll, t
 
 from .. import state
 from ..core import effects as fx
+from ..core import elements as element_mod
 from ..core import timeline as tl
-from ..core.project import Project, audio_track_audible, video_audio_gain
+from ..core.project import VIDEO_TRACKS_MAX, Project, audio_track_audible, video_audio_gain
 from ..services import media
 
 NAV_W = 196  # ancho de la barra lateral (shell.nav)
@@ -43,6 +44,8 @@ VIDEO_TOP = RULER_H + 6
 VIDEO_H = 62  # alto por defecto de las pistas (el divisor del editor las agranda o encoge)
 AUDIO_H = 40
 AUDIO_TRACK_H = 42  # alto de cada pista de audio extra (música, audio separado, voz…)
+OVERLAY_H = 26  # alto de las filas de textos/elementos sobre el video
+VIDEO_ROW_H = 32  # alto de cada pista de video V2/V3
 TRACK_GAP = 6
 MAX_AUDIO_TRACKS = 6  # tope de la UI antes de aplastar el preview (alternativa al scroll vertical)
 TRACKS_EXTRA_MIN = -14.0  # lo más que se pueden encoger (en px repartidos entre V y A)
@@ -79,16 +82,39 @@ class AudioRow:
 
 
 @dataclass(frozen=True)
+class OverlayRow:
+    """Fila de una capa global (textos o elementos) por encima de la pista de video."""
+
+    kind: str  # text | element
+    top: float
+    height: float
+    count: int
+
+
+@dataclass(frozen=True)
+class VideoRow:
+    """Fila de una pista de video V2/V3 (elementos con `video_track`)."""
+
+    track: int  # 1 = V2, 2 = V3
+    top: float
+    height: float
+    count: int
+
+
+@dataclass(frozen=True)
 class Tracks:
     """Geometría vertical de las pistas; el alto extra lo fija el divisor preview/timeline (F5)."""
 
     video_h: float
     audio_h: float
     rows: tuple[AudioRow, ...] = ()
+    overlays: tuple[OverlayRow, ...] = ()
+    video_rows: tuple[VideoRow, ...] = ()
+    video_top: float = VIDEO_TOP
 
     @property
     def audio_top(self) -> float:
-        return VIDEO_TOP + self.video_h + TRACK_GAP
+        return self.video_top + self.video_h + TRACK_GAP
 
     @property
     def first_audio_top(self) -> float:
@@ -110,22 +136,56 @@ class Tracks:
     def row_for(self, index: int) -> AudioRow | None:
         return self.rows[index] if 0 <= index < len(self.rows) else None
 
+    def overlay_for(self, kind: str) -> OverlayRow | None:
+        return next((row for row in self.overlays if row.kind == kind), None)
+
+    def video_row(self, track: int) -> VideoRow | None:
+        return next((row for row in self.video_rows if row.track == track), None)
+
 
 def tracks_for(extra: float, project: Project | None = None) -> Tracks:
     extra = max(TRACKS_EXTRA_MIN, min(TRACKS_EXTRA_MAX, float(extra)))
     video_h = round(VIDEO_H + extra * 0.6)
     audio_h = round(AUDIO_H + extra * 0.4)
+    overlays: list[OverlayRow] = []
+    video_rows: list[VideoRow] = []
+    top = VIDEO_TOP
+    if project is not None:
+        generic = [e for e in project.elements if e.video_track <= 0]
+        # Orden visual = z-order de composición: textos, elementos globales, V3, V2 y video base.
+        for kind, items in (("text", project.texts), ("element", generic)):
+            if not items:
+                continue
+            overlays.append(OverlayRow(kind, top, OVERLAY_H, len(items)))
+            top += OVERLAY_H + TRACK_GAP
+        counts = {
+            track: sum(1 for e in project.elements if e.video_track == track)
+            for track in range(1, VIDEO_TRACKS_MAX + 1)
+        }
+        for track in range(VIDEO_TRACKS_MAX, 0, -1):
+            if counts.get(track):
+                video_rows.append(VideoRow(track, top, VIDEO_ROW_H, counts[track]))
+                top += VIDEO_ROW_H + TRACK_GAP
     rows: list[AudioRow] = []
-    top = VIDEO_TOP + video_h + TRACK_GAP + audio_h + TRACK_GAP
+    audio_top = top + video_h + TRACK_GAP
+    first = audio_top + audio_h + TRACK_GAP
     for index in range(len(project.audio) if project is not None else 0):
-        rows.append(AudioRow(index, top, AUDIO_TRACK_H))
-        top += AUDIO_TRACK_H + TRACK_GAP
-    return Tracks(video_h=video_h, audio_h=audio_h, rows=tuple(rows))
+        rows.append(AudioRow(index, first, AUDIO_TRACK_H))
+        first += AUDIO_TRACK_H + TRACK_GAP
+    return Tracks(video_h=video_h, audio_h=audio_h, rows=tuple(rows),
+                  overlays=tuple(overlays), video_rows=tuple(video_rows),
+                  video_top=float(top))
 
 
 def max_tracks_extra(view_h: float) -> float:
     """Lo más que pueden crecer las pistas con este alto útil sin bajar el preview de su mínimo."""
-    rows = len(state.editor_project().audio) * (AUDIO_TRACK_H + TRACK_GAP)
+    project = state.editor_project()
+    rows = len(project.audio) * (AUDIO_TRACK_H + TRACK_GAP)
+    generic = any(e.video_track <= 0 for e in project.elements)
+    groups = (1 if project.texts else 0) + (1 if generic else 0)
+    rows += groups * (OVERLAY_H + TRACK_GAP)
+    video_rows = len({e.video_track for e in project.elements if e.video_track > 0})
+    rows += video_rows * (VIDEO_ROW_H + TRACK_GAP)
     return max(TRACKS_EXTRA_MIN, min(TRACKS_EXTRA_MAX,
                                      view_h - EDITOR_CHROME_H - PREVIEW_MIN_H - rows))
 
@@ -282,6 +342,56 @@ def _clip_label_x(w: float, x: float) -> float:
     return min(max(x + 8, state.tl_scroll() + 8), x + w - 60)
 
 
+def _element_boxes(
+    project: Project, row, items, *, zoom: float, x0: float, x1: float,
+    selection, multi, color: str,
+):  # noqa: ANN001, ANN202
+    """Barras de una fila de capas (Elementos o V2/V3), con asas de mover/recortar."""
+    boxes = []
+    for item in items:
+        x, w = item.start * zoom, max(4.0, (item.end - item.start) * zoom)
+        if x > x1 or x + w < x0:
+            continue
+        selected = (
+            (selection is not None and selection[0] == "element" and selection[1] == item.id)
+            or item.id in multi
+        )
+        if item.kind == "video":
+            try:
+                label = project.asset(item.asset_id or "").name
+            except Exception:
+                label = "Vídeo"
+        else:
+            label = element_mod.ELEMENT_LABELS.get(item.kind, item.kind)
+        if selected:
+            label = f"{label} · {item.start:.2f}–{item.end:.2f}s"
+        if item.animations:
+            label = f"{label} ◆"
+        track = element_mod.video_track_label(item.video_track)
+        boxes.append(
+            box(
+                key=f"tl-element-{item.id}", position="absolute", left=x,
+                top=row.top + 2, width=w, height=row.height - 4, radius=4,
+                bg=color + "33", border_width=1.5 if selected else 1,
+                border_color=color if selected else color + "66", cursor="grab",
+                padding=(2, 6),
+                tooltip=f"{track} · {tl.format_time(item.start)}–{tl.format_time(item.end)}",
+                label=f"Capa {track}: {label}",
+                on_drag=_overlay_drag("element", item.id, "move"),
+            )[
+                box(key=f"tl-trim-l-{item.id}", position="absolute", left=0, top=0, width=6,
+                    height=row.height - 4, radius=3, bg="#00000000", bg_hover=color + "88",
+                    cursor="col-resize", on_drag=_overlay_drag("element", item.id, "trim-l")),
+                box(key=f"tl-trim-r-{item.id}", position="absolute", right=0, top=0, width=6,
+                    height=row.height - 4, radius=3, bg="#00000000", bg_hover=color + "88",
+                    cursor="col-resize", on_drag=_overlay_drag("element", item.id, "trim-r")),
+                text(_ellipsis(label, w - 14, 10.5), size=10.5, weight=600,
+                     color="$text", max_lines=1),
+            ]
+        )
+    return boxes
+
+
 def _draw_tracks(c: Canvas) -> None:
     project: Project = state.editor_project()
     zoom = state.tl_zoom()
@@ -294,7 +404,13 @@ def _draw_tracks(c: Canvas) -> None:
     video_h, audio_top, audio_h = lay.video_h, lay.audio_top, lay.audio_h
     x0, x1 = _visible_range()
     c.clear("$track_bg")
-    c.rect(0, VIDEO_TOP - 3, c.width, video_h + 6, fill="$track_bg")
+    for row in lay.overlays:
+        fill = "$track_alt" if row.kind == "text" else "$track_bg"
+        c.rect(0, row.top - 3, c.width, row.height + 6, fill=fill)
+    for row in lay.video_rows:
+        fill = "$track_alt" if row.track % 2 == 0 else "$track_bg"
+        c.rect(0, row.top - 3, c.width, row.height + 6, fill=fill)
+    c.rect(0, lay.video_top - 3, c.width, video_h + 6, fill="$track_bg")
     c.rect(0, audio_top - 3, c.width, audio_h + 6, fill="$track_alt")
     for row in lay.rows:
         c.rect(0, row.top - 3, c.width, row.height + 6, fill="$track_bg" if row.index % 2 == 0 else "$track_alt")
@@ -316,14 +432,14 @@ def _draw_tracks(c: Canvas) -> None:
         moving = drag is not None and drag.kind == "move" and drag.clip_id == clip.id
         selected = clip.id == selected_id or clip.id in multi
         if moving:  # el hueco que ocupará al soltar
-            c.rect(x + 1, VIDEO_TOP, w - 2, video_h, radius=6, stroke="$primary", stroke_width=1.5, dash=(5, 4))
+            c.rect(x + 1, lay.video_top, w - 2, video_h, radius=6, stroke="$primary", stroke_width=1.5, dash=(5, 4))
             continue
-        c.rect(x + 1, VIDEO_TOP, w - 2, video_h, radius=6, fill="$clip")
-        c.rect(x + 1, VIDEO_TOP, w - 2, video_h, radius=6,
+        c.rect(x + 1, lay.video_top, w - 2, video_h, radius=6, fill="$clip")
+        c.rect(x + 1, lay.video_top, w - 2, video_h, radius=6,
                stroke="$primary" if selected else "$clip_edge", stroke_width=2 if selected else 1,
                dash=(4, 3) if is_offline else None)
         if selected:
-            c.rect(x + 3, VIDEO_TOP + 2, w - 6, 3, radius=1.5, fill="$primary")
+            c.rect(x + 3, lay.video_top + 2, w - 6, 3, radius=1.5, fill="$primary")
         try:
             asset = project.asset(clip.asset_id)
             name = asset.name
@@ -331,9 +447,9 @@ def _draw_tracks(c: Canvas) -> None:
             asset, name = None, "?"
         # Etiqueta «pegajosa»: sigue visible aunque el inicio del clip quede fuera de la vista.
         label_x = _clip_label_x(w, x)
-        c.text(label_x, VIDEO_TOP + 10, _ellipsis(name, x + w - label_x - 6, 12), size=12, weight=600)
+        c.text(label_x, lay.video_top + 10, _ellipsis(name, x + w - label_x - 6, 12), size=12, weight=600)
         meta = _clip_meta(clip, offline=is_offline)
-        c.text(label_x, VIDEO_TOP + 28, _ellipsis(meta, x + w - label_x - 6, 10.5), size=10.5,
+        c.text(label_x, lay.video_top + 28, _ellipsis(meta, x + w - label_x - 6, 10.5), size=10.5,
                color="$danger" if is_offline else "$muted", family="Consolas")
 
         # Pista de audio enlazada: banda + waveform del tramo de fuente (o aviso de separado).
@@ -429,13 +545,13 @@ def _draw_tracks(c: Canvas) -> None:
         xa, xb = b_start * zoom, a_end * zoom
         if xb < x0 or xa > x1:
             continue
-        c.rect(xa, VIDEO_TOP + 6, max(2.0, xb - xa), video_h - 12, fill="#F5B85130", stroke="$transition",
+        c.rect(xa, lay.video_top + 6, max(2.0, xb - xa), video_h - 12, fill="#F5B85130", stroke="$transition",
                stroke_width=1)
-        c.line(xa, VIDEO_TOP + 6, xb, VIDEO_TOP + video_h - 6, stroke="$transition", stroke_width=1)
-        c.line(xa, VIDEO_TOP + video_h - 6, xb, VIDEO_TOP + 6, stroke="$transition", stroke_width=1)
+        c.line(xa, lay.video_top + 6, xb, lay.video_top + video_h - 6, stroke="$transition", stroke_width=1)
+        c.line(xa, lay.video_top + video_h - 6, xb, lay.video_top + 6, stroke="$transition", stroke_width=1)
         cx = (xa + xb) / 2
         if zoom >= 40:
-            c.text(cx, VIDEO_TOP + video_h + 1, f"{transition.kind} {transition.duration:g}s", size=9.5,
+            c.text(cx, lay.video_top + video_h + 1, f"{transition.kind} {transition.duration:g}s", size=9.5,
                    color="$transition", align="center")
     for index in range(len(project.video.transitions)):
         transition = project.video.transitions[index]
@@ -443,7 +559,7 @@ def _draw_tracks(c: Canvas) -> None:
         if boundary < x0 or boundary > x1:
             continue
         selected = selection == ("transition", index)
-        y = VIDEO_TOP - 1
+        y = lay.video_top - 1
         c.polygon([(boundary, y - 6), (boundary + 6, y), (boundary, y + 6), (boundary - 6, y)],
                   fill="$transition" if transition is not None or selected else "$surface_hover",
                   stroke="$primary" if selected else "$clip_edge", stroke_width=1.5 if selected else 1)
@@ -451,19 +567,19 @@ def _draw_tracks(c: Canvas) -> None:
     # Fantasma del bloque de la selección múltiple (fase 3): cubre todas las pistas.
     if drag is not None and drag.kind == "block" and drag.length > 0:
         gx, gw = drag.ghost * zoom, max(2.0, drag.length * zoom)
-        c.rect(gx, VIDEO_TOP - 3, gw, lay.content_h - VIDEO_TOP - 5, radius=6, fill="#7C5CFF22",
+        c.rect(gx, lay.video_top - 3, gw, lay.content_h - lay.video_top - 5, radius=6, fill="#7C5CFF22",
                stroke="$primary", stroke_width=1.5, dash=(6, 4))
 
     # Fantasma del clip que se arrastra (encima de todo).
     if drag is not None and drag.kind == "move" and project.has_clip(drag.clip_id):
         clip = project.clip(drag.clip_id)
         x, w = drag.ghost * zoom, max(2.0, clip.duration * zoom)
-        c.rect(x + 1, VIDEO_TOP - 2, w - 2, video_h + 4, radius=6, fill="#7C5CFF55", stroke="$primary", stroke_width=2)
+        c.rect(x + 1, lay.video_top - 2, w - 2, video_h + 4, radius=6, fill="#7C5CFF55", stroke="$primary", stroke_width=2)
         try:
             name = project.asset(clip.asset_id).name
         except Exception:
             name = "?"
-        c.text(x + 8, VIDEO_TOP + 10, _ellipsis(name, w - 14, 12), size=12, weight=600)
+        c.text(x + 8, lay.video_top + 10, _ellipsis(name, w - 14, 12), size=12, weight=600)
 
 
 # -- filmstrip (miniaturas) ---------------------------------------------------------
@@ -541,7 +657,7 @@ def _filmstrip_elements(
                     key=f"thumb-{clip.id}-{thumb_index}",
                     position="absolute",
                     left=left,
-                    top=VIDEO_TOP + 1,
+                    top=lay.video_top + 1,
                     width=slot_w,
                     height=lay.video_h - 2,
                     fit="cover",
@@ -558,7 +674,7 @@ def _filmstrip_elements(
                     key=f"cliplabel-{clip.id}",
                     position="absolute",
                     left=label_x,
-                    top=VIDEO_TOP + 6,
+                    top=lay.video_top + 6,
                     width=room,
                     bg="#0B0D14B8",
                     radius=5,
@@ -623,6 +739,22 @@ def _marker_click(marker_id: str):
         editor = _editor()
         if editor is not None:
             editor.select_marker(marker_id)
+
+    return handler
+
+
+def _overlay_drag(kind: str, item_id: str, mode: str):
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_overlay_drag(kind, item_id, mode)
+        elif e.phase == "move":
+            editor.drag_overlay(e.dx)
+        else:
+            editor.drag_overlay(e.dx)
+            editor.end_overlay_drag()
 
     return handler
 
@@ -729,13 +861,62 @@ def timeline_layer():
 
     razor = state.razor_on()
     boxes = []
+    # Capas globales: textos y elementos con su intervalo, encima de la pista de video. Son
+    # barras con asas propias (mover y recortar) sin tocar el modelo: `start`/`end` ya existen.
+    for row in lay.overlays:
+        if row.kind == "text":
+            for item in project.texts:
+                x, w = item.start * zoom, max(4.0, (item.end - item.start) * zoom)
+                if x > x1 or x + w < x0:
+                    continue
+                color = "#38D6B0" if item.subtitle else "#F5B851"
+                selected = selection is not None and selection[0] == "text" and selection[1] == item.id
+                label = item.text
+                if selected:
+                    label = f"{label} · {item.start:.2f}–{item.end:.2f}s"
+                if item.animations:
+                    label = f"{label} ◆"
+                boxes.append(
+                    box(
+                        key=f"tl-text-{item.id}", position="absolute", left=x,
+                        top=row.top + 2, width=w, height=row.height - 4, radius=4,
+                        bg=color + "33", border_width=1.5 if selected else 1,
+                        border_color=color if selected else color + "66", cursor="grab",
+                        padding=(2, 6),
+                        tooltip=f"Texto: {tl.format_time(item.start)}–{tl.format_time(item.end)}",
+                        label=f"Capa {label}",
+                        on_drag=_overlay_drag("text", item.id, "move"),
+                    )[
+                        box(key=f"tl-trim-l-{item.id}", position="absolute", left=0, top=0, width=6,
+                            height=row.height - 4, radius=3, bg="#00000000", bg_hover=color + "88",
+                            cursor="col-resize", on_drag=_overlay_drag("text", item.id, "trim-l")),
+                        box(key=f"tl-trim-r-{item.id}", position="absolute", right=0, top=0, width=6,
+                            height=row.height - 4, radius=3, bg="#00000000", bg_hover=color + "88",
+                            cursor="col-resize", on_drag=_overlay_drag("text", item.id, "trim-r")),
+                        text(_ellipsis(label, w - 14, 10.5), size=10.5, weight=600,
+                             color="$text", max_lines=1),
+                    ]
+                )
+        else:
+            boxes.extend(_element_boxes(
+                project, row, [e for e in project.elements if e.video_track <= 0],
+                zoom=zoom, x0=x0, x1=x1, selection=selection, multi=state.multi_selection(),
+                color="#7C5CFF",
+            ))
+    for row in lay.video_rows:
+        color = "#4EA1FF" if row.track == 1 else "#38D6B0"
+        boxes.extend(_element_boxes(
+            project, row, [e for e in project.elements if e.video_track == row.track],
+            zoom=zoom, x0=x0, x1=x1, selection=selection, multi=state.multi_selection(),
+            color=color,
+        ))
     for index, clip in enumerate(project.video.clips):
         start, _ = geo.span(project, index)
         x, w = start * zoom, max(4.0, clip.duration * zoom)
         if x > x1 or x + w < x0:
             continue
         if razor:
-            boxes.append(box(key=f"clip-{clip.id}", position="absolute", left=x, top=VIDEO_TOP, width=w,
+            boxes.append(box(key=f"clip-{clip.id}", position="absolute", left=x, top=lay.video_top, width=w,
                              height=video_h, radius=6, bg="#00000000", bg_hover="#FF547018",
                              cursor="crosshair", on_drag=_razor_drag(None)))
             continue
@@ -744,7 +925,7 @@ def timeline_layer():
                 key=f"clip-{clip.id}",
                 position="absolute",
                 left=x,
-                top=VIDEO_TOP,
+                top=lay.video_top,
                 width=w,
                 height=video_h,
                 radius=6,
@@ -813,7 +994,7 @@ def timeline_layer():
                 key=f"tr-{index}",
                 position="absolute",
                 left=boundary - 8,
-                top=VIDEO_TOP - 9,
+                top=lay.video_top - 9,
                 width=16,
                 height=16,
                 radius=8,
@@ -896,8 +1077,30 @@ def track_labels():
 
     video = project.video
     video_gain = 0.0 if video.muted else video.gain
+    overlay_headers = [
+        header(
+            row.top, row.height,
+            "Textos" if row.kind == "text" else "Elementos",
+            children=(text(f"{row.count}", size=9.5, color="$muted", family="Consolas"),),
+        )
+        for row in lay.overlays
+    ]
+    video_row_headers = [
+        header(
+            row.top, row.height, f"V{row.track + 1}",
+            children=(
+                text(f"{row.count}", size=9.5, color="$muted", family="Consolas"),
+                mini(
+                    "+", lambda t=row.track: _run("browse_pip_track", t), active=False,
+                    tooltip=f"Añadir un video a V{row.track + 1} en el playhead",
+                    key=f"trk-add-{row.track}",
+                ),
+            ),
+        )
+        for row in lay.video_rows
+    ]
     video_header = header(
-        VIDEO_TOP, lay.video_h + TRACK_GAP + lay.audio_h, "Video",
+        lay.video_top, lay.video_h + TRACK_GAP + lay.audio_h, "Video",
         children=(
             mini("M", lambda: _run("toggle_video_mute"), active=video.muted,
                  tooltip="Silenciar el audio del video", key="trk-video-mute"),
@@ -909,7 +1112,7 @@ def track_labels():
         ),
     )
 
-    headers = [video_header]
+    headers = [*overlay_headers, *video_row_headers, video_header]
     selected = state.selection()
     for audio_row in lay.rows:
         track = project.audio[audio_row.index]
@@ -952,7 +1155,7 @@ def timeline_view():
         track_labels(),
         column(grow=1, width=0)[
             scroll(axis="x", key="tl-scroll", height=content_h + 12, on_scroll=_on_scroll)[
-                box(key="tl-content", width=width, height=content_h, shrink=0)[
+                box(key="tl-content", width=width, height=content_h, shrink=0, drop_target=True)[
                     timeline_layer(),
                     playhead_layer(),
                 ]

@@ -4,6 +4,46 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 [SemVer](https://semver.org/lang/es/) desde la 1.0.0 (las fases anteriores no se publicaron como versión). El
 detalle de cada fase está en `docs/08`–`docs/16`.
 
+## [Sin publicar]
+
+### Añadido
+- **Subtítulos SRT/VTT** (docs/30; modelo v9): importación desde Capas, cues como textos
+  `subtitle=True` (timeline teal, estilo global) y exportación a SRT.
+- **Keyframes de posición y opacidad** (docs/31; modelo v9): X/Y de elementos y textos + opacidad
+  de textos, con claves en el inspector, interpolación lineal y expresiones reales en preview y
+  export.
+- **Pistas de video V2/V3** (docs/29; modelo v8 con migración v7 → v8): varios clips de video
+  superpuestos en dos pistas, con z-order (V2 → V3 → Elementos), filas propias en el timeline,
+  inserción desde el panel/Capas/arrastre, cambio de pista en el inspector y audio mezclado. Los
+  efectos globales se aplican a V2/V3 antes de la capa «Elementos».
+- **PiP de video** (docs/28; modelo v7 con migración v6 → v7): un video se puede añadir como
+  elemento superpuesto desde el panel de medios o desde «Capas». Se compone en preview y export
+  con posición, tamaño, rotación, opacidad, encaje e intervalo; `Element.in_` permite recortar la
+  fuente por la izquierda. Su **audio se mezcla** con el del proyecto (volumen propio, botones
+  Silenciar/Original y ducking) en preview y export.
+- **Panel de medios y capas del editor** (docs/27): columna izquierda con todos los assets del
+  proyecto, miniaturas, inserción en el playhead, arrastre al timeline/preview, `on_drop` del
+  Explorador y quitar medios sin usar. Pestaña «Capas» siempre visible con video, textos y
+  elementos en orden de apilado.
+- **Selección directa en el preview** de clip, elemento y texto: caja, asas, mover/escalar,
+  undo por gesto y `Esc` para cancelar. Los textos tienen caja real y asas de tamaño; los drags
+  abren la transacción solo al moverse.
+- **Carriles de textos y elementos en el timeline**, con barras movibles/recortables, snap y
+  cabeceras; la geometría usa `Tracks.video_top`.
+- **Inspector**: `number_input` para posición/tamaño/rotación/opacidad, **volumen del PiP**,
+  **opacidad de texto** y **keyframes**; `color_picker` para elemento/texto; campo de texto del
+  título con ancho correcto.
+- **Portapapeles**: copiar/pegar/duplicar elementos, además de clips, audio y textos.
+- **Paridad de texto**: el preview dibuja el mismo contorno que `drawtext`.
+
+### Cambiado
+- Atajo **Ctrl+B** para mostrar/ocultar el panel de medios.
+- La importación rápida sigue añadiendo al final; importar al panel es una acción explícita.
+
+### Corregido
+- Clic en el preview sin selección ya no deja una transacción de undo abierta.
+- El campo de edición de texto ya no se pinta truncado a ~22 px.
+
 ## [1.2.0] — 2026-11-05
 
 ### Añadido

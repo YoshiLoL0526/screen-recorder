@@ -24,14 +24,22 @@ canvas interactivo (`core/canvas_edit.py`, `ui/screens/editor.py`; `docs/23`), a
 separado y enlazado por defecto (`core/timeline.py`, `ui/editor_controller.py`; `docs/24`),
 elementos superpuestos (`core/elements.py`, `core/overlays.py`, `services/element_assets.py`;
 `docs/25`) y efectos globales (`core/global_effects.py`, `core/color.py`; `docs/26`), con el plan
-en `docs/22`. Lo siguiente es el resto de la fase 4 (PiP de video, subtítulos, keyframes) y el
-backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
+en `docs/22`. Después se añadió el **panel de medios/capas** (`ui/project_panel.py`), la
+**selección directa de clip/elemento/texto** en el preview (`ui/element_overlay.py`,
+`ui/screens/editor.py`) y los **carriles de textos/elementos** en el timeline
+(`ui/timeline.py`); ver `docs/27`. Después se añadió el **PiP de video** como
+`Element.kind="video"` (modelo **v7**, `Element.in_`, audio con `Effect("volume")`,
+preview/export; `docs/28`). Después llegaron las **pistas de video V2/V3** (modelo **v8**,
+`Element.video_track`, composición por capas y filas propias en el timeline; `docs/29`) y los
+**subtítulos SRT/VTT + keyframes** (modelo **v9**, `TextOverlay.subtitle/opacity/animations` y
+`Element.animations`; `docs/30` y `docs/31`). Lo siguiente es el resto de la fase 4 (más
+composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 394 tests; la integración usa FFmpeg real
+uv run pytest                                   # 446 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -63,13 +71,22 @@ depender de monitor, GPU ni audio reales del runner.
 - Dirección de dependencias única: `ui → services → core` y `services → platform → core`.
   `core/` es puro (sin aurora, sin PyAV, sin SO) y se testea sin ventana; `platform/` encapsula
   Windows (captura, WASAPI, FFmpeg).
-- Composición v6: el modelo es `Element`/`Project.elements` (imágenes y figuras) y
-  `Project.effects` (globales). El **orden es fijo** y compartido por preview y export: video
-  compuesto → efectos globales (`core/global_effects.py`) → elementos (`core/overlays.py`) →
-  textos. `core/color.py` concentra las curvas de color compartidas; `core/transform.py` y
-  `core/elements.py` son la única geometría de clip y de elemento, respectivamente. Las figuras y
-  el blur se materializan como PNG RGBA en `services/element_assets.py` (cache atómica); el core
-  nunca rasteriza ni toca disco.
+- Composición v6/v7/v8/v9: el modelo es `Element`/`Project.elements` (imágenes, videos, figuras
+  y las pistas V2/V3), `Project.texts` (textos y subtítulos) y `Project.effects` (globales).
+  `Element.video_track` agrupa los videos en V2/V3 (0 = capa «Elementos»); **no hay `Track`
+  nuevas**. El **orden es fijo** y compartido por
+  preview y export: V1 compuesto → V2/V3 → efectos globales (`core/global_effects.py`) → capa
+  «Elementos» (`core/overlays.py`) → textos. `core/color.py` concentra las curvas de color
+  compartidas; `core/transform.py` y `core/elements.py` son la única geometría de clip y de
+  elemento, respectivamente. Las figuras y el blur se materializan como PNG RGBA en
+  `services/element_assets.py` (cache atómica); el core nunca rasteriza ni toca disco. Los videos
+  V2/V3/PiP se decodifican en preview y se añaden como entradas `-ss/-t` en el graph; usan la
+  misma caja normalizada (`Element.in_` fija la fuente). Su audio se mezcla con
+  `_element_audio_mixes` (reutiliza la entrada del overlay) y el volumen vive en
+  `Element.effects` como `Effect("volume")`; el preview usa `build_audio` si oye un video.
+  Los keyframes (`core/animation.py`) animan **x/y** de elementos y **x/y/opacity** de textos:
+  el preview evalúa `value_at` y el export genera expresiones `if(lt(t,…))` para `overlay` y
+  `drawtext`; no hay animación de escala/rotación/color.
 - La UI nunca bloquea: nada de IO/subprocess en handlers. Lo asíncrono comunica por `Signal`
   (único canal cross-thread) o `app.spawn()`. Todo el estado de la app vive en
   `src/recstudio/state.py`.
@@ -141,6 +158,46 @@ depender de monitor, GPU ni audio reales del runner.
   de clip/elemento viven dentro (`ui/screens/editor.py`). El blur de elementos se hornea en el PNG
   (Pillow) y el de efectos globales se escala al alto de salida; sin efectos/elementos el graph es
   byte a byte el histórico. Los PNG de elementos se escriben con tmp + `os.replace`.
+- Panel de medios/capas (docs/27): `Project.assets` ya existía, así que el panel no cambia el
+  esquema. `ui/project_panel.py` no decodifica video en el render: los pósters van a
+  `state.posters` desde un hilo (`EditorController._queue_posters`) y la miniatura de imagen usa
+  `image(path)`. Los drags internos usan `on_drag` con `DragEvent.target == "tl-content"` o
+  `"ed-stage"`; el panel acepta archivos del Explorador con `on_drop`. Los drags de preview y de
+  las barras de capa abren la transacción **en el primer movimiento** (`begun=False`): un clic que
+  solo selecciona no debe dejar `ProjectStore._tx` abierta, o el siguiente `store.apply` se
+  convierte en `update` y un `cancel_drag` revierte cambios ajenos.
+- Capas en el timeline (docs/27): las filas «Textos»/«Elementos» viven **antes** de la pista de
+  video y desplazan `VIDEO_TOP`; usa `Tracks.video_top`, no la constante, en canvas, filmstrip,
+  cabeceras y cajas. `max_tracks_extra` descuenta `OVERLAY_H` por grupo para no romper el mínimo
+  del preview. Una capa de cada tipo comparte fila: si se solapan, la barra superior gana el clic y
+  la oculta se elige desde «Capas».
+- El inspector de elementos/textos usa `number_input`/`color_picker` de Aurora 0.10 y sigue
+  escuchando los mismos `Signal` que los `select` anteriores; no añadas handlers `on_change` que
+  dupliquen la escritura del Signal. El campo de texto del título necesita un `box(grow=1)` (no
+  `width=0`) o Taffy lo mide con ~22 px.
+- Video superpuesto (docs/28 y docs/29): `Element.kind="video"` exige asset de video y
+  `in_ + (end-start) <= asset.duration`; el schema es **9**. `Element.video_track` (0 = Elementos,
+  1 = V2, 2 = V3) solo vale en videos y el orden de `Project.elements` debe ser
+  V2 < V3 < Elementos. `add_element`, `set_video_track`, `timeline.paste` y `from_dict` mantienen
+  ese orden; si tocas la composición, aplícalo en dos pasadas y no metas la capa Elementos antes
+  de los efectos globales. El preview decodifica con `FrameRenderer.element_pool` y
+  `core/overlays.apply_frame(video_images=…)`; el export usa `-ss/-t` + `setpts` + `overlay` con
+  `eof_action=pass`. Los efectos globales van **después** de V2/V3 y antes de Elementos; la pasada
+  de V2/V3 usa prefijo `vt` en las etiquetas. El audio usa `core.elements.audio_gain`
+  (`Effect("volume")` dentro de `Element.effects`, sin campo nuevo), se mezcla con
+  `_element_audio_mixes` y **reutiliza la entrada del overlay** (`video_inputs`) en el export;
+  `build_audio` abre la suya. `AudioPreview` elige la mezcla WAV cacheada en cuanto hay audio de
+  video superpuesto. Un solo de audio silencia también V2/V3. `element_assets.materialize` debe
+  omitir los videos. El recorte izquierdo de la barra (controller `drag_overlay`) avanza `in_`;
+  mover no lo cambia. No hay razor ni transiciones en V2/V3: son elementos, no una `Track`.
+- Subtítulos y keyframes (docs/30 y docs/31): `TextOverlay.subtitle` marca los cues importados
+  (SRT/VTT) y `opacity` es la base; `Animation`/`Keyframe` viven en `Element.animations` y
+  `TextOverlay.animations`. Los tiempos de las claves son **locales** al elemento/texto. El
+  preview y el export comparten `core.animation.value_at`/`expr`; si tocas una expresión, cita
+  con `'…'` los valores de `overlay`/`drawtext` que lleven comas. Solo se animan x/y (elementos y
+  textos) y opacidad (textos); el `Effect("volume")` del PiP no es un keyframe. La caja del
+  preview se oculta si x/y están animados. `format_srt` exporta solo `subtitle=True`.
+  `TextOverlay` es de una línea (los cues multilínea se unen con espacios).
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -201,7 +258,45 @@ depender de monitor, GPU ni audio reales del runner.
   manuales pendientes. `docs/17-bloque-b-editor.md`: música/ducking, textos, selección múltiple,
   snap por waveform, proxy y reubicar carpetas. `docs/22-plan-features-editor.md` es el plan de la
   composición v6 y `docs/23`–`26` sus resultados (canvas, pistas A/V, elementos y efectos
-  globales). **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
+  globales). `docs/27` cubre el panel de medios, la selección directa y las capas del timeline;
+  `docs/28` el PiP de video (modelo v7), `docs/29` las pistas V2/V3 (modelo v8) y `docs/30`/
+  `docs/31` los subtítulos y keyframes (modelo v9).
+  **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
   `build/`, `dist/`, `.venv`, `__pycache__` y `tools/spikes/out/` están ignorados: no son fuente.
+
+<!-- aurora:inicio (generado por `aurora agents`; se actualiza al volver a ejecutarlo) -->
+## Aurora (interfaz de escritorio)
+
+Este proyecto usa Aurora 0.10.0 (`aurora-ui`), una librería de UI de escritorio
+declarativa y reactiva en Python. Es reciente y no está en tus datos de entrenamiento: no
+supongas APIs de otras librerías (React, Flet, Tkinter, Qt, CSS). Antes de escribir código,
+lee la documentación de la versión instalada:
+
+- `aurora docs`: chuleta con el modelo mental, las firmas, las props de estilo, los tokens
+  y los errores frecuentes. Léela entera antes de empezar.
+- `aurora docs <tema>`: una sección de la referencia (`aurora docs button`,
+  `aurora docs pilot`, `aurora docs style`).
+- `aurora docs --search <texto>`: busca en la guía, las recetas y la referencia.
+- `aurora docs --full`: toda la documentación en Markdown.
+
+### Comprobar el trabajo
+
+Sin abrir ventanas (`app.run()` bloquea; no lo llames en tests):
+
+- `App(view, size=(900, 600)).render_png("captura.png")` dibuja la vista igual que la
+  ventana: mira la captura para revisar el diseño.
+- `pilot = App(view).pilot()` simula al usuario por `key`: `pilot.click("guardar")`,
+  `pilot.type("hola")`, `pilot.press("enter")`, `pilot.settle()`, `pilot.a11y_tree()`.
+  Escribe tests con pytest así (`aurora docs pilot`).
+- Una prop o un token mal escritos lanzan `TypeError` o `ThemeTokenError` al construir la
+  vista, con la sugerencia correcta: léela en vez de adivinar.
+
+Desde la terminal:
+
+- `aurora check app.py`: construye y pinta un frame; si falla, dice el archivo y la línea de tu código. Lista los avisos de layout (texto que no cabe, controles fuera de la ventana o sin nombre); `--strict` los hace fallar
+- `aurora shot app.py -o captura.png`: renderiza la app a PNG sin ventana (`--key K` recorta a un nodo, `--scale 2`, `--theme light`): mírala para revisar el diseño
+- `aurora tree app.py`: el árbol pintado en texto (rol, texto, `#key`, caja y estados) y los avisos; úsalo para encontrar las keys
+- `aurora pilot app.py "click guardar; type hola; press enter; expect text hola; shot s.png"`: interacción guionizada; se para en el paso que falla y sugiere keys parecidas (`aurora pilot --help` tiene la gramática)
+<!-- aurora:fin -->

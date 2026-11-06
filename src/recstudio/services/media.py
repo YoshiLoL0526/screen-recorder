@@ -420,13 +420,29 @@ def keyframes(path: str | Path) -> tuple[float, ...]:
 # -- pósters -----------------------------------------------------------------------
 
 
+def _poster_file(path: Path, height: int) -> Path:
+    return _cache_dir("posters") / f"{_cache_key(path)}-{height}-u.jpg"  # «-u»: enderezado
+
+
+def cached_poster(path: str | Path, *, height: int = 180) -> bytes | None:
+    """JPEG de póster ya generado, sin decodificar el video (para pintar la UI sin bloquear)."""
+    try:
+        file = _poster_file(Path(path), int(height))
+        if not file.is_file():
+            return None
+        data = file.read_bytes()
+    except OSError:
+        return None
+    return data if data.startswith(b"\xff\xd8") else None
+
+
 def poster(path: str | Path, *, at_s: float = 1.0, height: int = 180) -> bytes:
     """JPEG de un frame (cacheado en disco)."""
     import av
     from PIL import Image
 
     path = Path(path)
-    file = _cache_dir("posters") / f"{_cache_key(path)}-{height}-u.jpg"  # «-u»: enderezado
+    file = _poster_file(path, height)
     if file.exists():
         return file.read_bytes()
     try:
@@ -451,7 +467,7 @@ def poster(path: str | Path, *, at_s: float = 1.0, height: int = 180) -> bytes:
     Image.fromarray(rgb).save(buffer, "JPEG", quality=82)
     data = buffer.getvalue()
     try:
-        file.write_bytes(data)
+        _write_bytes_atomic(file, data)
     except OSError:
         pass
     return data

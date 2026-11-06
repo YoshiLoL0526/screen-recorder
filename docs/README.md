@@ -7,9 +7,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > Estado: **v1.2.0 implementada** (F0–F5 + features v6), **bloque A de entrega cerrado** (CI, RNF, instalador
 > y bundle ligero), **bloque B del editor** (música/ducking, textos, selección múltiple, snap por
 > waveform, proxy y reubicar carpetas) y **fases 0/1/2/3 del editor** (audio absoluto editable,
-> lienzo configurable, transformación del frame y flujo de edición). Quedan las comprobaciones
-> manuales de A y la fase 4+. Los documentos 01–07 son la especificación de diseño; 08–21 recogen
-> lo implementado, con mediciones y bugs.
+> lienzo configurable, transformación del frame y flujo de edición), **panel de medios/capas con
+> selección directa**, **PiP de video**, **pistas V2/V3**, **subtítulos** y **keyframes**
+> (docs/27–31). Quedan las comprobaciones manuales de A y la fase 4+. Los documentos 01–07 son la
+> especificación de diseño; 08–31 recogen lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -36,6 +37,16 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 19 | [Fase 0 y 1: audio editable](19-fase-0-1-audio.md) | Modelo v3, pistas absolutas, separar/adjuntar/dividir/editar audio, pistas múltiples, fundidos, export/preview y límites. |
 | 20 | [Fase 2: lienzo y frame](20-fase-2-frame.md) | Modelo v4, presets de lienzo, fit/fill/stretch, transformación por clip, auto-rotación, paridad preview/export, UI, tests y límites. |
 | 21 | [Fase 3: flujo de edición](21-fase-3-flujo.md) | Modelo v5 (marcadores e In/Out), portapapeles, marquesina que mueve, razor, loop, J/K/L, Q/W, export de rango, miniaturas rotadas, tests y límites. |
+| 22 | [Plan de features v6](22-plan-features-editor.md) | Canvas, pistas A/V enlazadas, elementos superpuestos y efectos globales: contrato y reparto de archivos. |
+| 23 | [Canvas interactivo](23-canvas-resize.md) | Mover/redimensionar el clip en el preview, asas, ancla opuesta y undo por gesto. |
+| 24 | [Pistas A/V](24-pistas-av.md) | Audio del video separado y enlazado por defecto, sincronía y desvincular/vincular. |
+| 25 | [Elementos superpuestos](25-elementos.md) | Figuras/imágenes, geometría, PNG de figuras, blur y composición preview/export. |
+| 26 | [Efectos globales](26-efectos-globales.md) | Color, blur, viñeta y B/N sobre el video compuesto, con paridad preview/export. |
+| 27 | [Panel de medios, selección y capas](27-panel-medios-y-capas.md) | Medios del proyecto, selección directa de clip/elemento/texto, capas en el timeline, inspector numérico y color. |
+| 28 | [PiP de video](28-pip-video.md) | Video superpuesto (`Element.kind="video"`), modelo v7, composición preview/export, audio mezclado con volumen propio, UI y límites. |
+| 29 | [Pistas de video V2/V3](29-pistas-video.md) | `Element.video_track`, z-order por capas, composición V1→V2→V3→efectos→Elementos, filas del timeline, audio y límites (modelo v8). |
+| 30 | [Subtítulos SRT/VTT](30-subtitulos.md) | Parser, `TextOverlay.subtitle`, importación, estilo global y exportación SRT (modelo v9). |
+| 31 | [Keyframes](31-keyframes.md) | `Animation`/`Keyframe`, X/Y de elementos/textos, opacidad de textos, expresiones de preview/export y UI (modelo v9). |
 
 ## Orden de lectura sugerido
 
