@@ -8,9 +8,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > y bundle ligero), **bloque B del editor** (música/ducking, textos, selección múltiple, snap por
 > waveform, proxy y reubicar carpetas) y **fases 0/1/2/3 del editor** (audio absoluto editable,
 > lienzo configurable, transformación del frame y flujo de edición), **panel de medios/capas con
-> selección directa**, **PiP de video**, **pistas V2/V3**, **subtítulos** y **keyframes**
-> (docs/27–31). Quedan las comprobaciones manuales de A y la fase 4+. Los documentos 01–07 son la
-> especificación de diseño; 08–31 recogen lo implementado, con mediciones y bugs.
+> selección directa**, **PiP de video**, **pistas V2/V3**, **subtítulos**, **keyframes** y
+> **envolventes de volumen** (docs/27–32). Quedan las comprobaciones manuales de A y la fase 4+.
+> Los documentos 01–07 son la especificación de diseño; 08–32 recogen lo implementado, con
+> mediciones y bugs.
 
 ## Índice
 
@@ -47,6 +48,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 29 | [Pistas de video V2/V3](29-pistas-video.md) | `Element.video_track`, z-order por capas, composición V1→V2→V3→efectos→Elementos, filas del timeline, audio y límites (modelo v8). |
 | 30 | [Subtítulos SRT/VTT](30-subtitulos.md) | Parser, `TextOverlay.subtitle`, importación, estilo global y exportación SRT (modelo v9). |
 | 31 | [Keyframes](31-keyframes.md) | `Animation`/`Keyframe`, X/Y de elementos/textos, opacidad de textos, expresiones de preview/export y UI (modelo v9). |
+| 32 | [Envolventes de volumen](32-audio-envelopes.md) | `Clip.envelope`, claves de ganancia locales, `volume` por frame en el export, mezcla WAV del preview y UI (modelo v10). |
 
 ## Orden de lectura sugerido
 

@@ -243,6 +243,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v7_v8(data)
     if version < 9:
         data = _migrate_v8_v9(data)
+    if version < 10:
+        data = _migrate_v9_v10(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -357,6 +359,15 @@ def _migrate_v8_v9(data: dict[str, Any]) -> dict[str, Any]:
 
     Los textos antiguos no tenían `opacity`, `subtitle` ni `animations`; los elementos no tenían
     `animations`. `from_dict` los deja en 1.0, `False` y `()`, así que no hay nada que reescribir.
+    """
+    return {**data}
+
+
+def _migrate_v9_v10(data: dict[str, Any]) -> dict[str, Any]:
+    """v9 → v10: envolventes de volumen de audio (docs/32).
+
+    Los clips antiguos no tenían `envelope`; `from_dict` los deja en `()` (sin curva), así que
+    suena exactamente igual que antes y no hay nada que reescribir.
     """
     return {**data}
 

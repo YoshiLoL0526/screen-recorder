@@ -19,6 +19,7 @@ from pathlib import Path
 
 from .. import state
 from ..core import animation as anim
+from ..core import audio_envelope as env
 from ..core import canvas_edit as ce
 from ..core import effects as fx
 from ..core import elements as element_mod
@@ -1904,6 +1905,64 @@ class EditorController:
             return
         if self._apply(f"quitar animación {self._key_label(channel)}", project):
             self._sync_inspector()
+
+    # -- envolventes de volumen (v10, docs/32) -------------------------------------
+
+    def _envelope_target(self):
+        """`(clip, inicio, pista, índice de pista, índice de clip)` del clip seleccionado.
+
+        `índice de pista` es `None` para la pista de video y el índice real para una pista de
+        audio. El inicio es el del clip en el timeline (no el `in_` de la fuente).
+        """
+        audio = self.selected_audio()
+        if audio is not None:
+            track_index, clip_index, clip = audio
+            track = self.project.audio[track_index]
+            return clip, tl.clip_starts(track)[clip_index], track, track_index, clip_index
+        clip = self.selected_clip()
+        if clip is not None:
+            index = self.project.video.index_of(clip.id)
+            return clip, tl.clip_starts(self.project.video)[index], self.project.video, None, index
+        return None
+
+    def _replace_envelope(self, target, points, label: str) -> bool:  # noqa: ANN001
+        clip, _start, track, track_index, clip_index = target
+        clips = list(track.clips)
+        clips[clip_index] = replace(clip, envelope=points)
+        if track_index is None:
+            project = replace(self.project, video=replace(self.project.video, clips=tuple(clips)))
+        else:
+            tracks = list(self.project.audio)
+            tracks[track_index] = replace(track, clips=tuple(clips))
+            project = replace(self.project, audio=tuple(tracks))
+        if not self._apply(label, project):
+            return False
+        self._sync_inspector()
+        return True
+
+    def add_audio_keyframe(self) -> None:
+        """Graba el volumen estático del clip en el playhead (tiempo local al clip)."""
+        target = self._envelope_target()
+        if target is None:
+            return
+        clip, start, _track, _track_index, _clip_index = target
+        local = state.playhead() - start
+        if local < -1e-6 or local > clip.duration + 1e-6:
+            state.toast("warning", "El playhead está fuera del clip; colócalo dentro")
+            return
+        local = round(max(0.0, min(clip.duration, local)), 4)
+        points = env.set_point(clip.envelope, local, fx.gain(clip))
+        if points == clip.envelope:
+            return
+        if self._replace_envelope(target, points, "añadir clave de volumen"):
+            state.toast("success", f"Clave de volumen en {tl.format_time(state.playhead())}")
+
+    def clear_audio_envelope(self) -> None:
+        target = self._envelope_target()
+        if target is None or not target[0].envelope:
+            return
+        if self._replace_envelope(target, (), "quitar envolvente de volumen"):
+            state.toast("info", "Envolvente de volumen eliminada")
 
     def import_images(self, paths: list[Path]) -> None:
         """Añade imágenes al proyecto como assets y las coloca como elementos (sin clip)."""

@@ -12,6 +12,10 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 - **Keyframes de posición y opacidad** (docs/31; modelo v9): X/Y de elementos y textos + opacidad
   de textos, con claves en el inspector, interpolación lineal y expresiones reales en preview y
   export.
+- **Envolventes de volumen de audio** (docs/32; modelo v10 con migración v9 → v10):
+  `Clip.envelope` con claves locales de ganancia 0…4 en clips de video y pistas de audio,
+  `volume` evaluado por frame en el export, mezcla WAV idéntica en el preview, claves desde el
+  inspector, polilínea sobre la waveform y bloqueo del corte rápido.
 - **Pistas de video V2/V3** (docs/29; modelo v8 con migración v7 → v8): varios clips de video
   superpuestos en dos pistas, con z-order (V2 → V3 → Elementos), filas propias en el timeline,
   inserción desde el panel/Capas/arrastre, cambio de pista en el inspector y audio mezclado. Los

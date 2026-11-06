@@ -594,6 +594,36 @@ def _audio_fade_rows(prefix: str = "insp-audio"):
     )
 
 
+def _envelope_controls(clip, *, active: bool = True):
+    """Envolvente de volumen del clip seleccionado (video o audio; docs/32)."""
+    count = len(clip.envelope)
+    return section(
+        "Envolvente de volumen",
+        row(gap=8, align="center")[
+            text(
+                f"{count} clave{'s' if count != 1 else ''}" if count else "Sin claves",
+                size=11.5, color="$muted" if not count else "$text", grow=1, width=0,
+            ),
+            button(
+                "Clave volumen", _call("add_audio_keyframe"), variant="soft",
+                padding=(3, 7), font_size=10.5, key="insp-env-key",
+            ),
+            count > 0 and button(
+                "Quitar", _call("clear_audio_envelope"), variant="ghost",
+                padding=(3, 7), font_size=10.5, key="insp-env-clear",
+            ),
+        ],
+        not active and text(
+            "El audio de este clip está separado: la curva se aplicará si vuelves a activarlo.",
+            size=11, color="$danger", line_height=1.35,
+        ),
+        text("La clave usa el volumen actual del clip en el playhead. La curva multiplica el "
+             "volumen del clip y de la pista: 1.0 deja el sonido como está y 0 lo silencia.",
+             size=11, color="$muted", line_height=1.35),
+        gap=8,
+    )
+
+
 def _video_audio_controls(project, clip):
     note = (
         "El audio del clip se separó a una pista absoluta."
@@ -846,6 +876,7 @@ def inspector():
         children.append(_effects_controls(clip))
         children.append(_transform_controls(clip))
         children.append(_video_audio_controls(project, clip))
+        children.append(_envelope_controls(clip, active=clip.audio_enabled))
         if index < len(project.video.transitions):
             children.append(_transition_controls(index))
         children.append(row(gap=8)[
@@ -908,6 +939,7 @@ def inspector():
             *_audio_fade_rows("insp-audio-clip"),
             gap=8,
         ))
+        children.append(_envelope_controls(clip))
         children.append(section(
             "Pista",
             _row("Volumen", select(state.insp_music_gain,

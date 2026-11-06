@@ -32,14 +32,16 @@ en `docs/22`. Después se añadió el **panel de medios/capas** (`ui/project_pan
 preview/export; `docs/28`). Después llegaron las **pistas de video V2/V3** (modelo **v8**,
 `Element.video_track`, composición por capas y filas propias en el timeline; `docs/29`) y los
 **subtítulos SRT/VTT + keyframes** (modelo **v9**, `TextOverlay.subtitle/opacity/animations` y
-`Element.animations`; `docs/30` y `docs/31`). Lo siguiente es el resto de la fase 4 (más
-composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y bloque C).
+`Element.animations`; `docs/30` y `docs/31`). Después se añadieron las **envolventes de volumen
+de audio** (modelo **v10**, `Clip.envelope`, `core/audio_envelope.py`; `docs/32`). Lo siguiente
+es el resto de la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8
+manuales y bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 446 tests; la integración usa FFmpeg real
+uv run pytest                                   # 462 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -86,7 +88,9 @@ depender de monitor, GPU ni audio reales del runner.
   `Element.effects` como `Effect("volume")`; el preview usa `build_audio` si oye un video.
   Los keyframes (`core/animation.py`) animan **x/y** de elementos y **x/y/opacity** de textos:
   el preview evalúa `value_at` y el export genera expresiones `if(lt(t,…))` para `overlay` y
-  `drawtext`; no hay animación de escala/rotación/color.
+  `drawtext`; no hay animación de escala/rotación/color. Las **envolventes de volumen**
+  (`core/audio_envelope.py`, `Clip.envelope`) son un modelo aparte: ganancias 0…4 en tiempo
+  local al clip, `volume=…:eval=frame` en el export y preview por `build_audio` (docs/32).
 - La UI nunca bloquea: nada de IO/subprocess en handlers. Lo asíncrono comunica por `Signal`
   (único canal cross-thread) o `app.spawn()`. Todo el estado de la app vive en
   `src/recstudio/state.py`.
@@ -198,6 +202,13 @@ depender de monitor, GPU ni audio reales del runner.
   textos) y opacidad (textos); el `Effect("volume")` del PiP no es un keyframe. La caja del
   preview se oculta si x/y están animados. `format_srt` exporta solo `subtitle=True`.
   `TextOverlay` es de una línea (los cues multilínea se unen con espacios).
+- Envolventes de volumen (docs/32): `Clip.envelope` es independiente de `Animation`; sus claves
+  son locales al clip (0…duración) y la ganancia 0…4. El export añade
+  `volume=volume='<expr>':eval=frame` **después** del volumen estático, así que la curva
+  multiplica; en un clip entrante con transición la expresión usa `start=-skip` para alinear el
+  tramo audible. Sin envolvente la cadena no cambia. El preview usa `build_audio` si
+  `graph.has_audio_envelope` (WAV cacheado con el proyecto entero). El corte rápido se bloquea.
+  No hay `Element.envelope` (PiP/V2/V3) ni asas sobre la waveform.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -260,7 +271,8 @@ depender de monitor, GPU ni audio reales del runner.
   composición v6 y `docs/23`–`26` sus resultados (canvas, pistas A/V, elementos y efectos
   globales). `docs/27` cubre el panel de medios, la selección directa y las capas del timeline;
   `docs/28` el PiP de video (modelo v7), `docs/29` las pistas V2/V3 (modelo v8) y `docs/30`/
-  `docs/31` los subtítulos y keyframes (modelo v9).
+  `docs/31` los subtítulos y keyframes (modelo v9); `docs/32` las envolventes de volumen de
+  audio (modelo v10).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

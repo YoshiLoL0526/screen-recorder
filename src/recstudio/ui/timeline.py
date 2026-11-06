@@ -27,6 +27,7 @@ import numpy as np
 from aurora import Canvas, box, canvas, column, component, image, row, scroll, text
 
 from .. import state
+from ..core import audio_envelope as env
 from ..core import effects as fx
 from ..core import elements as element_mod
 from ..core import timeline as tl
@@ -68,6 +69,7 @@ _CHAR_W = 0.56  # ancho medio de carácter / tamaño de fuente (elipsis manual e
 
 _TICKS = (0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800)
 MARKER_COLOR = "#F5B851"
+ENVELOPE_COLOR = "#FFD166"  # línea de la envolvente de volumen (docs/32)
 MARKER_W = 12  # caja clicable de cada marcador en la regla
 RANGE_FILL = "#7C5CFF40"  # banda del rango In/Out en la regla
 
@@ -307,6 +309,40 @@ def _waveform_points(peaks: np.ndarray, x: float, w: float, top: float, h: float
     return pts.astype(np.float32)
 
 
+def _envelope_curve(clip, x: float, w: float, top: float, h: float):
+    """Puntos de la polilínea de la envolvente y de sus claves, en px del canvas."""
+    duration = clip.duration
+    if not clip.envelope or duration <= 0 or w <= 1:
+        return None, []
+    inner_top = top + 2
+    inner_h = max(1.0, h - 4)
+
+    def y(gain: float) -> float:
+        gain = max(0.0, min(env.GAIN_MAX, float(gain)))
+        return inner_top + inner_h * (1.0 - gain / env.GAIN_MAX)
+
+    points = [(x, y(env.value_at(clip.envelope, 0.0)))]
+    keys = []
+    for point in clip.envelope:
+        if point.t > duration + 1e-9:
+            break
+        px = x + point.t / duration * w
+        points.append((px, y(point.gain)))
+        keys.append((px, y(point.gain)))
+    points.append((x + w, y(env.value_at(clip.envelope, duration))))
+    return points, keys
+
+
+def _draw_envelope(c: Canvas, clip, x: float, w: float, top: float, h: float) -> None:
+    points, keys = _envelope_curve(clip, x, w, top, h)
+    if not points:
+        return
+    c.polyline(points, stroke=ENVELOPE_COLOR, stroke_width=1.5)
+    if state.tl_zoom() >= 40:
+        for px, py in keys:
+            c.circle(px, py, 2.2, fill=ENVELOPE_COLOR)
+
+
 def _clip_meta(clip, *, offline: bool) -> str:
     """Segunda línea de un clip (duración + velocidad + efectos); la comparten canvas y overlay."""
     meta = tl.format_time(clip.duration)
@@ -314,6 +350,8 @@ def _clip_meta(clip, *, offline: bool) -> str:
         meta = f"{clip.speed:g}× · {meta}"
     if fx.has_effects(clip):
         meta = f"fx · {meta}"
+    if clip.envelope:
+        meta = f"◆ env · {meta}"
     if offline:
         meta = "sin archivo · " + meta
     return meta
@@ -326,6 +364,8 @@ def tooltip_audio(track, clip) -> str:
         bits.append(f"inicio {tl.format_time(float(clip.start or 0.0))}")
     if clip.link_id:
         bits.append("enlazado al video")
+    if clip.envelope:
+        bits.append(f"envolvente: {len(clip.envelope)} clave{'s' if len(clip.envelope) != 1 else ''}")
     if track.locked:
         bits.append("pista bloqueada")
     if track.solo:
@@ -476,6 +516,8 @@ def _draw_tracks(c: Canvas) -> None:
                         c.polygon(pts, fill="$wave")
         elif asset is not None and not asset.has_audio:
             c.text(x + 8, audio_top + 13, _ellipsis("sin audio", w - 12, 10), size=10, color="$muted")
+        if clip.envelope and clip.audio_enabled and asset is not None and asset.has_audio:
+            _draw_envelope(c, clip, x, w, audio_top, audio_h)
 
     # Pistas de audio extra (fase 1): todas visibles, en secuencia o con posición absoluta.
     selected_audio = (
@@ -514,6 +556,8 @@ def _draw_tracks(c: Canvas) -> None:
                                                t0, t1, track.gain)
                         if pts is not None:
                             c.polygon(pts, fill="$wave")
+            if clip.envelope and asset.has_audio and audible:
+                _draw_envelope(c, clip, x, w, row.top, row.height)
             label_x = _clip_label_x(w, x)
             label = asset.name
             if clip.link_id:
@@ -526,6 +570,8 @@ def _draw_tracks(c: Canvas) -> None:
                     meta += f" · {track.gain * 100:.0f}%"
                 if clip.link_id:
                     meta += " · enlazado"
+                if clip.envelope:
+                    meta += " · ◆ env"
                 c.text(label_x, row.top + 22, _ellipsis(meta, x + w - label_x - 6, 9.5), size=9.5,
                        color="$muted", family="Consolas")
             if not audible or track.locked:
