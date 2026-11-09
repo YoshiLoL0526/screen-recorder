@@ -15,6 +15,7 @@ lo muxea.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import threading
@@ -36,6 +37,24 @@ from ..platform import paths
 from ..platform import screens as screens_mod
 
 EventFn = Callable[[str, dict], None]
+
+
+def _write_json_atomic(path: Path, payload: str) -> None:
+    """JSON con tmp + `os.replace`: un lector nunca ve el archivo truncado o vacío.
+
+    `session.json` lo lee `tests/test_revision` y la recuperación mientras el hilo de captura
+    puede reescribirlo; con `write_text` directo se veía un archivo vacío a mitad de escritura.
+    """
+    tmp = path.with_name(path.name + ".tmp")
+    try:
+        tmp.write_text(payload, encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 class RecState(str, Enum):
@@ -637,8 +656,9 @@ class RecordingSession:
             "warnings": self._warnings,
         }
         try:
-            (self.temp_dir / "session.json").write_text(
-                json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+            _write_json_atomic(
+                self.temp_dir / "session.json",
+                json.dumps(payload, indent=2, ensure_ascii=False),
             )
         except OSError:
             pass
@@ -675,7 +695,9 @@ class RecordingSession:
             "warnings": result.warnings,
         }
         try:
-            result.sidecar.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            _write_json_atomic(
+                result.sidecar, json.dumps(payload, indent=2, ensure_ascii=False),
+            )
         except OSError:
             pass
 
