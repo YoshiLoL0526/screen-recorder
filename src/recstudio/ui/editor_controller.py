@@ -152,6 +152,7 @@ class EditorController:
         self._canvas_drag: dict | None = None  # mover/escalar sobre el preview (docs/23)
         self._text_drag: dict | None = None  # mover/escalar un texto sobre el preview
         self._overlay_drag: dict | None = None  # mover/recortar una capa en el timeline
+        self._envelope_drag: dict | None = None  # mover/añadir una clave de volumen (docs/37)
         self._closing = threading.Event()
         self._io_lock = threading.Lock()  # abrir/guardar/importar: de uno en uno
         self._wave_lock = threading.Lock()
@@ -873,6 +874,9 @@ class EditorController:
         selection = state.selection()
         if not self._guard_editable():
             return
+        if state.envelope_key() is not None:  # Supr con una clave de envolvente seleccionada
+            self.delete_envelope_key()
+            return
         multi = state.multi_selection()
         if multi:
             count = len(multi & {c.id for t in (self.project.video, *self.project.audio) for c in t.clips})
@@ -933,6 +937,7 @@ class EditorController:
 
     def undo(self) -> None:
         self.cancel_drag()
+        state.envelope_key.set(None)
         label = self.store.undo()
         if label is None:
             state.toast("info", "Nada que deshacer")
@@ -942,6 +947,7 @@ class EditorController:
 
     def redo(self) -> None:
         self.cancel_drag()
+        state.envelope_key.set(None)
         label = self.store.redo()
         if label is None:
             state.toast("info", "Nada que rehacer")
@@ -951,10 +957,12 @@ class EditorController:
 
     def select_clip(self, clip_id: str | None) -> None:
         state.multi_selection.set(frozenset())
+        state.envelope_key.set(None)
         state.selection.set(("clip", clip_id) if clip_id else None)
 
     def select_transition(self, index: int) -> None:
         state.multi_selection.set(frozenset())
+        state.envelope_key.set(None)
         state.selection.set(("transition", index))
 
     def select_music(self, index: int = 0, clip_index: int = 0) -> None:
@@ -963,14 +971,17 @@ class EditorController:
 
     def select_audio(self, track_index: int, clip_index: int) -> None:
         state.multi_selection.set(frozenset())
+        state.envelope_key.set(None)
         state.selection.set(("audio", int(track_index), int(clip_index)))
 
     def select_text(self, text_id: str) -> None:
         state.multi_selection.set(frozenset())
+        state.envelope_key.set(None)
         state.selection.set(("text", text_id))
 
     def select_element(self, element_id: str) -> None:
         state.multi_selection.set(frozenset())
+        state.envelope_key.set(None)
         state.selection.set(("element", element_id))
 
     def focus_text(self, text_id: str) -> None:
@@ -1000,12 +1011,14 @@ class EditorController:
 
     def clear_selection(self) -> None:
         state.multi_selection.set(frozenset())
+        state.envelope_key.set(None)
         state.selection.set(None)
 
     def toggle_marquee(self) -> None:
         state.marquee_on.set(not state.marquee_on())
         if state.marquee_on():
             state.razor_on.set(False)  # las herramientas son excluyentes
+            state.env_edit_on.set(False)
         else:
             state.marquee.set(None)
 
@@ -1014,12 +1027,24 @@ class EditorController:
         state.razor_on.set(not state.razor_on())
         if state.razor_on():
             state.marquee_on.set(False)
+            state.env_edit_on.set(False)
+            state.marquee.set(None)
+
+    def toggle_envelope_edit(self) -> None:
+        """Modo envolvente (E): un clic en la waveform crea una clave en ese punto (docs/37)."""
+        if not state.project_open():
+            return
+        state.env_edit_on.set(not state.env_edit_on())
+        if state.env_edit_on():
+            state.razor_on.set(False)
+            state.marquee_on.set(False)
             state.marquee.set(None)
 
     def select_tool(self) -> None:
         """V: vuelve a la herramienta normal (ni marquesina ni razor)."""
         state.razor_on.set(False)
         state.marquee_on.set(False)
+        state.env_edit_on.set(False)
         state.marquee.set(None)
 
     def set_speed(self, speed: float) -> None:
@@ -2025,6 +2050,258 @@ class EditorController:
         if self._apply("quitar envolvente de volumen del elemento", project):
             self._sync_inspector()
             state.toast("info", "Envolvente de volumen eliminada")
+
+    # -- asas de la envolvente en el timeline (docs/37) ----------------------------
+
+    def _envelope_ref(self, scope: str, item_id: str, track_index: int = -1):
+        """`(item, inicio, pista, índice de pista, índice de clip)` de una envolvente.
+
+        `scope` es `"video"` (V1), `"audio"` (pista extra) o `"element"` (video superpuesto).
+        """
+        project = self.project
+        if scope == "video":
+            if not project.has_clip(item_id):
+                return None
+            index = project.video.index_of(item_id)
+            return (
+                project.video.clips[index],
+                tl.clip_starts(project.video)[index],
+                project.video,
+                None,
+                index,
+            )
+        if scope == "audio":
+            track_index = int(track_index)
+            if not 0 <= track_index < len(project.audio):
+                return None
+            track = project.audio[track_index]
+            try:
+                index = track.index_of(item_id)
+            except ProjectError:
+                return None
+            return track.clips[index], tl.clip_starts(track)[index], track, track_index, index
+        if scope == "element":
+            if not project.has_element(item_id):
+                return None
+            item = project.element(item_id)
+            if item.kind != "video":
+                return None
+            return item, float(item.start), None, None, -1
+        return None
+
+    def _project_with_envelope(
+        self, project: Project, scope: str, item_id: str, track_index: int,
+        points,  # noqa: ANN001
+    ) -> Project | None:
+        """Copia `project` con la envolvente de `item_id` reemplazada (sin tocar el store)."""
+        try:
+            if scope == "element":
+                return element_mod.update_element(project, item_id, envelope=points)
+            if scope == "video":
+                index = project.video.index_of(item_id)
+                clips = list(project.video.clips)
+                clips[index] = replace(clips[index], envelope=points)
+                return replace(project, video=replace(project.video, clips=tuple(clips)))
+            track_index = int(track_index)
+            track = project.audio[track_index]
+            index = track.index_of(item_id)
+            clips = list(track.clips)
+            clips[index] = replace(clips[index], envelope=points)
+            tracks = list(project.audio)
+            tracks[track_index] = replace(track, clips=tuple(clips))
+            return replace(project, audio=tuple(tracks))
+        except (ProjectError, IndexError):
+            return None
+
+    def _envelope_locked(self, scope: str, ref) -> bool:  # noqa: ANN001
+        if scope == "video" and self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return True
+        if scope == "audio":
+            track_index = ref[3]
+            if track_index is not None and self.project.audio[int(track_index)].locked:
+                state.toast("warning", "La pista de audio está bloqueada")
+                return True
+        return False
+
+    def begin_envelope_key_drag(
+        self, scope: str, item_id: str, track_index: int = -1, index: int = 0,
+        row_height: float = 0.0,
+    ) -> None:
+        """Empieza a arrastrar una clave existente; la transacción se abre al primer movimiento."""
+        if not self._guard_editable() or self.player.playing:
+            return
+        self.cancel_drag()
+        ref = self._envelope_ref(scope, item_id, track_index)
+        if ref is None or self._envelope_locked(scope, ref):
+            return
+        item, start, _track, _ti, _ci = ref
+        points = item.envelope
+        if not 0 <= int(index) < len(points):
+            return
+        duration = float(item.duration) if scope != "element" else float(item.end - item.start)
+        point = points[int(index)]
+        self._envelope_drag = {
+            "scope": scope, "id": item_id, "track": int(track_index), "index": int(index),
+            "project": self.project, "points": points, "start": start, "duration": duration,
+            "t": point.t, "gain": point.gain, "current_t": point.t,
+            "inner_h": max(1.0, float(row_height) - 4.0),
+            "dx": 0.0, "dy": 0.0, "begun": False, "add": False,
+        }
+
+    def begin_envelope_add(
+        self, scope: str, item_id: str, track_index: int, window_x: float, row_height: float,
+    ) -> None:
+        """Crea una clave en el punto pulsado (modo «Env») y la deja lista para arrastrar."""
+        if not self._guard_editable() or self.player.playing or not state.env_edit_on():
+            return
+        self.cancel_drag()
+        ref = self._envelope_ref(scope, item_id, track_index)
+        if ref is None or self._envelope_locked(scope, ref):
+            return
+        item, start, _track, _ti, _ci = ref
+        duration = float(item.duration) if scope != "element" else float(item.end - item.start)
+        if duration <= 0:
+            return
+        local = max(
+            0.0,
+            min(duration, self.content_x(window_x) / max(1.0, state.tl_zoom()) - start),
+        )
+        base = self.project
+        points = item.envelope
+        default = (
+            element_mod.audio_gain(item) if scope == "element" else fx.gain(item)
+        )
+        gain = env.value_at(points, local, default=default) if points else default
+        updated = env.set_point(points, local, gain)
+        if updated == points:  # ya había una clave en ese instante: se selecciona y se arrastra
+            found = min(range(len(points)), key=lambda i: abs(points[i].t - round(local, 4)))
+            self.begin_envelope_key_drag(scope, item_id, track_index, found, row_height)
+            return
+        project = self._project_with_envelope(base, scope, item_id, track_index, updated)
+        if project is None:
+            return
+        index = min(range(len(updated)), key=lambda i: abs(updated[i].t - round(local, 4)))
+        self.store.begin("añadir clave de volumen")
+        self.store.update(project)
+        point = updated[index]
+        self._envelope_drag = {
+            "scope": scope, "id": item_id, "track": int(track_index), "index": index,
+            "project": base, "points": updated, "start": start, "duration": duration,
+            "t": point.t, "gain": point.gain, "current_t": point.t,
+            "inner_h": max(1.0, float(row_height) - 4.0),
+            "dx": 0.0, "dy": 0.0, "begun": True, "add": True,
+        }
+
+    def drag_envelope_key(self, dx: float, dy: float) -> None:
+        drag = self._envelope_drag
+        if drag is None:
+            return
+        drag["dx"], drag["dy"] = float(dx), float(dy)
+        if (
+            not drag.get("add")
+            and abs(dx) < _CLICK_SLOP_PX and abs(dy) < _CLICK_SLOP_PX
+        ):
+            return
+        if not drag.get("begun"):
+            self.store.begin("mover clave de volumen")
+            drag["begun"] = True
+        points = drag["points"]
+        index = int(drag["index"])
+        duration = float(drag["duration"])
+        zoom = max(1.0, state.tl_zoom())
+        t = max(0.0, min(duration, float(drag["t"]) + float(dx) / zoom))
+        # No cruzar la clave vecina: el modelo exige tiempos estrictamente crecientes.
+        low = points[index - 1].t + 2e-4 if index > 0 else 0.0
+        high = points[index + 1].t - 2e-4 if index + 1 < len(points) else duration
+        t = max(low, min(high, t)) if low <= high else float(drag["t"])
+        gain = max(
+            0.0, min(env.GAIN_MAX, float(drag["gain"]) - float(dy) / drag["inner_h"] * env.GAIN_MAX)
+        )
+        point = env.VolumePoint(round(t, 4), round(gain, 4))
+        updated = (*points[:index], point, *points[index + 1:])
+        project = self._project_with_envelope(
+            drag["project"], drag["scope"], drag["id"], drag["track"], updated
+        )
+        if project is None:
+            return
+        drag["current_t"] = point.t
+        drag["current_gain"] = point.gain
+        self.store.update(project)
+
+    def end_envelope_key_drag(self) -> None:
+        drag, self._envelope_drag = self._envelope_drag, None
+        if drag is None:
+            return
+        scope, item_id, track_index = drag["scope"], drag["id"], drag["track"]
+        if not drag.get("begun"):
+            state.envelope_key.set(state.EnvelopeKey(scope, item_id, drag["t"], track_index))
+            return
+        self.store.commit()
+        state.envelope_key.set(state.EnvelopeKey(
+            scope, item_id, float(drag.get("current_t", drag["t"])), track_index
+        ))
+        self._sync_inspector()
+        self._sync_meta()
+
+    def _cancel_envelope_drag(self) -> bool:
+        if self._envelope_drag is None:
+            return False
+        drag, self._envelope_drag = self._envelope_drag, None
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
+        return True
+
+    def select_envelope_key(
+        self, scope: str, item_id: str, track_index: int, t: float,
+    ) -> None:
+        """Selecciona una clave (clic sin arrastre en su asa) para poder borrarla con Supr."""
+        ref = self._envelope_ref(scope, item_id, track_index)
+        if ref is None:
+            return
+        points = ref[0].envelope
+        if not points:
+            return
+        point = min(points, key=lambda p: abs(p.t - float(t)))
+        if abs(point.t - float(t)) > 1e-3:
+            return
+        state.envelope_key.set(state.EnvelopeKey(scope, item_id, point.t, int(track_index)))
+
+    def delete_envelope_key_at(
+        self, scope: str, item_id: str, track_index: int, t: float,
+    ) -> bool:
+        """Borra la clave más cercana a `t` (menú contextual del asa y Supr)."""
+        if not self._guard_editable():
+            return False
+        ref = self._envelope_ref(scope, item_id, track_index)
+        if ref is None or self._envelope_locked(scope, ref):
+            return False
+        item = ref[0]
+        points = item.envelope
+        if not points:
+            return False
+        index = min(range(len(points)), key=lambda i: abs(points[i].t - float(t)))
+        if abs(points[index].t - float(t)) > 1e-3:
+            return False
+        updated = (*points[:index], *points[index + 1:])
+        project = self._project_with_envelope(
+            self.project, scope, item_id, track_index, updated
+        )
+        if project is None:
+            return False
+        if not self._apply("eliminar clave de volumen", project):
+            return False
+        state.envelope_key.set(None)
+        self._sync_inspector()
+        return True
+
+    def delete_envelope_key(self) -> bool:
+        """Supr con una clave de envolvente seleccionada en el timeline."""
+        key = state.envelope_key()
+        if key is None:
+            return False
+        return self.delete_envelope_key_at(key.scope, key.item, key.track, key.t)
 
     def import_images(self, paths: list[Path]) -> None:
         """Añade imágenes al proyecto como assets y las coloca como elementos (sin clip)."""
@@ -3331,6 +3608,8 @@ class EditorController:
             return True
         if self._cancel_overlay_drag():
             return True
+        if self._cancel_envelope_drag():
+            return True
         drag, self._drag = self._drag, None
         if drag is None:
             return False
@@ -3401,6 +3680,9 @@ class EditorController:
         if e.matches("escape"):
             if self.cancel_drag():
                 return True
+            if state.envelope_key() is not None:
+                state.envelope_key.set(None)
+                return True
             if state.import_open():
                 state.import_open.set(False)
                 return True
@@ -3410,7 +3692,7 @@ class EditorController:
             if state.multi_selection() or state.selection() is not None:
                 self.clear_selection()
                 return True
-            if state.razor_on() or state.marquee_on():
+            if state.razor_on() or state.marquee_on() or state.env_edit_on():
                 self.select_tool()
                 return True
             return None
@@ -3496,7 +3778,7 @@ class EditorController:
             ("down", lambda: self.jump_marker(1)),
             ("j", lambda: self.shuttle(-1)), ("k", self.stop_shuttle), ("l", lambda: self.shuttle(1)),
             ("q", lambda: self.trim_to_playhead("start")), ("w", lambda: self.trim_to_playhead("end")),
-            ("c", self.toggle_razor), ("v", self.select_tool),
+            ("c", self.toggle_razor), ("v", self.select_tool), ("e", self.toggle_envelope_edit),
         ):
             if e.matches(combo):
                 action()
@@ -3684,6 +3966,8 @@ class EditorController:
         state.selection.set(None)
         state.multi_selection.set(frozenset())
         state.marquee.set(None)
+        state.env_edit_on.set(False)
+        state.envelope_key.set(None)
         state.project_path.set(str(path) if path else "")
         state.project_open.set(True)
         self._sync_meta()
@@ -4012,6 +4296,8 @@ class EditorController:
                 state.selection.set(None)
                 state.multi_selection.set(frozenset())
                 state.marquee.set(None)
+                state.env_edit_on.set(False)
+                state.envelope_key.set(None)
                 state.posters.set({})
                 state.preview_frame.set(b"")
                 state.playhead.set(0.0)

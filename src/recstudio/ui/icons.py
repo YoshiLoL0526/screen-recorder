@@ -75,6 +75,9 @@ LOCK = _svg('<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 1
 SOLO = _svg('<path d="M4 16v-5a8 8 0 0 1 16 0v5"/><rect x="3" y="14" width="4" height="6" rx="1.5"/>'
             '<rect x="17" y="14" width="4" height="6" rx="1.5"/>')
 SPLIT_AUDIO = _svg('<path d="M3 12h5l2-5 3 10 2-5h6"/><path d="M17 4l3 3-3 3M20 7h-4"/>')
+ENVELOPE = _svg('<path d="M3 16l4-7 4 5 4-8 6 4"/><circle cx="7" cy="9" r="1.4" fill="#8A91A8" stroke="none"/>'
+                '<circle cx="11" cy="14" r="1.4" fill="#8A91A8" stroke="none"/>'
+                '<circle cx="15" cy="6" r="1.4" fill="#8A91A8" stroke="none"/>')
 TRACK_ADD = _svg('<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M12 9v6M9 12h6"/>')
 TRACK_REMOVE = _svg('<rect x="3.5" y="6" width="17" height="12" rx="2"/><path d="M9 12h6"/>')
 # -- flujo de edición (fase 3, docs/21) -------------------------------------------

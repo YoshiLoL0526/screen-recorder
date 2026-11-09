@@ -98,17 +98,21 @@ un filtro adicional **después** del volumen estático y **antes** de los microf
 - La clave guarda el volumen que muestra **Volumen** (`insp_el_gain`, 0…4). Como la curva
   multiplica, con volumen estático 0.5 y clave 0.5 el resultado audible es 0.25.
 - **Timeline**: la barra del elemento añade **◆ env** (además del **◆** de animaciones) y el
-  tooltip indica cuántas claves tiene. No hay polilínea sobre la barra del elemento.
+  tooltip indica cuántas claves tiene. Con el video superpuesto seleccionado, cada clave se dibuja
+  como un **asa sobre la barra** ([docs/37](37-editor-claves.md)): `dx` mueve el tiempo local y
+  `dy` la ganancia 0…4 sobre el alto de la fila. El modo **Env** (`E`) permite añadir una clave
+  con un clic en la barra; `Supr` borra la seleccionada.
 - Los botones y el contador se repintan con el `Project` del `Signal`; `_sync_inspector` mantiene
   el campo de volumen sincronizado tras cada cambio. Las operaciones van por `_apply`, así que
   entran en el undo (`añadir clave de volumen del elemento` / `quitar envolvente de volumen del
-  elemento`).
+  elemento`). Los arrastres usan una transacción que empieza en el primer movimiento y se confirma
+  al soltar (`mover clave de volumen`).
 
 ## Límites
 
-- No hay asas ni edición de claves sobre la barra del elemento: solo se graban desde el inspector.
-- Sin **polilínea** de la curva en la barra del elemento (los clips de V1 y las pistas de audio
-  sí la tienen, docs/32). Tampoco hay copiar/pegar claves ni modo de grabación automática.
+- No hay **polilínea** de la curva en la barra del elemento (los clips de V1 y las pistas de audio
+  sí la tienen, docs/32); las claves se editan con las asas de [docs/37](37-editor-claves.md).
+  Tampoco hay copiar/pegar claves ni modo de grabación automática.
 - La curva no cambia el volumen de la pista V2/V3 ni el ducking; solo el audio del elemento. El
   ducking sigue usando la mezcla del video base + elementos como sidechain.
 - Un elemento con `audio_gain=0` no suena aunque tenga envolvente; «Silenciar» sigue siendo el
@@ -130,9 +134,11 @@ un filtro adicional **después** del volumen estático y **antes** de los microf
   - `build_audio` (la ruta del preview) con la misma atenuación relativa;
   - UI con `pilot`: claves en el playhead local, undo, aviso fuera del intervalo, **◆ env** en la
     barra y «Quitar».
+- `tests/test_envelope_handles.py` (7): asas sobre la barra del elemento (tiempo y ganancia),
+  selección con clic, `Supr` y undo/redo; ver [docs/37](37-editor-claves.md).
 - `tests/test_pip_video.py`, `tests/test_video_tracks.py`, `tests/test_audio_envelope.py` y
   `tests/test_modelo_v6_base.py` siguen en verde con el esquema 11.
-- `uv run pytest -q`: **480 passed**.
+- `uv run pytest -q`: **480 passed** en el momento de esta fase (hoy 496 con docs/33–37).
 - `uv run aurora check main.py`: OK; `uv run aurora tree main.py`: sin avisos de layout.
 
 ## Archivos tocados

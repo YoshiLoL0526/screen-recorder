@@ -129,6 +129,20 @@ class Marquee:
 
 
 @dataclass(frozen=True)
+class EnvelopeKey:
+    """Clave de una envolvente seleccionada en el timeline (docs/37).
+
+    `scope` es `"video"`, `"audio"` o `"element"`; `item` el id del clip o elemento y
+    `track` el índice de la pista de audio (−1 en video/elemento). `t` es el tiempo local.
+    """
+
+    scope: str
+    item: str
+    t: float
+    track: int = -1
+
+
+@dataclass(frozen=True)
 class PreviewArea:
     """Hueco útil del preview medido con `on_resize` (píxeles lógicos).
 
@@ -170,6 +184,8 @@ selection = Signal(None)
 multi_selection = Signal(frozenset())
 marquee_on = Signal(False)  # herramienta de selección activa (B3); excluyente con `razor_on`
 razor_on = Signal(False)  # herramienta razor (C): un clic corta donde se pulsa (fase 3)
+env_edit_on = Signal(False)  # modo envolvente (E): clic en la waveform añade claves (docs/37)
+envelope_key = Signal(None)  # state.EnvelopeKey | None: clave seleccionada en el timeline
 loop_on = Signal(False)  # loop de reproducción del rango In/Out (o de todo el timeline)
 play_rate = Signal(1.0)  # velocidad de reproducción (J/K/L): 2, 4, 8 o negativa hacia atrás
 clipboard_count = Signal(0)  # elementos en el portapapeles del editor (0 = vacío)

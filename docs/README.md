@@ -10,8 +10,9 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > lienzo configurable, transformación del frame y flujo de edición), **panel de medios/capas con
 > selección directa**, **PiP de video**, **pistas V2/V3**, **subtítulos**, **keyframes**,
 > **envolventes de volumen**, **escala/rotación de elementos**, **envolventes de audio de
-> elementos** y **escala/rotación de textos** (docs/27-35). Quedan las comprobaciones manuales de
-> A y la fase 4+. Los documentos 01-07 son la especificación de diseño; 08-35 recogen lo
+> elementos**, **escala/rotación de textos** y **edición de claves de envolvente en el timeline**
+> (docs/27-37). Quedan las comprobaciones manuales de
+> A y la fase 4+. Los documentos 01-07 son la especificación de diseño; 08-37 recogen lo
 > implementado, con mediciones y bugs.
 
 ## Índice
@@ -53,6 +54,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 33 | [Escala y rotación animadas](33-escala-rotacion.md) | Canales `scale`/`rotation` de elementos, vídeo RGBA intermedio con PIL/qtrle, paridad preview/export, UI y límites (modelo v9). |
 | 34 | [Envolventes de audio de elementos](34-envolventes-elementos.md) | `Element.envelope` para PiP y V2/V3, `volume` por frame en el export, mezcla WAV del preview y UI (modelo v11). |
 | 35 | [Textos con escala y rotación](35-textos-escala-rotacion.md) | Canales `scale`/`rotation` de textos/subtítulos, rasterizado compartido, bake RGBA y orden de `drawtext`/overlays (modelo v10). |
+| 37 | [Claves de envolvente en el timeline](37-editor-claves.md) | Asas sobre la waveform/barra, modo Env para añadir, Supr/menú para borrar, geometría pura, undo por gesto y capa sobre el playhead (modelo v11 sin cambios). |
 
 ## Orden de lectura sugerido
 
