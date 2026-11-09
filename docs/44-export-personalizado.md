@@ -2,7 +2,7 @@
 
 > Implementado el **2026-11-09**. Extiende el modal de export de [docs/13](13-f4-export.md) con
 > tamaño, fps, bitrate y códec elegidos a mano, más accesos rápidos a tamaños sociales. No cambia
-> el modelo del proyecto (`SCHEMA_VERSION` sigue en **14**): la configuración vive en `Settings` y
+> el modelo del proyecto (`SCHEMA_VERSION` sigue en **15**): la configuración vive en `Settings` y
 > en los `Signal` de la UI. Los cuatro presets históricos conservan sus cadenas y goldens byte a
 > byte cuando no se usa el modo personalizado.
 

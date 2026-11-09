@@ -253,8 +253,9 @@ admitiéndolo.
 - «Restablecer transformación» vuelve a `transform=None` (heredar del proyecto y neutro).
 - Cada cambio es un `store.apply("transformación", …)`: un solo undo. Los valores inválidos no
   tocan el proyecto y muestran un aviso.
-- **Limitación**: no hay arrastre ni recorte directo sobre el preview en esta fase; los controles
-  numéricos cubren el caso y la geometría ya está centralizada para añadirlo después.
+- **Limitación**: ~~no hay arrastre ni recorte directo sobre el preview en esta fase~~; el
+  recorte interactivo llegó en [docs/43](43-crop-interactivo.md). Los controles numéricos cubren
+  el caso exacto y la geometría ya estaba centralizada.
 
 ## Tests y verificación
 
@@ -275,7 +276,8 @@ admitiéndolo.
 
 - ~~El filmstrip y los pósters de assets rotados muestran la orientación codificada.~~ Resuelto en
   la fase 3 ([21](21-fase-3-flujo.md)).
-- No hay arrastre/recorte interactivo sobre el preview (fase 2 lo deja como controles numéricos).
+- ~~No hay arrastre/recorte interactivo sobre el preview (fase 2 lo deja como controles
+  numéricos).~~ Resuelto en [43 — Recorte interactivo](43-crop-interactivo.md).
 - Solo hay un fondo de color sólido; el fondo desenfocado (blur) y la imagen de fondo quedan para
   más adelante (C8 parcial).
 - El lienzo no tiene presets sociales automáticos de export (E9) ni export por rango (fase 3/5).

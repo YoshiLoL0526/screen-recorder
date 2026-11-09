@@ -21,6 +21,7 @@ from .. import state
 from ..core import animation as anim
 from ..core import audio_envelope as env
 from ..core import canvas_edit as ce
+from ..core import crop_edit
 from ..core import effects as fx
 from ..core import elements as element_mod
 from ..core import global_effects
@@ -159,6 +160,7 @@ class EditorController:
         )
         self._drag: dict | None = None
         self._canvas_drag: dict | None = None  # mover/escalar sobre el preview (docs/23)
+        self._crop_drag: dict | None = None  # arrastrar el recorte sobre el preview (docs/43)
         self._text_drag: dict | None = None  # mover/escalar un texto sobre el preview
         self._overlay_drag: dict | None = None  # mover/recortar una capa en el timeline
         self._envelope_drag: dict | None = None  # mover/añadir una clave de volumen (docs/37)
@@ -198,6 +200,7 @@ class EditorController:
 
         state.selection.subscribe(live(self._on_selection))
         state.key_add_on.subscribe(live(self._on_key_add_mode))
+        state.crop_on.subscribe(live(self._on_crop_mode))
         state.insp_speed.subscribe(live(self._on_insp_speed))
         state.insp_transition.subscribe(live(self._on_insp_transition))
         state.insp_transition_dur.subscribe(live(self._on_insp_transition_dur))
@@ -295,7 +298,9 @@ class EditorController:
 
     def _on_project(self, project: Project) -> None:
         state.editor_project.set(project)
-        self.player.set_project(project)
+        # En modo recorte el reproductor recibe una copia sin el crop del clip seleccionado; el
+        # modelo (`state.editor_project`) conserva el recorte real.
+        self.player.set_project(self._preview_project(project))
         self._sync_meta()
         selection = state.selection()
         if selection and selection[0] == "clip" and not project.has_clip(selection[1]):
@@ -330,6 +335,8 @@ class EditorController:
 
     def _on_selection(self, _value) -> None:  # noqa: ANN001
         """Al cambiar de capa, la clave de animación seleccionada deja de ser válida."""
+        if state.crop_on():
+            state.crop_on.set(False)  # el recorte es del clip seleccionado (docs/43)
         key = state.keyframe_key()
         selection = state.selection()
         if key is not None and (
@@ -345,6 +352,7 @@ class EditorController:
         state.razor_on.set(False)
         state.marquee_on.set(False)
         state.env_edit_on.set(False)
+        state.crop_on.set(False)
         state.marquee.set(None)
         selection = state.selection()
         if selection is None or selection[0] not in ("element", "text"):
@@ -721,6 +729,9 @@ class EditorController:
         state.playing.set(playing)
         if playing:
             self.end_canvas_drag()  # la capa se oculta al reproducir: cierra el gesto en curso
+            self.end_crop_drag()
+            if state.crop_on():
+                state.crop_on.set(False)  # no se recorta mientras corre el preview
         else:
             state.play_rate.set(1.0)
 
@@ -1119,6 +1130,7 @@ class EditorController:
             state.razor_on.set(False)  # las herramientas son excluyentes
             state.env_edit_on.set(False)
             state.key_add_on.set(False)
+            state.crop_on.set(False)
         else:
             state.marquee.set(None)
 
@@ -1129,6 +1141,7 @@ class EditorController:
             state.marquee_on.set(False)
             state.env_edit_on.set(False)
             state.key_add_on.set(False)
+            state.crop_on.set(False)
             state.marquee.set(None)
 
     def toggle_envelope_edit(self) -> None:
@@ -1140,6 +1153,7 @@ class EditorController:
             state.razor_on.set(False)
             state.marquee_on.set(False)
             state.key_add_on.set(False)
+            state.crop_on.set(False)
             state.marquee.set(None)
 
     def toggle_key_add(self) -> None:
@@ -1154,6 +1168,7 @@ class EditorController:
         state.marquee_on.set(False)
         state.env_edit_on.set(False)
         state.key_add_on.set(False)
+        state.crop_on.set(False)
         state.marquee.set(None)
 
     def set_speed(self, speed: float) -> None:
@@ -1362,6 +1377,165 @@ class EditorController:
         if self._canvas_drag is None:
             return False
         drag, self._canvas_drag = self._canvas_drag, None
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
+        self.player.seek(state.playhead())
+        return True
+
+    # -- recorte interactivo sobre el preview (docs/43) -------------------------------
+
+    def _crop_clip(self, project: Project | None = None):  # noqa: ANN201
+        """Clip de V1 seleccionado, o `None` si la selección no sirve para recortar."""
+        project = self.project if project is None else project
+        selection = state.selection()
+        if not selection or selection[0] != "clip":
+            return None
+        try:
+            return project.clip(selection[1]) if project.has_clip(selection[1]) else None
+        except ProjectError:
+            return None
+
+    def _preview_project(self, project: Project | None = None) -> Project:
+        """Proyecto que se pasa al reproductor: sin el crop del clip seleccionado en modo recorte."""
+        project = self.project if project is None else project
+        if not state.crop_on():
+            return project
+        clip = self._crop_clip(project)
+        return project if clip is None else crop_edit.uncropped_project(project, clip.id)
+
+    def _on_crop_mode(self, on: bool) -> None:
+        """Valida el modo y cambia el proyecto del preview (sin tocar el modelo)."""
+        if not on:
+            self._cancel_crop_drag()
+            self.player.set_project(self.project)
+            self.player.seek(state.playhead())
+            return
+        clip = self._crop_clip()
+        reason = ""
+        if not state.project_open():
+            reason = "Abre un proyecto antes de recortar"
+        elif self.store.read_only:
+            reason = "Proyecto en modo lectura: no se puede recortar"
+        elif self.player.playing:
+            reason = "Pausa la reproducción para recortar"
+        elif self.project.video.locked:
+            reason = "La pista de video está bloqueada"
+        elif clip is None:
+            selection = state.selection()
+            reason = (
+                "Selecciona un clip de video de V1 para recortar en el preview"
+                if selection is not None and selection[0] in ("element", "text")
+                else "Selecciona un clip de video para recortar en el preview"
+            )
+        if reason:
+            state.toast("info" if "Selecciona" in reason else "warning", reason)
+            state.crop_on.set(False)
+            return
+        assert clip is not None
+        starts = tl.clip_starts(self.project.video)
+        index = self.project.video.index_of(clip.id)
+        start = starts[index]
+        if not (start <= state.playhead() < start + clip.duration):
+            self.seek(start)  # el preview muestra el clip que se va a recortar
+        self.player.set_project(self._preview_project())
+        self.player.seek(state.playhead())
+
+    def toggle_crop(self) -> None:
+        """Modo recorte (T): asas sobre el clip de V1 seleccionado (docs/43)."""
+        if state.crop_on():
+            state.crop_on.set(False)
+            return
+        if not state.project_open():
+            return
+        state.crop_on.set(True)  # `_on_crop_mode` valida la selección y avisa si no sirve
+        if not state.crop_on():
+            return
+        # Herramientas excluyentes: el recorte usa el ratón sobre el preview.
+        state.razor_on.set(False)
+        state.marquee_on.set(False)
+        state.env_edit_on.set(False)
+        state.key_add_on.set(False)
+        state.marquee.set(None)
+
+    def begin_crop_drag(self, handle: str) -> None:
+        """Empieza a arrastrar el interior (`move`) o un asa del recorte."""
+        if not state.crop_on() or not self._guard_editable() or self.player.playing:
+            return
+        if handle != crop_edit.MOVE and handle not in crop_edit.HANDLES:
+            return
+        clip = self._crop_clip()
+        if clip is None:
+            return
+        if self.project.video.locked:
+            state.toast("warning", "La pista de video está bloqueada")
+            return
+        stage = self._canvas_stage()
+        if stage[0] <= 1 or stage[1] <= 1:
+            return  # el preview aún no se ha medido
+        try:
+            layout = crop_edit.full_layout(self.project, clip, stage)
+        except ProjectError:
+            return
+        if layout.out_width < 2 or layout.out_height < 2:
+            return
+        self.cancel_drag()
+        self._crop_drag = {
+            "id": clip.id,
+            "project": self.project,
+            "stage": stage,
+            "layout": layout,
+            "handle": handle,
+            "crop": (clip.transform or Transform()).crop,
+            "dx": 0.0,
+            "dy": 0.0,
+            "begun": False,
+        }
+
+    def drag_crop(self, dx: float, dy: float) -> None:
+        drag = self._crop_drag
+        if drag is None:
+            return
+        drag["dx"], drag["dy"] = float(dx), float(dy)
+        if abs(dx) < _CLICK_SLOP_PX and abs(dy) < _CLICK_SLOP_PX:
+            return
+        if not drag.get("begun"):
+            self.store.begin("recortar clip")
+            drag["begun"] = True
+        base: Project = drag["project"]
+        layout = drag["layout"]
+        crop = crop_edit.drag_crop(
+            drag["crop"], drag["handle"],
+            float(dx) / max(1.0, layout.out_width),
+            float(dy) / max(1.0, layout.out_height),
+        )
+        try:
+            project = tl.set_transform(base, drag["id"], crop=crop)
+        except ProjectError:
+            return
+        # Se parte siempre del proyecto del `begin`: deltas acumulados, sin deriva por el clamp.
+        self.store.update(project)
+
+    def end_crop_drag(self) -> None:
+        drag, self._crop_drag = self._crop_drag, None
+        if drag is None:
+            return
+        if not drag.get("begun"):
+            return  # un clic solo activa/selecciona: no hay transacción abierta
+        moved = (
+            abs(drag.get("dx", 0.0)) >= _CLICK_SLOP_PX
+            or abs(drag.get("dy", 0.0)) >= _CLICK_SLOP_PX
+        )
+        if moved:
+            self.store.commit()
+        else:
+            self.store.cancel()
+        self._sync_meta()
+
+    def _cancel_crop_drag(self) -> bool:
+        if self._crop_drag is None:
+            return False
+        drag, self._crop_drag = self._crop_drag, None
         if drag.get("begun"):
             self.store.cancel()
             self._sync_meta()
@@ -4192,6 +4366,8 @@ class EditorController:
 
     def cancel_drag(self) -> bool:
         """Esc: deshace el drag en curso (vuelve al snapshot del `begin`)."""
+        if self._cancel_crop_drag():
+            return True
         if self._cancel_canvas_drag():
             return True
         if self._cancel_text_drag():
@@ -4271,6 +4447,9 @@ class EditorController:
             return None
         if e.matches("escape"):
             if self.cancel_drag():
+                return True
+            if state.crop_on():
+                state.crop_on.set(False)  # Esc sale del modo recorte (docs/43)
                 return True
             if state.key_add_on():
                 state.key_add_on.set(False)  # Esc también sale del modo «añadir clave» (docs/42)
@@ -4377,7 +4556,7 @@ class EditorController:
             ("j", lambda: self.shuttle(-1)), ("k", self.stop_shuttle), ("l", lambda: self.shuttle(1)),
             ("q", lambda: self.trim_to_playhead("start")), ("w", lambda: self.trim_to_playhead("end")),
             ("c", self.toggle_razor), ("v", self.select_tool), ("e", self.toggle_envelope_edit),
-            ("n", self.toggle_key_add),
+            ("n", self.toggle_key_add), ("t", self.toggle_crop),
         ):
             if e.matches(combo):
                 action()
@@ -4579,6 +4758,7 @@ class EditorController:
         state.marquee.set(None)
         state.env_edit_on.set(False)
         state.key_add_on.set(False)
+        state.crop_on.set(False)
         state.envelope_key.set(None)
         state.keyframe_key.set(None)
         state.project_path.set(str(path) if path else "")
@@ -4911,6 +5091,7 @@ class EditorController:
                 state.marquee.set(None)
                 state.env_edit_on.set(False)
                 state.key_add_on.set(False)
+                state.crop_on.set(False)
                 state.envelope_key.set(None)
                 state.keyframe_key.set(None)
                 state.posters.set({})

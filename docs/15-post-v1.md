@@ -18,7 +18,8 @@
 > ([38](38-asas-animaciones.md)), el **easing de las animaciones y de las envolventes de audio**
 > ([39](39-easing.md) y [40](40-easing-audio.md)), el **copiar/pegar de claves**
 > ([41](41-copiar-pegar-claves.md)), el **modo para añadir claves desde el timeline**
-> ([42](42-claves-desde-timeline.md)), el **export personalizado** ([44](44-export-personalizado.md))
+> ([42](42-claves-desde-timeline.md)), el **recorte interactivo en el preview**
+> ([43](43-crop-interactivo.md)), el **export personalizado** ([44](44-export-personalizado.md))
 > y el **texto multilínea con ancho máximo** ([45](45-texto-multilinea.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
@@ -526,6 +527,26 @@ Resultados y decisiones completas en [42 — Claves desde el timeline](42-claves
 - Tests nuevos en `test_key_add_mode`; **526 tests** en verde en su rama.
 - Tras integrar las tres ramas: **545 tests** en verde.
 
+### B30 - Recorte interactivo en el preview (✅ · M)
+
+Resultados y decisiones completas en [43 — Recorte interactivo](43-crop-interactivo.md).
+
+- **Sin cambios de modelo** (`SCHEMA_VERSION=15`): se edita `Transform.crop` (`l, t, r, b`) con
+  `timeline.set_transform`; no hay campos nuevos ni migración.
+- **Modo** (`state.crop_on`, no persistido): `switch` en Transformación y tecla **T**; excluyente
+  con razor, marquesina, Env y añadir clave; `Esc` cancela el gesto y después sale. Solo con un
+  clip de V1 seleccionado y en pausa.
+- **Preview**: mientras el modo está activo el reproductor recibe una copia del proyecto con el
+  crop del clip en `(0, 0, 1, 1)` (no se guarda), y se superpone velo, rectángulo y 8 asas.
+  `core/crop_edit.py` mapea el crop normalizado al escenario con rotación/flip sin casos
+  especiales.
+- **Gestos**: arrastre de esquina/lado/interior, mínimo del 5 % por lado, clamp a `0…1`, movimiento
+  sin cambiar tamaño y una sola entrada de undo (`recortar clip`) abierta en el primer
+  movimiento. Clic sin movimiento no crea historial; los campos L/T/R/B siguen funcionando.
+- **Límite**: solo V1; el zoom heredado se aplica después del crop y el recuadro no lo edita; sin
+  máscaras, proporción fija ni crop animado.
+- Tests nuevos en `test_crop_interactive`; **559 tests** en verde en su rama (545 + 14).
+
 ### B31 - Export personalizado y presets sociales (✅ · M)
 
 - **Qué**: tamaño, fps, bitrate de video/audio y códec H.264 (GPU automática o x264) elegidos a
@@ -562,6 +583,7 @@ Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multili
   interlineado y la alineación son fijos y el campo del inspector sigue siendo de una línea.
 - Tests nuevos en `test_text_multiline`; **555 tests** en verde en su rama.
 - Tras integrar texto y export: **565 tests** en verde.
+- Tras integrar las tres ramas: **579 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

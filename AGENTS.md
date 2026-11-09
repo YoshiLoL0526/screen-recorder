@@ -46,12 +46,13 @@ claves de animación** (`Keyframe.easing`, curvas cúbicas en preview/export y s
 inspector; modelo **v13**, `docs/39`), el **easing de las envolventes de volumen**
 (`VolumePoint.easing`, las mismas curvas en preview/export y selector en las dos secciones de
 envolvente; modelo **v14**, `docs/40`), el **copiar/pegar de claves** (`KeyClipboard` en el
-controlador, menús del asa y `Ctrl+C`/`Ctrl+V`; `docs/41`) y el **modo «añadir clave» desde el
+controlador, menús del asa y `Ctrl+C`/`Ctrl+V`; `docs/41`), el **modo «añadir clave» desde el
 timeline** (`state.key_add_on`, tecla **N**, `keyframe_default`/`keyframe_value_at`; `docs/42`),
-el **texto multilínea con ancho máximo** (`TextOverlay.wrap_width`, `core/text_layout.py`,
-bake RGBA de los textos envueltos; modelo **v15**, `docs/45`) y el **export personalizado** con
-tamaño/fps/bitrate/códec y presets sociales (`core/graph.py`, `services/settings.py`,
-`ui/export_modal.py`; `docs/44`).
+el **recorte interactivo en el preview** (`core/crop_edit.py`, `state.crop_on`, tecla **T**;
+`docs/43`), el **texto multilínea con ancho máximo** (`TextOverlay.wrap_width`,
+`core/text_layout.py`, bake RGBA de los textos envueltos; modelo **v15**, `docs/45`) y el
+**export personalizado** con tamaño/fps/bitrate/códec y presets sociales (`core/graph.py`,
+`services/settings.py`, `ui/export_modal.py`; `docs/44`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -60,7 +61,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 565 tests; la integración usa FFmpeg real
+uv run pytest                                   # 579 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -292,6 +293,14 @@ depender de monitor, GPU ni audio reales del runner.
   `keyframe_value_at` (interpolado o base: `scale` 1.0 y `rotation` la base de la capa, 0.0 en
   textos). El clic abre una transacción `añadir clave X` con `begun=True` y no mueve la capa; al
   arrastrar una clave se conserva su `easing` (`drag["easing"]`), no lo resetees a lineal.
+- Recorte interactivo (docs/43): `state.crop_on` es UI no persistida (tecla **T** y `switch` de
+  Transformación), excluyente con razor/marquesina/Env/añadir clave y solo con un clip de V1
+  seleccionado en pausa. Mientras está activo, `_preview_project` entrega al `Player` una copia
+  con el `crop` del clip en `(0, 0, 1, 1)` (`core.crop_edit.uncropped_project`): **no** se aplica
+  al store. `core/crop_edit.py` mapea el crop normalizado sobre el layout completo (vale con
+  rotación/flip) y `_crop_layer` sustituye las cajas normales por velo + rectángulo + 8 asas. El
+  drag usa `begun=False`, una transacción `recortar clip` y `tl.set_transform`; `Esc` cancela el
+  gesto y después sale del modo. La capa se oculta si el playhead no está en el clip seleccionado.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -361,8 +370,8 @@ depender de monitor, GPU ni audio reales del runner.
   timeline, `docs/38` las asas de animaciones visuales, `docs/39` el easing de las claves de
   animación (modelo v13), `docs/40` el easing de las envolventes de volumen (modelo v14),
   `docs/41` el copiar/pegar de claves, `docs/42` el modo para añadir claves desde el timeline,
-  `docs/44` el export personalizado (tamaño, fps, bitrate, códec y presets sociales) y `docs/45`
-  el texto multilínea con ancho máximo (modelo v15).
+  `docs/43` el recorte interactivo en el preview, `docs/44` el export personalizado (tamaño, fps,
+  bitrate, códec y presets sociales) y `docs/45` el texto multilínea con ancho máximo (modelo v15).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

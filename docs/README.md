@@ -13,10 +13,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > elementos**, **escala/rotación de textos**, **color/tamaño de textos**, **edición de claves
 > de envolvente en el timeline**, **asas de animaciones visuales**, **easing de las claves** y
 > **easing de las envolventes de volumen**, **copiar/pegar de claves**, **añadir claves desde
-> el timeline**, el **export personalizado** con presets sociales y el **texto multilínea con
-> ancho máximo** (docs/27-42, 44 y 45). Quedan las comprobaciones manuales de A y la fase 4+.
-> Los documentos 01-07 son la especificación de diseño; 08-42, 44 y 45 recogen lo implementado,
-> con mediciones y bugs.
+> el timeline**, el **recorte interactivo en el preview**, el **export personalizado** con presets
+> sociales y el **texto multilínea con ancho máximo** (docs/27-45). Quedan las comprobaciones
+> manuales de A y la fase 4+. Los documentos 01-07 son la especificación de diseño; 08-45 recogen
+> lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -64,6 +64,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 40 | [Easing de las envolventes de volumen](40-easing-audio.md) | `VolumePoint.easing` en clips y elementos, curvas compartidas con `Animation`, expresiones FFmpeg, migración v13 → v14, selector del inspector y audio real. |
 | 41 | [Copiar y pegar claves](41-copiar-pegar-claves.md) | Portapapeles de claves visuales (valor/easing) y puntos de envolvente, pegado en el canal activo y el playhead, menús del asa, no-op con aviso y undo. |
 | 42 | [Añadir claves desde el timeline](42-claves-desde-timeline.md) | Modo `N`, clic sobre la barra del elemento/texto, valor base/interpolado, easing del inspector, undo por clic, indicadores y límites (modelo v14 sin cambios). |
+| 43 | [Recorte interactivo en el preview](43-crop-interactivo.md) | Modo `T`, preview sin recortar, velo y 8 asas, geometría con rotación/flip, mínimo del 5 %, undo por gesto y límites (modelo v15 sin cambios). |
 | 44 | [Export personalizado](44-export-personalizado.md) | Tamaño, fps, bitrate y códec H.264/GPU en el modal; presets sociales 9:16/1:1/4:5/16:9, validación, persistencia en `Settings` y export real (modelo v15 sin cambios). |
 | 45 | [Texto multilínea con ancho máximo](45-texto-multilinea.md) | `TextOverlay.wrap_width`, helper puro de wrap, preview con líneas, caja del bloque, bake RGBA para export, UI, migración v14 → v15 y límites. |
 

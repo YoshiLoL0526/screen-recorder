@@ -55,6 +55,9 @@ camino visible para usarla**.
   abierta.
 - `Esc` cancela el gesto; `Supr` borra; `Ctrl+C/X/V/D` incluye elementos (además de clips, audio y
   textos).
+- El **recorte interactivo** ([docs/43](43-crop-interactivo.md)) sustituye temporalmente las
+  cajas de selección por un velo, el rectángulo del `Transform.crop` y ocho asas; el preview
+  muestra el clip completo sin tocar el modelo mientras el modo está activo.
 
 ### 3. Capas de texto y elemento en el timeline
 
