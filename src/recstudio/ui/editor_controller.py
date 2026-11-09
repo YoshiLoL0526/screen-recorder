@@ -168,6 +168,7 @@ class EditorController:
         self._poster_failed: set[str] = set()
         self._marquee_start: float | None = None
         self._clipboard: tl.Clipboard | None = None  # portapapeles del editor (fase 3)
+        self._key_clipboard: state.KeyClipboard | None = None  # clave copiada (docs/41)
         self._last_element_id: str | None = None  # reinicia la escala de la próxima clave
         self._last_text_id: str | None = None  # reinicia escala/rotación de la próxima clave
         self.exporter = export_mod.Exporter(self._on_export)
@@ -2560,6 +2561,185 @@ class EditorController:
             return False
         return self.delete_keyframe_key_at(key.scope, key.item, key.channel, key.t)
 
+    # -- portapapeles de claves (docs/41) -------------------------------------------
+
+    def _set_key_clipboard(self, clipboard: state.KeyClipboard) -> None:
+        """El portapapeles de claves y el de clips son excluyentes: gana el último copiado."""
+        self._key_clipboard = clipboard
+        self._clipboard = None
+        state.clipboard_count.set(0)
+
+    def _copy_visual_key_at(
+        self, scope: str, item_id: str, channel: str, t: float,
+    ) -> bool:
+        ref = self._keyframe_ref(scope, item_id, channel)
+        if ref is None or ref[3] is None:
+            return False
+        point = min(ref[3].points, key=lambda item: abs(item.t - float(t)))
+        if abs(point.t - float(t)) > 1e-3:
+            return False
+        label = self._key_label(channel)
+        self._set_key_clipboard(state.KeyClipboard(
+            kind="visual", channel=channel, value=point.value, easing=point.easing,
+            source_label=f"{label} · {point.t:.2f} s",
+        ))
+        state.envelope_key.set(None)
+        state.keyframe_key.set(state.KeyframeKey(scope, item_id, channel, point.t))
+        state.toast("info", f"Clave {label} copiada")
+        return True
+
+    def _copy_envelope_key_at(
+        self, scope: str, item_id: str, track_index: int, t: float,
+    ) -> bool:
+        ref = self._envelope_ref(scope, item_id, track_index)
+        if ref is None:
+            return False
+        points = ref[0].envelope
+        if not points:
+            return False
+        point = min(points, key=lambda item: abs(item.t - float(t)))
+        if abs(point.t - float(t)) > 1e-3:
+            return False
+        self._set_key_clipboard(state.KeyClipboard(
+            kind="audio", channel="", value=point.gain, easing="linear",
+            source_label=f"volumen · {point.t:.2f} s",
+        ))
+        state.keyframe_key.set(None)
+        state.envelope_key.set(state.EnvelopeKey(scope, item_id, point.t, int(track_index)))
+        state.toast("info", "Punto de volumen copiado")
+        return True
+
+    def copy_selected_key(self) -> bool:
+        """Ctrl+C con una clave visual o un punto de envolvente seleccionado."""
+        key = state.keyframe_key()
+        if key is not None:
+            if self._copy_visual_key_at(key.scope, key.item, key.channel, key.t):
+                return True
+            state.keyframe_key.set(None)
+        point = state.envelope_key()
+        if point is not None:
+            if self._copy_envelope_key_at(point.scope, point.item, point.track, point.t):
+                return True
+            state.envelope_key.set(None)
+        return False
+
+    def copy_keyframe_key_at(
+        self, scope: str, item_id: str, channel: str, t: float,
+    ) -> bool:
+        """«Copiar clave» del menú contextual de un asa de animación."""
+        return self._copy_visual_key_at(scope, item_id, channel, t)
+
+    def copy_envelope_key_at(
+        self, scope: str, item_id: str, track_index: int, t: float,
+    ) -> bool:
+        """«Copiar clave» del menú contextual de un asa de volumen."""
+        return self._copy_envelope_key_at(scope, item_id, track_index, t)
+
+    def paste_key(self) -> bool:
+        """Ctrl+V con una clave copiada: pega en la capa/canal activo, en el playhead."""
+        clipboard = self._key_clipboard
+        if clipboard is None:
+            state.toast("info", "No hay ninguna clave copiada (Ctrl+C sobre una clave)")
+            return False
+        if not self._guard_editable():
+            return False
+        if clipboard.kind == "visual":
+            return self._paste_visual_key(clipboard)
+        if clipboard.kind == "audio":
+            return self._paste_audio_key(clipboard)
+        return False
+
+    def _paste_visual_key(self, clipboard: state.KeyClipboard) -> bool:
+        selection = state.selection()
+        if selection is None or selection[0] not in ("element", "text"):
+            state.toast("warning", "Selecciona el elemento o texto donde pegar la clave")
+            return False
+        scope, item_id = selection[0], selection[1]
+        channel = state.keyframe_channel()
+        ref = self._keyframe_ref(scope, item_id, channel)
+        label = self._key_label(channel)
+        if ref is None:
+            state.toast("warning", f"El canal {label} no es válido para esta capa")
+            return False
+        item, start, duration, _animation = ref
+        local = state.playhead() - float(start)
+        if local < -1e-6 or local > duration + 1e-6:
+            state.toast("warning", "El playhead está fuera del elemento; colócalo dentro")
+            return False
+        local = round(max(0.0, min(duration, local)), 4)
+        try:
+            anim.validate_value(channel, clipboard.value)
+        except ProjectError as exc:
+            state.toast("warning", f"No se puede pegar la clave {label}: {exc.message}")
+            return False
+        animations = anim.set_keyframe(
+            item.animations, channel, local, clipboard.value, easing=clipboard.easing,
+        )
+        project = self._project_with_animations(self.project, scope, item_id, animations)
+        if project is None:
+            return False
+        applied = self._apply(f"pegar clave {label}", project)
+        state.keyframe_key.set(state.KeyframeKey(scope, item_id, channel, local))
+        state.envelope_key.set(None)
+        self._sync_inspector()
+        if applied:
+            state.toast("success", f"Clave {label} pegada en {tl.format_time(state.playhead())}")
+        else:
+            state.toast("info", f"La clave {label} ya tenía ese valor en el playhead")
+        return applied
+
+    def _paste_audio_key(self, clipboard: state.KeyClipboard) -> bool:
+        selection = state.selection()
+        if selection is None:
+            state.toast("warning", "Selecciona un clip o un video superpuesto para pegar el punto")
+            return False
+        if selection[0] == "element":
+            element = self.selected_element()
+            if element is None or element.kind != "video":
+                state.toast("warning", "El elemento seleccionado no tiene audio")
+                return False
+            scope, item_id, track_index = "element", element.id, -1
+        elif selection[0] == "audio":
+            audio = self.selected_audio()
+            if audio is None:
+                state.toast("warning", "Selecciona un clip con audio para pegar el punto")
+                return False
+            track_index, _clip_index, clip = audio
+            scope, item_id = "audio", clip.id
+        elif selection[0] == "clip":
+            scope, item_id, track_index = "video", selection[1], -1
+        else:
+            state.toast("warning", "Selecciona un clip o un video superpuesto para pegar el punto")
+            return False
+        ref = self._envelope_ref(scope, item_id, track_index)
+        if ref is None:
+            state.toast("warning", "Selecciona un clip o un video superpuesto para pegar el punto")
+            return False
+        if self._envelope_locked(scope, ref):
+            return False
+        item, start, _track, _track_index, _clip_index = ref
+        duration = float(item.duration) if scope != "element" else float(item.end - item.start)
+        local = state.playhead() - float(start)
+        if local < -1e-6 or local > duration + 1e-6:
+            state.toast("warning", "El playhead está fuera del clip; colócalo dentro")
+            return False
+        local = round(max(0.0, min(duration, local)), 4)
+        points = env.set_point(item.envelope, local, clipboard.value)
+        project = self._project_with_envelope(
+            self.project, scope, item_id, track_index, points,
+        )
+        if project is None:
+            return False
+        applied = self._apply("pegar punto de volumen", project)
+        state.envelope_key.set(state.EnvelopeKey(scope, item_id, local, int(track_index)))
+        state.keyframe_key.set(None)
+        self._sync_inspector()
+        if applied:
+            state.toast("success", f"Punto de volumen pegado en {tl.format_time(state.playhead())}")
+        else:
+            state.toast("info", "El punto de volumen ya tenía ese valor en el playhead")
+        return applied
+
     def import_images(self, paths: list[Path]) -> None:
         """Añade imágenes al proyecto como assets y las coloca como elementos (sin clip)."""
         if not paths:
@@ -3340,6 +3520,8 @@ class EditorController:
         return frozenset()
 
     def copy(self) -> bool:
+        if self.copy_selected_key():  # Ctrl+C con una clave/punto seleccionado (docs/41)
+            return True
         ids = self._selected_ids()
         if not ids:
             state.toast("info", "Selecciona un clip, un texto o un elemento para copiar")
@@ -3349,6 +3531,7 @@ class EditorController:
         except ProjectError as exc:
             state.toast("info", exc.message)
             return False
+        self._key_clipboard = None
         state.clipboard_count.set(len(self._clipboard.items))
         state.toast("info", f"{len(self._clipboard.items)} elemento(s) copiado(s)")
         return True
@@ -3368,10 +3551,14 @@ class EditorController:
             return
         if self._apply("cortar", project):
             self._clipboard = clipboard
+            self._key_clipboard = None
             state.clipboard_count.set(len(clipboard.items))
             self.clear_selection()
 
     def paste(self) -> None:
+        if self._key_clipboard is not None:  # gana el último copiado (docs/41)
+            self.paste_key()
+            return
         if not self._guard_editable():
             return
         if self._clipboard is None or self._clipboard.empty:

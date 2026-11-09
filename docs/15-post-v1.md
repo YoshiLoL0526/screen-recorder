@@ -15,8 +15,9 @@
 > ([34](34-envolventes-elementos.md)), la **escala/rotación de textos** ([35](35-textos-escala-rotacion.md)),
 > el **color/tamaño de textos** ([36](36-color-tamano-textos.md)), la **edición de claves de
 > envolvente en el timeline** ([37](37-editor-claves.md)), las **asas de animaciones visuales**
-> ([38](38-asas-animaciones.md)) y el **easing de las animaciones y de las envolventes de audio**
-> ([39](39-easing.md) y [40](40-easing-audio.md)).
+> ([38](38-asas-animaciones.md)), el **easing de las animaciones y de las envolventes de audio**
+> ([39](39-easing.md) y [40](40-easing-audio.md)) y el **copiar/pegar de claves**
+> ([41](41-copiar-pegar-claves.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -476,10 +477,30 @@ Resultados y decisiones completas en [40 — Easing de audio](40-easing-audio.md
 - **UI**: selector **Easing** en las dos secciones de envolvente del inspector (clip y elemento),
   con `state.insp_env_easing` no persistido. Decide las claves nuevas (también las del modo Env) y
   volver a grabar en el mismo instante actualiza el easing. Arrastrar un asa lo conserva.
-- **Límite**: no hay control para cambiar el easing de una clave seleccionada sin regrabarla ni
-  copiar/pegar claves. Cortar dentro de un tramo curvo reancla los extremos con `ease`, así que
-  la subcurva no es exactamente la original (sí lo es en cortes lineales o en claves).
-- Tests nuevos en `test_audio_envelope_easing`; **528 tests** en verde.
+- **Límite**: no hay control para cambiar el easing de una clave seleccionada sin regrabarla (el
+  copiado/pegado de claves llegó en B28). Cortar dentro de un tramo curvo reancla los extremos con
+  `ease`, así que la subcurva no es exactamente la original (sí lo es en cortes lineales o en
+  claves).
+- Tests nuevos en `test_audio_envelope_easing`; **528 tests** en verde en su rama.
+
+### B28 - Copiar y pegar claves (✅ · M)
+
+Resultados y decisiones completas en [41 — Copiar y pegar claves](41-copiar-pegar-claves.md).
+
+- **Sin cambios de modelo** (`SCHEMA_VERSION=14`): se reutilizan `animation.set_keyframe` y
+  `audio_envelope.set_point`; el portapapeles es un `KeyClipboard` frozen en el controlador, no
+  en `Project`.
+- **Copiar** (`Ctrl+C` o menú del asa): con una clave visual seleccionada copia valor/easing; con
+  un punto de envolvente copia la ganancia. Sin clave/punto seleccionado sigue copiando clips.
+- **Pegar** (`Ctrl+V` o menú): usa la capa y el canal activos, convierte el playhead a tiempo local
+  y acota a `0…duración`; reemplaza la clave del mismo instante o la inserta. El easing se
+  conserva; un valor fuera del rango del canal o un playhead fuera del destino es un no-op con
+  aviso. En audio se reemplaza/inserta el punto en el clip o video superpuesto seleccionado.
+- **Undo**: `pegar clave X` o `pegar punto de volumen`, una entrada por pegado; los no-op no abren
+  transacción. Claves y clips comparten un único portapapeles lógico (gana el último copiado).
+- **Límite**: no crea claves nuevas desde el timeline, no convierte valores entre canales y deja
+  fuera el color animado de textos. El easing de las envolventes se eligió en B27.
+- Tests nuevos en `test_key_clipboard`; **531 tests** en verde en su rama (520 + 11).
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

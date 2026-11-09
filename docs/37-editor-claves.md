@@ -79,7 +79,9 @@ explícito** y un menú nativo:
 - Las claves de `Animation` (x/y/opacity/scale/rotation/size) tienen sus propias asas desde
   [docs/38](38-asas-animaciones.md), con un selector de canal en el inspector; este documento
   cubre solo `Clip.envelope` y `Element.envelope`.
-- No hay copiar/pegar claves ni «grabar automáticamente» al mover el playhead.
+- El copiar/pegar de claves y puntos de envolvente llegó en
+  [docs/41](41-copiar-pegar-claves.md); aquí no se duplican puntos. Sigue sin haber «grabar
+  automáticamente» al mover el playhead.
 - La interpolación de las envolventes de audio usa el easing de la clave izquierda
   (`linear`, `ease_in`, `ease_out`, `ease_in_out`; [docs/40](40-easing-audio.md)). El selector
   **Easing** del inspector decide el de las claves nuevas, incluidas las que se crean en modo

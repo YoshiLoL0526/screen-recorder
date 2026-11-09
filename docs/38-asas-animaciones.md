@@ -81,9 +81,10 @@ keyframe_time(start, duration, x, zoom)           # inversa, acotada a 0…durac
 
 - Solo se editan **claves existentes** desde el timeline; añadir una clave nueva se hace desde
   el inspector (no hay modo «Añadir clave» como el modo Env de las envolventes).
-- No hay copiar/pegar claves ni grabación automática al mover el playhead. El easing de una clave
-  se elige en el inspector ([docs/39](39-easing.md)); las envolventes de audio tienen su propio
-  selector ([docs/40](40-easing-audio.md)).
+- El copiar/pegar de claves (valor, easing y punto de envolvente) llegó en
+  [docs/41](41-copiar-pegar-claves.md). No hay grabación automática al mover el playhead; el
+  easing de una clave se elige en el inspector ([docs/39](39-easing.md)) y las envolventes de
+  audio tienen su propio selector ([docs/40](40-easing-audio.md)).
 - El canal `color` de textos no tiene asas: es un modelo aparte (`color_keys`) sin rango
   numérico. Los canales de transformación de un clip de V1 tampoco son `Animation`.
 - Con la razor activa se ocultan las asas para no mezclar gestos, igual que las de las

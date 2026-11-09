@@ -121,8 +121,9 @@ Animation("x", (
 - El **color animado** de textos (`TextOverlay.color_keys`, [docs/36](36-color-tamano-textos.md))
   sigue interpolándose linealmente en sRGB; no es un `Animation`.
 - No hay editor gráfico de curvas ni Bézier libres: son cuatro curvas fijas por clave.
-- Las claves siguen siendo **explícitas** (no se graban al mover el playhead) y no hay
-  copiar/pegar claves ni asas de animación en el timeline.
+- Las claves siguen siendo **explícitas** (no se graban al mover el playhead); el copiar/pegar
+  de claves llegó en [docs/41](41-copiar-pegar-claves.md) y las asas de animación en el timeline
+  en [docs/38](38-asas-animaciones.md).
 - El corte rápido sigue bloqueado por elementos/textos/efectos, como antes.
 
 ## Tests y verificación
