@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 [SemVer](https://semver.org/lang/es/) desde la 1.0.0 (las fases anteriores no se publicaron como versión). El
 detalle de cada fase está en `docs/08`–`docs/16`.
 
-## [Sin publicar]
+## [1.3.0] — 2026-11-09
 
 ### Añadido
 - **Pistas de micrófono separadas** (docs/50; modelo v16 sin cambios): `AudioConfig.mode`
@@ -167,6 +167,10 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ### Corregido
 - Clic en el preview sin selección ya no deja una transacción de undo abierta.
 - El campo de edición de texto ya no se pinta truncado a ~22 px.
+
+### Corregido
+- `session.json` y el sidecar se escriben con archivo temporal + `os.replace`: un lector ya no
+  puede ver el JSON vacío o truncado a mitad de escritura (lo destapó un test de recuperación).
 
 ## [1.2.0] — 2026-11-05
 

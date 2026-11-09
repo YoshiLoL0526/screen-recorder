@@ -1,6 +1,6 @@
 # Rec Studio — grabación de pantalla + editor de video
 
-> **Estado: v1.2.0** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
+> **Estado: v1.3.0** — grabador (F1/F2), **editor** (F3: cortes, recortes, reordenar,
 > velocidad, transiciones, undo/redo, autoguardado, preview a 30 fps), **export** (F4: MP4 con
 > FFmpeg, presets GPU/calidad/720p/sin recodificar, progreso y ETA, efectos) y **pulido** (F5:
 > layout adaptable, divisores del editor, Ajustes completos, ejecutable con smoke test). El
@@ -18,7 +18,11 @@
 > superpuestos (figuras, imágenes y blur) y efectos globales — ver
 > [docs/22](docs/22-plan-features-editor.md), [docs/23](docs/23-canvas-resize.md),
 > [docs/24](docs/24-pistas-av.md), [docs/25](docs/25-elementos.md) y
-> [docs/26](docs/26-efectos-globales.md). Ver también
+> [docs/26](docs/26-efectos-globales.md). Las **features v7–v16** añaden PiP y pistas V2/V3,
+> subtítulos, keyframes con easing, envolventes de audio, recorte interactivo, texto multilínea,
+> fondo blur/imagen, export personalizado/GIF/WebM y fundidos de audio; la grabación suma webcam
+> PiP y pista de micrófono separada — ver [docs/27](docs/27-panel-medios-y-capas.md) a
+> [docs/50](docs/50-pistas-microfono.md). Ver también
 > [docs/12](docs/12-f3-editor.md), [docs/13](docs/13-f4-export.md), [docs/14](docs/14-f5-pulido.md)
 > y el [CHANGELOG](CHANGELOG.md).
 

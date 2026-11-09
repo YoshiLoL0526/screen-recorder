@@ -2,7 +2,7 @@
 # con smoke e instalador con instalación silenciosa y smoke) y publica un GitHub Release con el
 # instalador, un zip portable y las notas de la sección [X.Y.Z] de CHANGELOG.md.
 #
-#   git tag v1.2.0 && git push origin v1.2.0
+#   git tag v1.3.0 && git push origin v1.3.0
 #
 # `tools/release_notes.py` falla si el tag no coincide con la versión del código, así que no se
 # publica nada con un número equivocado. El instalador no va firmado (SmartScreen avisará).
