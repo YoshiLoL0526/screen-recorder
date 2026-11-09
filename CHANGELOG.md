@@ -7,6 +7,12 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Easing de las claves de animación** (docs/39; modelo v13 con migración v12 → v13):
+  `Keyframe.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) con curvas cúbicas
+  compartidas por `value_at` y las expresiones de FFmpeg, selector **Easing** en la sección
+  Animación del inspector (decide las nuevas claves y no se persiste) y paridad preview/export,
+  incluidos los canales horneados. Las claves lineales conservan las cadenas históricas; las
+  envolventes de audio y el color animado de textos siguen lineales.
 - **Color y tamaño animados de textos/subtítulos** (docs/36; modelo v12 con migración v11 → v12):
   canal `size` (`8…200`) en `TextOverlay.animations` y `TextOverlay.color_keys` con
   `ColorKeyframe(t, color)` e interpolación lineal en sRGB. El preview y el export comparten el

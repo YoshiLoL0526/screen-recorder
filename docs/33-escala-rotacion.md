@@ -17,7 +17,8 @@
   PiP).
 - Grabar una clave en el playhead con el valor actual del campo: **Escala** o **Rotación** en el
   inspector, y **Quitar** para borrar todas las claves del canal.
-- La interpolación es lineal y se acota a la primera/última clave, igual que X/Y/opacidad.
+- La interpolación usa el easing de cada clave (por defecto lineal, [docs/39](39-easing.md)) y se
+  acota a la primera/última clave, igual que X/Y/opacidad.
 
 ## Modelo (`SCHEMA_VERSION = 9`)
 
@@ -112,8 +113,8 @@ Consecuencias:
   [docs/35](35-textos-escala-rotacion.md).
 - La caja efectiva se acota al máximo del modelo (`4.0`): un elemento que ya ocupa 4.0 de ancho
   no crece más aunque la clave de escala llegue a 4.
-- Interpolación lineal, sin easing ni curvas Bézier; las claves son explícitas (no se graban al
-  mover el playhead).
+- Interpolación con easing por clave ([docs/39](39-easing.md)); no hay curvas Bézier libres. Las
+  claves son explícitas (no se graban al mover el playhead).
 - El bake es CPU (PIL) y se hace una vez por elemento y export; un PiP largo con muchas claves
   tarda más en la fase de preparación. El resultado se codifica sin pérdidas, así que el archivo
   intermedio puede ser grande, pero se borra con el temporal.

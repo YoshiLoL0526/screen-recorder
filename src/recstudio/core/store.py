@@ -249,6 +249,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v10_v11(data)
     if version < 12:
         data = _migrate_v11_v12(data)
+    if version < 13:
+        data = _migrate_v12_v13(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -390,6 +392,15 @@ def _migrate_v11_v12(data: dict[str, Any]) -> dict[str, Any]:
 
     Los textos antiguos no tenían `color_keys`; `from_dict` los deja en `()` (sin curva), así
     que conservan su `color` base y se dibujan exactamente igual que antes.
+    """
+    return {**data}
+
+
+def _migrate_v12_v13(data: dict[str, Any]) -> dict[str, Any]:
+    """v12 → v13: easing de las claves de animación (docs/39).
+
+    Los puntos antiguos no tenían `easing`; `from_dict` los deja en `"linear"`, así que las
+    curvas se ven exactamente igual que antes y no hay nada que reescribir.
     """
     return {**data}
 

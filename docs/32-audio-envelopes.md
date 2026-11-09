@@ -12,7 +12,8 @@
   su propia envolvente en `Element.envelope` ([docs/34](34-envolventes-elementos.md)).
 - La clave se graba en el **playhead** con el volumen estático actual del clip; el tiempo es
   **local al clip** (`0` = inicio del clip en el timeline).
-- Repetir en otro instante para crear la curva; preview y export interpolan linealmente.
+- Repetir en otro instante para crear la curva; preview y export interpolan **linealmente** (el
+  easing de [docs/39](39-easing.md) es solo para animaciones visuales).
 - **Quitar** la envolvente completa con un clic.
 - El timeline dibuja la polilínea sobre la waveform y marca con **◆ env** la barra del clip.
 - Fuera del clip seleccionado o con el playhead fuera de su intervalo, la UI avisa y no graba.
@@ -99,8 +100,8 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 - Las claves se pueden **arrastrar, añadir y borrar desde el timeline** ([docs/37](37-editor-claves.md));
   no hay edición de una clave existente desde el inspector más allá de volver a grabarla en el
   mismo instante.
-- Interpolación lineal, sin easing ni curvas Bézier. No hay copiar/pegar claves ni modo de
-  grabación automática.
+- Interpolación lineal, sin curvas Bézier. El easing de [docs/39](39-easing.md) no se aplica a
+  `VolumePoint` (solo a `Animation`). No hay copiar/pegar claves ni modo de grabación automática.
 - La curva no cambia el volumen de la pista ni el ducking; solo el del clip.
 - Cambiar la velocidad de un clip no reescala las claves: sus tiempos son locales al timeline
   del clip, así que las que caen más allá de la nueva duración dejan de sonar (y no se dibujan).

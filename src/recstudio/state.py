@@ -260,6 +260,7 @@ insp_text_y = Signal(0.82)
 insp_text_opacity = Signal(1.0)
 insp_text_scale = Signal(1.0)  # multiplicador para la próxima clave de escala (no se persiste)
 insp_text_rotation = Signal(0.0)  # grados para la próxima clave de rotación (no se persiste)
+insp_easing = Signal("linear")  # easing de las próximas claves de animación (docs/39, no se persiste)
 insp_text_bold = Signal(False)
 insp_marker_name = Signal("")  # nombre del marcador seleccionado (fase 3)
 # -- elementos superpuestos (v6, docs/25) -----------------------------------------
