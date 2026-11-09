@@ -3,7 +3,7 @@
 > Implementado el **2026-11-09** sobre el editor v15 (docs/32, 37 y 41). Lleva los fundidos de
 > audio (`audio_fade_in`/`audio_fade_out`, ya en `Clip.effects` desde docs/19) a **asas directas
 > sobre la waveform** y añade un **crossfade por corte** entre clips consecutivos de una pista de
-> audio secuencial. **No cambia `SCHEMA_VERSION` (sigue en 15) ni añade campos al proyecto**:
+> audio secuencial. **No cambia `SCHEMA_VERSION` (sigue en 16) ni añade campos al proyecto**:
 > reutiliza `Effect("audio_fade_in"/"audio_fade_out")` y `Track.transitions` / `Transition("fade")`,
 > y el `acrossfade` que ya usaba el export. Es independiente de las envolventes de volumen
 > (docs/32), que siguen teniendo sus propias asas en docs/37.

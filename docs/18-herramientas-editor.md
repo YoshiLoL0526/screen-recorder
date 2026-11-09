@@ -61,7 +61,7 @@ dónde guardar el resultado.
 | Marcadores / loop | No hay marcadores, ni loop, ni puntos in/out. docs/04 menciona «loop de selección», pero el código no lo implementa. |
 | Preview | Play/pausa, scrub, ±1 frame, audio best-effort, transiciones aproximadas, textos y proxy 540p. No hay loop, medidores, scopes, zoom/pan ni segunda ventana. |
 | Proyecto | `.rsproj/project.json` schema 4, autosave, undo/redo, reubicar offline y ajustes de lienzo/fondo/encaje. No hay «nuevo», «guardar como» ni renombrar. |
-| Export | Presets Rápido/Calidad/Ligero 720p/Sin recodificar. No hay resolución/bitrate personalizados, rango, audio solo ni GIF/WebM. |
+| Export | Presets Rápido/Calidad/Ligero 720p/Sin recodificar, export personalizado (tamaño/fps/bitrate/códec) y formatos MP4/WebM/GIF. No hay audio solo ni exportar fotograma. |
 | Medios | Assets implícitos en el proyecto; no hay panel de medios, imágenes ni reemplazo de un asset online. |
 
 ## 2. Diagnóstico: las limitaciones estructurales
@@ -225,7 +225,7 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | E5 | Export personalizado (resolución, bitrate, fps, códec) | ✅ | Tarjeta del modal con tamaño/fps/bitrate/códec y validación (docs/44) | — | — |
 | E6 | Exportar un rango / la selección | ✅ (rango In/Out) | Opción del modal; render y corte rápido (docs/21) | — | — |
 | E7 | Exportar solo audio | ⛔ | Siempre MP4 con video | P2 | S–M |
-| E8 | GIF/WebM optimizado | ⛔ | Backlog D1 | P1 | M |
+| E8 | GIF/WebM optimizado | ✅ | Formato del modal; VP9/Opus y paleta GIF con límites (docs/48) | — | — |
 | E9 | Presets sociales (9:16, 1:1, 4:5) | ✅ | Accesos rápidos que rellenan el export personalizado (docs/44) | — | — |
 | E10 | Exportar un fotograma (PNG) | ⛔ | No hay | P2 | S |
 | E11 | «Corte rápido» sin recodificar | ✅ | `core/keyframes`; hay que ampliar blockers con lo nuevo | — | — |
@@ -481,8 +481,8 @@ sincronizados; un zoom animado se ve igual en ambos; el proyecto reabre.
 
 ### Fase 5 — Export y compartir (M) — parcial
 
-- Presets personalizados (resolución/bitrate/fps/códec) ✅ y presets sociales ✅ (docs/44);
-  quedan export de audio, GIF/WebM y exportar fotograma.
+- Presets personalizados (resolución/bitrate/fps/códec) ✅, presets sociales ✅ (docs/44) y
+  formatos GIF/WebM ✅ (docs/48); quedan export de audio y exportar fotograma.
 
 **Criterio:** exportar 9:16 a la resolución elegida; exportar WAV; GIF de 10 s con peso y calidad
 aceptables; el progreso/ETA/cancelar siguen funcionando.

@@ -7,7 +7,14 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
-- **Fundidos de audio y crossfade por corte en el timeline** (docs/46; modelo v15 sin cambios):
+- **GIF y WebM como formatos de export** (docs/48; modelo v16 sin cambios): selector **Formato**
+  en el modal además de MP4, con la extensión visible y del `.part` según el contenedor. WebM usa
+  **VP9 + Opus** (CRF del preset o bitrate del personalizado) y GIF usa una **paleta de 256
+  colores** con `palettegen`/`paletteuse`, `-loop 0`, sin audio, 20 fps como máximo y 720 px de
+  lado mayor. `probe_format_encoders` comprueba `libvpx-vp9`/`libopus` codificando de verdad y
+  da un error claro si faltan. «Sin recodificar» sigue siendo solo MP4 y los cuatro presets MP4
+  conservan sus cadenas y goldens byte a byte. `Settings.export_format` persiste la elección.
+- **Fundidos de audio y crossfade por corte en el timeline** (docs/46; modelo v16 sin cambios):
   con un clip de una pista de audio seleccionado aparecen dos asas azules en su banda superior
   (entrada a la derecha, salida a la izquierda) que editan `audio_fade_in`/`audio_fade_out` con
   un límite de `min(2 s, duración/2)` y sin cruzar el otro fundido. Un undo por gesto

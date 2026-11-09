@@ -246,6 +246,8 @@ class EditorController:
         state.insp_el_track.subscribe(live(self._on_insp_element_track))
         if self.settings.export_preset in (*graph_mod.PRESET_IDS, graph_mod.CUSTOM_PRESET_ID):
             state.export_preset.set(self.settings.export_preset)
+        if self.settings.export_format in graph_mod.EXPORT_FORMATS:
+            state.export_format.set(self.settings.export_format)
         state.export_custom_width.set(str(self.settings.export_custom_width))
         state.export_custom_height.set(str(self.settings.export_custom_height))
         state.export_custom_fps.set(str(self.settings.export_custom_fps))
@@ -275,8 +277,9 @@ class EditorController:
         self._remember_export()
 
     def _remember_export(self) -> None:
-        """Guarda el preset y la última configuración personalizada en `Settings` (docs/44)."""
+        """Guarda el preset, el formato y la configuración personalizada (docs/44 y docs/48)."""
         self.settings.export_preset = state.export_preset()
+        self.settings.export_format = state.export_format()
         self.settings.export_custom_width = _int_or(
             state.export_custom_width(), self.settings.export_custom_width)
         self.settings.export_custom_height = _int_or(
@@ -4843,6 +4846,9 @@ class EditorController:
         blockers = tuple(keyframes_mod.blockers(self.project))
         state.export_blockers.set(blockers)
         state.export_range.set("range" if tl.has_range(self.project) else "all")
+        if state.export_preset() == "copia":
+            # «Sin recodificar» solo existe en MP4 (docs/48): no dejes una combinación inválida.
+            state.export_format.set("mp4")
         if blockers and state.export_preset() == "copia":
             state.export_preset.set("rapido")
         state.export_open.set(True)
@@ -4864,24 +4870,33 @@ class EditorController:
             state.toast("danger", f"Reubica los archivos que faltan antes de exportar: {', '.join(missing)}")
             return
         preset_id = state.export_preset()
+        fmt = state.export_format()
         if preset_id == graph_mod.CUSTOM_PRESET_ID:
             error = state.export_custom_error()
             if error:
                 state.toast("warning", f"Export personalizado no válido: {error}")
                 return
             try:
-                preset: str | graph_mod.ExportPreset = state.export_custom_preset()
+                preset: graph_mod.ExportPreset = state.export_custom_preset()
             except RecStudioError as exc:
                 state.toast("warning", exc.message)
                 return
         else:
-            preset = preset_id
+            try:
+                preset = graph_mod.with_format(graph_mod.preset_by_id(preset_id), fmt)
+            except RecStudioError as exc:
+                state.toast("warning", exc.message)
+                return
         if preset_id == "copia" and state.export_blockers():
             state.toast("warning", "«Sin recodificar» no es posible: " + "; ".join(state.export_blockers()))
             return
+        if preset.video == "copy" and fmt != "mp4":
+            state.toast("warning", "«Sin recodificar» solo está disponible en MP4")
+            return
         name = state.export_name().strip() or project.name
         span = self.export_span()
-        out = export_mod.unique_output(state.exports_dir(), name)
+        out = export_mod.unique_output(state.exports_dir(), name,
+                                       graph_mod.format_extension(fmt))
         self._remember_export()
         try:
             self.exporter.start(project, preset, out, span=span)

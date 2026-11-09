@@ -32,6 +32,7 @@ class Settings:
     last_project: str = ""  # project.json abierto al cerrar (se reabre al arrancar)
     preview_audio: bool = True
     export_preset: str = "rapido"  # preset del último export (core.graph.PRESETS)
+    export_format: str = "mp4"  # mp4 | webm | gif (docs/48)
     # Export personalizado (docs/44): última configuración usada en el modal. Vive aquí, no en
     # `Project`: cambiar la resolución de salida no altera el lienzo del proyecto.
     export_custom_width: int = 1920
@@ -72,6 +73,8 @@ class Settings:
         """Valida la configuración personalizada (docs/44) sin tocar el proyecto."""
         if self.export_preset not in (*graph_mod.PRESET_IDS, graph_mod.CUSTOM_PRESET_ID):
             self.export_preset = "rapido"
+        if self.export_format not in graph_mod.EXPORT_FORMATS:
+            self.export_format = "mp4"
         self.export_custom_width = _clamp_int(
             self.export_custom_width, 1920, graph_mod.CUSTOM_MIN_DIMENSION,
             graph_mod.CUSTOM_MAX_DIMENSION, even=True,

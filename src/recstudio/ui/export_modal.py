@@ -64,15 +64,52 @@ def _radio(selected: bool):
     ]
 
 
-def _preset_card(preset: graph.ExportPreset, selected: bool, blocked: tuple[str, ...]):
-    disabled = preset.video == "copy" and bool(blocked)
-    detail = ("No disponible: " + "; ".join(blocked)) if disabled else preset.description
+def _select_format(value: str) -> None:
+    """Elige el contenedor; «sin recodificar» solo existe en MP4 (docs/48)."""
+    state.export_format.set(value)
+    if value != "mp4" and state.export_preset() == "copia":
+        state.export_preset.set("rapido")
+
+
+def _select_preset(preset: graph.ExportPreset) -> None:
+    """Elegir «sin recodificar» vuelve a MP4 para no dejar una combinación inválida."""
+    if preset.video == "copy":
+        state.export_format.set("mp4")
+    state.export_preset.set(preset.id)
+
+
+def _format_choice(selected: str):
+    def option(value: str):
+        active = value == selected
+        return box(
+            key=f"export-format-{value}", padding=(6, 12), radius="$md", cursor="pointer",
+            bg="$surface_pressed" if active else "$surface_hover", border_width=1,
+            border_color="$primary" if active else "$border",
+            on_click=lambda: _select_format(value),
+        )[text(value.upper(), size=12.5, weight=600 if active else 500)]
+
+    return row(gap=8, align="center", key="export-format")[
+        text("Formato", size=12, color="$muted"),
+        option("mp4"),
+        option("webm"),
+        option("gif"),
+    ]
+
+
+def _preset_card(preset: graph.ExportPreset, selected: bool, blocked: tuple[str, ...],
+                 fmt: str):
+    only_mp4 = preset.video == "copy" and fmt != "mp4"
+    disabled = preset.video == "copy" and (bool(blocked) or only_mp4)
+    if only_mp4:
+        detail = "Solo disponible en MP4: cambia el formato para usar el corte rápido."
+    else:
+        detail = ("No disponible: " + "; ".join(blocked)) if disabled else preset.description
     return row(
         key=f"preset-{preset.id}", gap=10, padding=(7, 12), radius="$md", align="center",
         bg="$surface_pressed" if selected else "$surface_hover",
         bg_hover="$surface_pressed", border_width=1, border_color="$primary" if selected else "$border",
         cursor="default" if disabled else "pointer", opacity=0.5 if disabled else 1.0,
-        on_click=None if disabled else (lambda: state.export_preset.set(preset.id)),
+        on_click=None if disabled else (lambda: _select_preset(preset)),
     )[
         _radio(selected),
         column(grow=1, width=0, gap=2)[
@@ -100,8 +137,44 @@ def _apply_social(width: int, height: int) -> None:
     state.export_preset.set(graph.CUSTOM_PRESET_ID)
 
 
-def _custom_card(selected: bool, error: str | None):
-    """Tarjeta «Personalizado» con sus campos y los accesos rápidos sociales (docs/44)."""
+def _custom_card(selected: bool, error: str | None, fmt: str):
+    """Tarjeta «Personalizado» con sus campos y los accesos rápidos sociales (docs/44 y 48)."""
+    if fmt == "webm":
+        detail = "Tamaño y fps a mano; VP9 + Opus en WebM."
+    elif fmt == "gif":
+        detail = "Tamaño y fps a mano; GIF con paleta de 256 colores y sin audio."
+    else:
+        detail = "Tamaño, fps y bitrate a mano; GPU si existe o x264."
+
+    if fmt == "gif":
+        format_fields = text("GIF no lleva audio ni bitrate: usa fps y tamaño; el lado mayor se "
+                             "limita a 720 px y la cadencia a 20 fps.",
+                             size=11, color="$muted", line_height=1.35,
+                             key="export-gif-note")
+    else:
+        codec_field = (
+            _custom_field("Códec", text("VP9 + Opus", size=12.5, color="$muted"))
+            if fmt == "webm" else
+            _custom_field("Códec", select(
+                state.export_custom_codec,
+                [("auto", "GPU si hay"), ("x264", "x264 (CPU)")],
+                key="export-codec", label="Códec de video", padding=(6, 9),
+            ))
+        )
+        format_fields = row(gap=8)[
+            _custom_field("Bitrate de video", text_input(
+                state.export_custom_video_bitrate, key="export-vbitrate", on_change=_custom_touch,
+                on_key=mark_input_key, label="Bitrate de video (por ejemplo 6M)",
+                font_family="Consolas", padding=(6, 9),
+            )),
+            _custom_field("Bitrate de audio", text_input(
+                state.export_custom_audio_bitrate, key="export-abitrate", on_change=_custom_touch,
+                on_key=mark_input_key, label="Bitrate de audio (por ejemplo 192k)",
+                font_family="Consolas", padding=(6, 9),
+            )),
+            codec_field,
+        ]
+
     return column(
         key=f"preset-{graph.CUSTOM_PRESET_ID}", gap=8, padding=(7, 12), radius="$md",
         bg="$surface_pressed" if selected else "$surface_hover",
@@ -114,8 +187,7 @@ def _custom_card(selected: bool, error: str | None):
             _radio(selected),
             column(grow=1, width=0, gap=2)[
                 text("Personalizado", size=13, weight=600),
-                text("Tamaño, fps y bitrate a mano; GPU si existe o x264.", size=11.5, color="$muted",
-                     line_height=1.35),
+                text(detail, size=11.5, color="$muted", line_height=1.35),
             ],
         ],
         row(gap=6, align="center")[
@@ -147,23 +219,7 @@ def _custom_card(selected: bool, error: str | None):
                 font_family="Consolas", padding=(6, 9),
             )),
         ],
-        row(gap=8)[
-            _custom_field("Bitrate de video", text_input(
-                state.export_custom_video_bitrate, key="export-vbitrate", on_change=_custom_touch,
-                on_key=mark_input_key, label="Bitrate de video (por ejemplo 6M)",
-                font_family="Consolas", padding=(6, 9),
-            )),
-            _custom_field("Bitrate de audio", text_input(
-                state.export_custom_audio_bitrate, key="export-abitrate", on_change=_custom_touch,
-                on_key=mark_input_key, label="Bitrate de audio (por ejemplo 192k)",
-                font_family="Consolas", padding=(6, 9),
-            )),
-            _custom_field("Códec", select(
-                state.export_custom_codec,
-                [("auto", "GPU si hay"), ("x264", "x264 (CPU)")],
-                key="export-codec", label="Códec de video", padding=(6, 9),
-            )),
-        ],
+        format_fields,
         error and text("⚠ " + error, size=11, color="$danger", line_height=1.35,
                        key="export-custom-error"),
     ]
@@ -178,14 +234,24 @@ def _summary(project, preset: graph.ExportPreset, span: tuple[float, float] | No
         return f"{tl.format_time(total)} · resolución y códec originales (sin pérdida)"
     w, h = graph.output_size(project, preset)
     fps = graph.export_fps(project, preset)
+    if preset.format == "gif":
+        # GIF no lleva pista de sonido: no se anuncia ni siquiera si el proyecto tiene audio.
+        return f"{w}×{h} · {fps} fps · {tl.format_time(total)} · GIF · sin audio"
+    has_audio = graph.project_has_audio(project)
+    if preset.format == "webm":
+        audio = " + Opus " + preset.audio_bitrate if has_audio else " · sin audio"
+        if preset.id == graph.CUSTOM_PRESET_ID:
+            video_bits = graph.parse_bitrate(preset.video_bitrate) or 0
+            return (f"{w}×{h} · {fps} fps · {tl.format_time(total)} · VP9 · "
+                    f"{graph.format_bitrate(video_bits)} de video{audio}")
+        return f"{w}×{h} · {fps} fps · {tl.format_time(total)} · VP9{audio}"
     if preset.id == graph.CUSTOM_PRESET_ID:
-        has_audio = graph.project_has_audio(project)
         video_bits = graph.parse_bitrate(preset.video_bitrate) or 0
         audio_bits = graph.parse_bitrate(preset.audio_bitrate) or 0
         audio = f" + AAC {graph.format_bitrate(audio_bits)}" if has_audio else " · sin audio"
         return (f"{w}×{h} · {fps} fps · {tl.format_time(total)} · H.264 · "
                 f"{graph.format_bitrate(video_bits)} de video{audio}")
-    audio = " + AAC " + preset.audio_bitrate if graph.project_has_audio(project) else " · sin audio"
+    audio = " + AAC " + preset.audio_bitrate if has_audio else " · sin audio"
     return f"{w}×{h} · {fps} fps · {tl.format_time(total)} · H.264{audio}"
 
 
@@ -257,12 +323,17 @@ def export_modal():
         return column()
     project = state.editor_project()
     preset_id = state.export_preset()
+    fmt = state.export_format()
+    if fmt not in graph.EXPORT_FORMATS:
+        fmt = "mp4"
     custom_error = state.export_custom_error() if preset_id == graph.CUSTOM_PRESET_ID else None
     if preset_id == graph.CUSTOM_PRESET_ID:
-        preset = state.export_custom_preset() if custom_error is None else graph.PRESETS[1]
+        preset = (state.export_custom_preset() if custom_error is None
+                  else graph.with_format(graph.PRESETS[1], fmt))
     else:
-        preset = graph.preset_by_id(preset_id)
+        preset = graph.with_format(graph.preset_by_id(preset_id), fmt)
     custom_blocked = preset_id == graph.CUSTOM_PRESET_ID and custom_error is not None
+    start_blocked = custom_blocked or (preset.video == "copy" and fmt != "mp4")
     blocked = state.export_blockers()
     progress = state.export_progress()
     running = progress is not None and progress.active
@@ -283,10 +354,10 @@ def export_modal():
         actions = [
             button("Cancelar", close, variant="soft", key="export-dismiss"),
             button("Exportar" if progress is None else "Reintentar",
-                   None if custom_blocked else _call("start_export"),
-                   variant="soft" if custom_blocked else "primary",
-                   opacity=0.55 if custom_blocked else 1.0,
-                   cursor="default" if custom_blocked else "pointer",
+                   None if start_blocked else _call("start_export"),
+                   variant="soft" if start_blocked else "primary",
+                   opacity=0.55 if start_blocked else 1.0,
+                   cursor="default" if start_blocked else "pointer",
                    key="export-start"),
         ]
 
@@ -309,7 +380,8 @@ def export_modal():
                         text_input(state.export_name, key="export-name", on_key=mark_input_key,
                                    grow=1, width=0, padding=(7, 10), label="Nombre del archivo",
                                    on_submit=lambda _v: None if running else _call("start_export")()),
-                        text(".mp4", size=12.5, color="$muted", family="Consolas"),
+                        text(graph.format_extension(fmt), size=12.5, color="$muted",
+                             family="Consolas", key="export-ext"),
                     ],
                     row(gap=6, align="center")[
                         text(f"En {state.exports_dir()}", size=11, color="$muted", max_lines=1,
@@ -318,13 +390,15 @@ def export_modal():
                                     size=24),
                     ],
                 ],
+                not running and not finished and _format_choice(fmt),
                 not running and not finished and _range_choice(project, use_range),
                 not finished and text(_summary(project, preset, span, custom_error),
                                       size=11.5, color="$muted", key="export-summary"),
                 not running and not finished and column(gap=6)[
-                    [_preset_card(p, p.id == preset_id, blocked) for p in graph.PRESETS],
+                    [_preset_card(p, p.id == preset_id, blocked, fmt) for p in graph.PRESETS],
                     _custom_card(preset_id == graph.CUSTOM_PRESET_ID,
-                                 custom_error if preset_id == graph.CUSTOM_PRESET_ID else None),
+                                 custom_error if preset_id == graph.CUSTOM_PRESET_ID else None,
+                                 fmt),
                 ],
                 _progress_block(progress),
             ],

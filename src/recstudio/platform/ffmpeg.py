@@ -25,6 +25,9 @@ from . import paths
 
 FFMPEG_ENV = "RECSTUDIO_FFMPEG"
 ENCODER_ORDER = ("h264_nvenc", "h264_amf", "h264_qsv", "libx264")
+#: Encoders de los formatos de export alternativos (docs/48): VP9 para WebM y Opus para su audio.
+FORMAT_VIDEO_ENCODERS = ("libvpx-vp9",)
+FORMAT_AUDIO_ENCODERS = ("libopus",)
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
 _VIDEO_RE = re.compile(r"Video:\s*([\w-]+).*?(\d{2,5})x(\d{2,5})")
@@ -66,8 +69,26 @@ def ffmpeg_version(exe: str | None = None) -> str:
     return proc.stdout.splitlines()[0] if proc.stdout else "?"
 
 
+def _encoder_alive(exe: str, name: str) -> bool:
+    """Prueba real de un encoder (video o audio) codificando 0.5 s de `testsrc2`/`sine`."""
+    if name in FORMAT_AUDIO_ENCODERS:
+        cmd = [exe, "-hide_banner", "-loglevel", "error", "-y",
+               "-f", "lavfi", "-i", "sine=frequency=330:duration=0.5",
+               "-c:a", name, "-f", "null", "-"]
+    else:
+        cmd = [exe, "-hide_banner", "-loglevel", "error", "-y",
+               "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=0.5",
+               "-c:v", name, "-f", "null", "-"]
+    return run(cmd).returncode == 0
+
+
 def probe_encoders(*, force: bool = False) -> dict[str, bool]:
-    """Prueba real de encode por encoder; cachea el resultado por binario."""
+    """Prueba real de encode por encoder H.264; cachea el resultado por binario.
+
+    Solo devuelve `ENCODER_ORDER`: la pantalla de grabación usa este mapa para elegir el
+    encoder de captura. Los codecs de los formatos alternativos viven en
+    `probe_format_encoders` (docs/48).
+    """
     exe = ffmpeg_exe()
     cache_path = paths.cache_dir() / "encoders.json"
     if not force and cache_path.is_file():
@@ -78,17 +99,30 @@ def probe_encoders(*, force: bool = False) -> dict[str, bool]:
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
 
-    available: dict[str, bool] = {}
-    for name in ENCODER_ORDER:
-        proc = run(
-            [
-                exe, "-hide_banner", "-loglevel", "error", "-y",
-                "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30:duration=0.5",
-                "-c:v", name, "-f", "null", "-",
-            ]
-        )
-        available[name] = proc.returncode == 0
+    available: dict[str, bool] = {name: _encoder_alive(exe, name) for name in ENCODER_ORDER}
 
+    cache_path.write_text(
+        json.dumps({"ffmpeg": exe, "version": ffmpeg_version(exe), "checked": time.time(),
+                    "encoders": available}, indent=2),
+        encoding="utf-8",
+    )
+    return available
+
+
+def probe_format_encoders(*, force: bool = False) -> dict[str, bool]:
+    """Disponibilidad real de VP9 (`libvpx-vp9`) y Opus (`libopus`) para WebM (docs/48)."""
+    exe = ffmpeg_exe()
+    cache_path = paths.cache_dir() / "format-encoders.json"
+    required = (*FORMAT_VIDEO_ENCODERS, *FORMAT_AUDIO_ENCODERS)
+    if not force and cache_path.is_file():
+        try:
+            data = json.loads(cache_path.read_text(encoding="utf-8"))
+            if data.get("ffmpeg") == exe and all(k in data["encoders"] for k in required):
+                return {k: bool(v) for k, v in data["encoders"].items()}
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
+
+    available = {name: _encoder_alive(exe, name) for name in required}
     cache_path.write_text(
         json.dumps({"ffmpeg": exe, "version": ffmpeg_version(exe), "checked": time.time(),
                     "encoders": available}, indent=2),
