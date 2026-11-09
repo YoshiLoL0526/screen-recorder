@@ -442,7 +442,11 @@ def test_importar_subtitulos_estilo_y_exportar_srt(
 
     monkeypatch.setattr(file_dialogs, "open_subtitles", lambda *a, **k: srt)
     editor.browse_subtitles()
-    assert _wait(lambda: sum(t.subtitle for t in state.editor_project().texts) == 2)
+    assert _wait(
+        lambda: sum(t.subtitle for t in state.editor_project().texts) == 2
+        and state.selection() is not None
+        and state.selection()[0] == "text"
+    )
     project = state.editor_project()
     subs = [t for t in project.texts if t.subtitle]
     assert [(t.start, t.end, t.text) for t in subs] == [
