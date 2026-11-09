@@ -1148,12 +1148,26 @@ def _envelope_add_drag(scope: str, item_id: str, track_index: int, height: float
 
 def _envelope_key_menu(scope: str, item_id: str, track_index: int, t: float):
     def items() -> list:  # noqa: ANN202
+        def copy_key() -> None:
+            editor = _editor()
+            if editor is not None:
+                editor.copy_envelope_key_at(scope, item_id, track_index, t)
+
+        def paste_key() -> None:
+            editor = _editor()
+            if editor is not None:
+                editor.paste_key()
+
         def remove() -> None:
             editor = _editor()
             if editor is not None:
                 editor.delete_envelope_key_at(scope, item_id, track_index, t)
 
-        return [menus.item("Eliminar clave de volumen", remove)]
+        return [
+            menus.item("Copiar clave", copy_key),
+            menus.item("Pegar clave", paste_key),
+            menus.item("Eliminar clave de volumen", remove),
+        ]
 
     return items
 
@@ -1196,13 +1210,27 @@ def _keyframe_key_click(scope: str, item_id: str, channel: str, t: float):
 
 def _keyframe_key_menu(scope: str, item_id: str, channel: str, t: float):
     def items() -> list:  # noqa: ANN202
+        def copy_key() -> None:
+            editor = _editor()
+            if editor is not None:
+                editor.copy_keyframe_key_at(scope, item_id, channel, t)
+
+        def paste_key() -> None:
+            editor = _editor()
+            if editor is not None:
+                editor.paste_key()
+
         def remove() -> None:
             editor = _editor()
             if editor is not None:
                 editor.delete_keyframe_key_at(scope, item_id, channel, t)
 
         label = KEYFRAME_LABELS.get(channel, channel)
-        return [menus.item(f"Eliminar clave {label}", remove)]
+        return [
+            menus.item("Copiar clave", copy_key),
+            menus.item("Pegar clave", paste_key),
+            menus.item(f"Eliminar clave {label}", remove),
+        ]
 
     return items
 

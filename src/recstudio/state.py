@@ -157,6 +157,23 @@ class KeyframeKey:
 
 
 @dataclass(frozen=True)
+class KeyClipboard:
+    """Clave copiada para pegar en el playhead (docs/41).
+
+    `kind` es `"visual"` (una clave de `Animation`) o `"audio"` (un punto de una envolvente de
+    volumen). En las claves visuales, `channel` guarda el canal de origen y `easing` su curva; al
+    pegar se conserva el valor/easing y se usa el canal activo del destino. En audio, `channel`
+    queda vacío, `value` es la ganancia 0…4 y `easing` siempre es `"linear"`.
+    """
+
+    kind: str  # visual | audio
+    channel: str
+    value: float
+    easing: str = "linear"
+    source_label: str = ""
+
+
+@dataclass(frozen=True)
 class PreviewArea:
     """Hueco útil del preview medido con `on_resize` (píxeles lógicos).
 

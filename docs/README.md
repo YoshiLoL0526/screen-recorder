@@ -11,9 +11,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > selección directa**, **PiP de video**, **pistas V2/V3**, **subtítulos**, **keyframes**,
 > **envolventes de volumen**, **escala/rotación de elementos**, **envolventes de audio de
 > elementos**, **escala/rotación de textos**, **color/tamaño de textos**, **edición de claves
-> de envolvente en el timeline**, **asas de animaciones visuales** y **easing de las claves**
-> (docs/27-39). Quedan las comprobaciones manuales de A y la fase 4+. Los documentos 01-07 son la
-> especificación de diseño; 08-39 recogen lo implementado, con mediciones y bugs.
+> de envolvente en el timeline**, **asas de animaciones visuales**, **easing de las claves** y
+> **copiar/pegar de claves** (docs/27-41). Quedan las comprobaciones manuales de A y la fase 4+.
+> Los documentos 01-07 son la especificación de diseño; 08-41 recogen lo implementado, con
+> mediciones y bugs.
 
 ## Índice
 
@@ -58,6 +59,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 37 | [Claves de envolvente en el timeline](37-editor-claves.md) | Asas sobre la waveform/barra, modo Env para añadir, Supr/menú para borrar, geometría pura, undo por gesto y capa sobre el playhead (modelo v11 sin cambios). |
 | 38 | [Asas de animaciones en el timeline](38-asas-animaciones.md) | Canal elegido en el inspector, polilínea y asas sobre la barra de elementos/textos, geometría de los cuatro rangos, arrastre con undo y límites (modelo v12 sin cambios). |
 | 39 | [Easing de las claves](39-easing.md) | Curvas `linear`/`ease_in`/`ease_out`/`ease_in_out` por clave, expresiones FFmpeg, migración v12 → v13, selector del inspector y paridad preview/export. |
+| 41 | [Copiar y pegar claves](41-copiar-pegar-claves.md) | Portapapeles de claves visuales (valor/easing) y puntos de envolvente, pegado en el canal activo y el playhead, menús del asa, no-op con aviso y undo. |
 
 ## Orden de lectura sugerido
 

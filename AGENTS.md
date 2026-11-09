@@ -41,9 +41,10 @@ rotación de elementos** (`core/animation.py`, `core/elements.py`,
 animados de textos** (`TextOverlay.color_keys`, `core/text_color.py`; modelo **v12**, `docs/36`)
 y la **edición de claves de envolvente en el timeline** (asas sobre la waveform/barra, modo Env
 y undo por gesto; `docs/37`), las **asas de animaciones visuales** (selector de canal en el
-inspector, polilínea y asas sobre la barra de elementos/textos; `docs/38`) y el **easing de las
+inspector, polilínea y asas sobre la barra de elementos/textos; `docs/38`), el **easing de las
 claves de animación** (`Keyframe.easing`, curvas cúbicas en preview/export y selector del
-inspector; modelo **v13**, `docs/39`).
+inspector; modelo **v13**, `docs/39`) y el **copiar/pegar de claves** (`KeyClipboard` en el
+controlador, menús del asa y `Ctrl+C`/`Ctrl+V`; `docs/41`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -52,7 +53,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 520 tests; la integración usa FFmpeg real
+uv run pytest                                   # 531 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -252,6 +253,14 @@ depender de monitor, GPU ni audio reales del runner.
   `keyframe_value_y`/`keyframe_value_at_y` (rango de `animation.CHANNEL_RANGES`) y
   `keyframe_x`/`keyframe_time`; `dy` se pasa como alto de fila y el controlador descuenta los 4 px
   de margen, no le pases ya el alto interno.
+- Copiar/pegar claves (docs/41): `state.KeyClipboard` es un dataclass frozen que vive en
+  `EditorController._key_clipboard`, nunca en `Project`; comparte un único portapapeles lógico con
+  `tl.Clipboard` (gana el último copiado). `Ctrl+C` copia la clave/punto seleccionado antes de
+  caer al copiado de clips; `Ctrl+V` despacha por `kind`. El pegado usa la capa y el canal
+  activos, acota el playhead a `0…duración`, valida el valor con `anim.validate_value` y usa
+  `store.apply` (`pegar clave X`/`pegar punto de volumen`). Los no-op no abren transacción ni
+  dejan `_tx`; el menú del asa llama a `copy_keyframe_key_at`/`copy_envelope_key_at` y
+  `paste_key`.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -318,8 +327,8 @@ depender de monitor, GPU ni audio reales del runner.
   (modelo v10), `docs/33` la animación de escala/rotación de elementos, `docs/34` las envolventes
   de audio de elementos (modelo v11), `docs/35` la escala/rotación de textos, `docs/36` el color y
   tamaño animados de textos (modelo v12), `docs/37` la edición de claves de envolvente en el
-  timeline, `docs/38` las asas de animaciones visuales y `docs/39` el easing de las claves de
-  animación (modelo v13).
+  timeline, `docs/38` las asas de animaciones visuales, `docs/39` el easing de las claves de
+  animación (modelo v13) y `docs/41` el copiar/pegar de claves.
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

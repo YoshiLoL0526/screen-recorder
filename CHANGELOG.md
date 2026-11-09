@@ -7,6 +7,12 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Copiar y pegar claves** (docs/41; modelo v13 sin cambios): `Ctrl+C` con una clave visual
+  seleccionada copia valor/easing y con un punto de envolvente copia la ganancia; `Ctrl+V` pega
+  en la capa/canal activo en el playhead (tiempo local acotado, reemplazo en el mismo instante o
+  inserción) con un único undo (`pegar clave X`/`pegar punto de volumen`). El menú contextual de
+  las asas ofrece **Copiar clave**/**Pegar clave**. Claves y clips comparten un portapapeles
+  lógico (gana el último copiado); sin destino/canal válido no hay cambios ni undo.
 - **Easing de las claves de animación** (docs/39; modelo v13 con migración v12 → v13):
   `Keyframe.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) con curvas cúbicas
   compartidas por `value_at` y las expresiones de FFmpeg, selector **Easing** en la sección
