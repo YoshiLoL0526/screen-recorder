@@ -62,6 +62,10 @@ def recording_row(index: int):
         if rec.camera is not None:
             library.open_file(rec.camera)
 
+    def open_mic() -> None:
+        if rec.mic is not None:
+            library.open_file(rec.mic)
+
     return box(
         key=f"rec-{index}",
         grow=1,
@@ -82,11 +86,15 @@ def recording_row(index: int):
                     chip(f"{rec.size_mb:.1f} MB"),
                     rec.recovered and chip("Recuperada", tone="accent"),
                     rec.camera is not None and chip("🎥 cámara", tone="accent"),
+                    rec.mic is not None and chip("🎤 micrófono", tone="accent"),
                     spacer(),
                     button("▶ Reproducir", open_it, variant="soft", padding=(5, 12), font_size=12),
                     button("✂ Editar", edit, variant="soft", padding=(5, 12), font_size=12, key=f"edit-{index}"),
                     rec.camera is not None and icon_button(
                         icons.CAMERA, open_camera, tooltip="Reproducir la grabación de cámara", size=28
+                    ),
+                    rec.mic is not None and icon_button(
+                        icons.MIC, open_mic, tooltip="Reproducir el audio del micrófono", size=28
                     ),
                     icon_button(icons.FOLDER, lambda: library.reveal_in_explorer(rec.mp4),
                                 tooltip="Mostrar en el explorador", size=28),

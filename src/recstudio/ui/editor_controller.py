@@ -5265,6 +5265,62 @@ class EditorController:
                 state.toast("warning", f"No se pudo añadir la cámara: {exc.message}")
         return project
 
+    def _add_mic_tracks(
+        self, project: Project, imports: list[tuple[MediaAsset, float]]
+    ) -> Project:
+        """Añade una pista absoluta «Micrófono» a cada grabación con WAV separado (docs/50).
+
+        El audio del sistema sigue en el video (o en «Audio del video», según
+        `_separate_imported_audio`); el micrófono se coloca en su `offset_s` y suena una sola
+        vez. Si el WAV falta, está vacío o no se puede sondear, se avisa y la importación del
+        video continúa.
+        """
+        for asset, start in imports:
+            info = library.mic_info(asset.path)
+            if info is None:
+                if library.mic_declared(asset.path):
+                    state.toast(
+                        "warning",
+                        f"«{asset.name}» declara un micrófono, pero el WAV no existe o está vacío",
+                    )
+                continue
+            try:
+                mic_asset = media.probe(info.path)
+            except RecStudioError as exc:
+                state.toast("warning", f"No se pudo añadir el micrófono: {exc.message}")
+                continue
+            if not mic_asset.has_audio or mic_asset.duration <= 0:
+                state.toast("warning", "El micrófono separado no tiene audio válido")
+                continue
+            offset = float(info.offset_s)
+            before = project
+            try:
+                project, track_index = tl.add_audio_track(project, "Micrófono", mode="absolute")
+                if offset < 0:
+                    # El micrófono arrancó antes que el video: se inserta con ese margen y se
+                    # recorta el trozo previo, para que el audio que suena al inicio del
+                    # timeline coincida con el primer frame de pantalla.
+                    lead = min(-offset, max(0.0, mic_asset.duration - 0.05))
+                    project, clip = tl.insert_audio_clip(
+                        project, track_index, mic_asset, float(start) + lead
+                    )
+                    project = tl.trim_audio(
+                        project, track_index, clip.id, clip.in_ + lead, clip.out_
+                    )
+                    project = tl.move_audio(
+                        project, track_index, clip.id, start=max(0.0, float(start))
+                    )
+                else:
+                    project, _clip = tl.insert_audio_clip(
+                        project, track_index, mic_asset, max(0.0, float(start) + offset)
+                    )
+            except ProjectError as exc:
+                project = before  # no dejar una pista «Micrófono» vacía a medias
+                state.toast("warning", f"No se pudo añadir el micrófono: {exc.message}")
+                continue
+            self._queue_waveform(mic_asset)
+        return project
+
     def _separate_imported_audio(self, project: Project) -> Project:
         """Deja el audio de los videos importados en «Audio del video» enlazado (docs/24).
 
@@ -5307,6 +5363,7 @@ class EditorController:
                         )
                     project = self._separate_imported_audio(project)
                     project = self._add_camera_pips(project, imports)
+                    project = self._add_mic_tracks(project, imports)
                     path = store_mod.unique_project_file(state.projects_dir(), first.name)
                     try:
                         store_mod.save_project(path, project)
@@ -5329,6 +5386,7 @@ class EditorController:
                         )
                     project = self._separate_imported_audio(project)
                     project = self._add_camera_pips(project, imports)
+                    project = self._add_mic_tracks(project, imports)
                     self.store.apply("importar", project)
                     self._refresh_offline(project)
                     self.zoom_fit()

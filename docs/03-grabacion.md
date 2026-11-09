@@ -28,6 +28,7 @@ separado** (encoder); Python solo captura y alimenta.
                                                       → Signal(nivel) para el vúmetro
 
  stop →  mux: ffmpeg -i video.mkv -i audio.wav -c:v copy -c:a aac 192k → ~/Videos/RecStudio/xxx.mp4
+         (separate: el MP4 lleva solo el sistema; el mic queda como xxx-microfono.wav)
 ```
 
 ## Backends de captura (`platform/capture.py`)
@@ -180,10 +181,12 @@ Fragmentos de flags por encoder (se documentan en código como tabla):
   nunca asumir `frames_per_buffer`.
 - Cada dispositivo abre su **propio hilo + WAV incremental** (`wave` + writer thread). El
   callback jamás hace IO: encola bytes de PCM; el writer los vuelca y calcula RMS para el vúmetro.
-- **Modos de mezcla**:
-  - *Mezclar* (default): al mux final, `amix` de las pistas → una sola pista AAC.
-  - *Pistas separadas*: el video final se muxa con el audio del sistema, y el micrófono queda
-    como `.wav` hermano para importarlo como segunda pista en el editor (útil para regrabar voz).
+- **Modos de mezcla** (`AudioConfig.mode`, [docs/50](50-pistas-microfono.md)):
+  - *Mezclar* (`"mix"`, default): al mux final, `amix` de las pistas → una sola pista AAC.
+  - *Pistas separadas* (`"separate"`): el video final se muxa solo con el audio del sistema, y el
+    micrófono se copia como `<nombre>-microfono.wav` hermano para importarlo como pista propia en
+    el editor (útil para regrabar voz). Sin micrófono elegido se comporta como mezclar; sin
+    sistema, el MP4 queda sin audio y el WAV del micrófono se conserva igual.
 - **Alineación A/V**: al arrancar se registran `t0_video` (primer frame al pipe) y `t0_audio`
   (primer callback) con `time.perf_counter()`. En el mux:
 
@@ -216,6 +219,15 @@ La cámara es una **fuente independiente**, no otra pista del pipe de la pantall
   [49](49-webcam-pip.md).
 - **Pausa**: se deshabilita con cámara activa (proceso aparte; cerrar y concatenar segmentos
   podría desalinear la cara). La UI lo avisa.
+
+## Micrófono como pista separada (C5, docs/50)
+
+En modo `separate`, `_mux` llama a `mux_cmd(..., mix=False)`: entra **solo la primera pista**
+(el sistema) y el micrófono se copia, antes de borrar el temporal, a
+`<nombre>-microfono.wav`. El sidecar guarda un bloque `mic` con `file`, `device`, `offset_s`,
+`duration_s`, `drift_ppm` y `rate`; en modo `mix` es `null` y no queda WAV hermano. La
+recuperación conserva el micrófono y rellena el sidecar. Los detalles de importación y UI están
+en [50 — Pistas de micrófono](50-pistas-microfono.md).
 
 ## Preview en vivo y estadísticas
 
@@ -289,17 +301,22 @@ class CameraConfig:                       # docs/49
     fps: int = 30
 
 @dataclass(frozen=True)
+class AudioConfig:                        # docs/50
+    system: bool = True
+    mic_device_index: int | None = None
+    keepalive: bool = True
+    mode: Literal["mix", "separate"] = "mix"
+
+@dataclass(frozen=True)
 class RecordingConfig:
     source: SourceConfig
     fps: int = 60
     preset: str = "media"                 # baja|media|alta|insane
     encoder: str | None = None            # None = automático
-    system_audio: bool = True
-    mic_device: str | None = None
-    audio_mode: Literal["mix", "separate"] = "mix"
+    audio: AudioConfig = AudioConfig()
     camera: CameraConfig = CameraConfig()
-    countdown_s: int = 0
     max_size_gb: float | None = None
+    min_free_disk_mb: int = 500
 ```
 
 La config completa se guarda en el sidecar `.json` de cada grabación (reproducibilidad de bugs

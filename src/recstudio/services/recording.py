@@ -27,8 +27,8 @@ from typing import Callable
 
 import numpy as np
 
-from ..core.config import RecordingConfig
-from ..core.errors import CaptureError, DiskSpaceError, FfmpegError, RecStudioError
+from ..core.config import AudioConfig, RecordingConfig
+from ..core.errors import CaptureError, ConfigError, DiskSpaceError, FfmpegError, RecStudioError
 from ..platform import audio as audio_mod
 from ..platform import camera as camera_mod
 from ..platform import capture as capture_mod
@@ -108,6 +108,8 @@ class RecordingResult:
     warnings: list[str] = field(default_factory=list)
     camera: Path | None = None  # `<nombre>-camara.mp4` (o .mkv si el remux falló)
     camera_offset_s: float = 0.0  # t0_video − t0_cámara: desfase para el PiP automático
+    mic: Path | None = None  # `<nombre>-microfono.wav` (solo modo «pistas separadas»)
+    mic_offset_s: float = 0.0  # t0_mic − t0_video: desfase para la pista «Micrófono»
 
 
 class RecordingSession:
@@ -159,6 +161,9 @@ class RecordingSession:
         self._camera_offset = 0.0
         self._camera_failed = False
         self._camera_meta: dict | None = None
+        # Micrófono separado (docs/50): solo se copia al lado del MP4 en modo `separate`.
+        self._mic_device = ""
+        self._mic_meta: dict | None = None
 
         self._size = (0, 0)
         self._crop: tuple[int, int, int, int] | None = None
@@ -436,6 +441,7 @@ class RecordingSession:
                 device = audio_mod.device_by_index(cfg.audio.mic_device_index)
                 recorder = audio_mod.AudioRecorder(device, self.temp_dir / "audio_mic.wav")
                 recorder.start()
+                self._mic_device = device.name
                 self._recorders.append(recorder)
             time.sleep(0.2)  # deja llegar los primeros callbacks (t0 medible)
 
@@ -666,6 +672,14 @@ class RecordingSession:
         if info.duration_s <= 0.05:
             raise FfmpegError("el video temporal no tiene duración", details=ffmpeg_mod.stderr_tail(self._stderr_path))
 
+        # Pistas separadas (docs/50): el MP4 lleva solo el sistema (primera pista) y el
+        # micrófono se copia aparte como `<nombre>-microfono.wav`. Sin micrófono grabado, el
+        # resultado es idéntico a `mix` (solo hay sistema). Sin sistema, el MP4 queda sin audio.
+        separate = self.config.audio.mode == "separate"
+        mic_track = next((t for t in tracks if t.path.name == "audio_mic.wav"), None)
+        mux_sources = tracks
+        if separate:
+            mux_sources = [t for t in tracks if t.path.name != "audio_mic.wav"]
         mux_tracks = [
             ffmpeg_mod.MuxTrack(
                 path=track.path,
@@ -673,12 +687,13 @@ class RecordingSession:
                 rate=track.rate,
                 drift_ppm=float(getattr(track, "drift_ppm", 0.0) or 0.0),
             )
-            for track in tracks
+            for track in mux_sources
         ]
         suffix = "-recuperada" if recover else ""
         out_mp4 = self._unique_path(self.out_dir / f"{self.base_name}{suffix}.mp4")
         cmd = ffmpeg_mod.mux_cmd(
-            exe, video=self._mkv, tracks=mux_tracks, out_path=out_mp4, duration_s=info.duration_s
+            exe, video=self._mkv, tracks=mux_tracks, out_path=out_mp4,
+            duration_s=info.duration_s, mix=not separate,
         )
         proc = ffmpeg_mod.run(cmd)
         if proc.returncode != 0 or not out_mp4.exists():
@@ -687,6 +702,8 @@ class RecordingSession:
         final = ffmpeg_mod.probe_media(out_mp4, exe)
         if final.duration_s <= 0.05 or not final.video_codec:
             raise FfmpegError("el MP4 final no es válido", details=str(final))
+
+        mic_path, mic_offset = self._finalize_mic(out_mp4, mic_track, offsets, separate=separate)
 
         thumbnail_path = out_mp4.with_suffix(".jpg")
         has_thumb = ffmpeg_mod.make_thumbnail(exe, out_mp4, thumbnail_path, at_s=min(1.0, final.duration_s / 3))
@@ -718,6 +735,8 @@ class RecordingSession:
             warnings=list(self._warnings),
             camera=camera_path,
             camera_offset_s=round(self._camera_offset, 4),
+            mic=mic_path,
+            mic_offset_s=round(mic_offset, 4),
         )
         self._write_sidecar(result, stats)
         return result
@@ -777,6 +796,47 @@ class RecordingSession:
             self._warn("la cámara se cortó antes de terminar; se conserva lo grabado")
         return dest
 
+    def _finalize_mic(
+        self,
+        out_mp4: Path,
+        mic_track: audio_mod.AudioTrack | None,
+        offsets: dict[str, float],
+        *,
+        separate: bool,
+    ) -> tuple[Path | None, float]:
+        """Copia el WAV del micrófono junto al MP4 y prepara el bloque `mic` del sidecar.
+
+        Solo en modo `separate` y con una pista de micrófono válida. El WAV se copia **antes**
+        de borrar el temporal (`stop()` y `recover_session()` limpian la carpeta después del
+        mux); si no se puede, se avisa y la grabación principal sigue siendo válida.
+        """
+        self._mic_meta = None
+        if not separate or mic_track is None:
+            return None, 0.0
+        temp = mic_track.path
+        try:
+            if not temp.is_file() or temp.stat().st_size == 0:
+                self._warn("el micrófono no dejó ningún archivo utilizable")
+                return None, 0.0
+        except OSError:
+            return None, 0.0
+        dest = self._unique_path(out_mp4.with_name(f"{out_mp4.stem}-microfono.wav"))
+        try:
+            shutil.copy2(temp, dest)
+        except OSError as exc:
+            self._warn(f"no se pudo guardar el micrófono separado: {exc}")
+            return None, 0.0
+        offset = float(offsets.get(temp.name, 0.0) or 0.0)
+        self._mic_meta = {
+            "file": dest.name,
+            "device": self._mic_device or mic_track.device,
+            "offset_s": round(offset, 4),
+            "duration_s": round(mic_track.seconds, 3),
+            "drift_ppm": round(float(getattr(mic_track, "drift_ppm", 0.0) or 0.0), 1),
+            "rate": mic_track.rate,
+        }
+        return dest, offset
+
     def _unique_path(self, path: Path) -> Path:
         if not path.exists():
             return path
@@ -789,6 +849,7 @@ class RecordingSession:
     # -- persistencia -----------------------------------------------------------
 
     def _write_session_json(self, status: str, offsets: dict[str, float]) -> None:
+        mic_enabled = self.config.audio.mic_device_index is not None
         payload = {
             "status": status,
             "started_at": self.started_at,
@@ -797,6 +858,13 @@ class RecordingSession:
             "backend": self._backend_name,
             "size": list(self._size),
             "offsets": offsets,
+            "mic": {
+                "enabled": mic_enabled,
+                "mode": self.config.audio.mode,
+                "device": self._mic_device,
+                "offset_s": round(float(offsets.get("audio_mic.wav", 0.0) or 0.0), 4),
+                "file": "audio_mic.wav" if mic_enabled else "",
+            },
             "camera": {
                 "enabled": bool(self.config.camera.enabled),
                 "device": self._camera_device,
@@ -842,6 +910,7 @@ class RecordingSession:
             ],
             "cursor": self._cursor_mode,
             "camera": self._camera_meta,
+            "mic": self._mic_meta,
             "config": _config_to_dict(self.config),
             "stats": asdict(stats),
             "warnings": result.warnings,
@@ -912,6 +981,7 @@ def recover_session(
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
     config = RecordingConfig()
     camera_data: dict = {}
+    mic_data: dict = {}
     backend = "?"
     encoder = "?"
     if session_file.exists():
@@ -922,13 +992,34 @@ def recover_session(
             backend = data.get("backend", backend)
             encoder = data.get("encoder", encoder)
             camera_data = data.get("camera") or {}
+            mic_data = data.get("mic") or {}
             raw = data.get("config") or {}
+            audio_raw = raw.get("audio") or {}
+            try:
+                mic_index = audio_raw.get("mic_device_index")
+                mic_index = None if mic_index is None else int(mic_index)
+            except (TypeError, ValueError):
+                mic_index = None
+            audio = AudioConfig(
+                system=bool(audio_raw.get("system", True)),
+                mic_device_index=mic_index,
+                keepalive=bool(audio_raw.get("keepalive", True)),
+                mode=str(audio_raw.get("mode", "mix")),  # type: ignore[arg-type]
+            ).validate()
             config = RecordingConfig(
                 fps=int(raw.get("fps", config.fps)),
                 preset=str(raw.get("preset", config.preset)),
+                audio=audio,
             )
-        except (json.JSONDecodeError, OSError, TypeError, ValueError):
+        except (json.JSONDecodeError, OSError, TypeError, ValueError, ConfigError):
             camera_data = {}
+            mic_data = {}
+
+    if "audio_mic.wav" not in offsets:
+        try:
+            offsets["audio_mic.wav"] = float(mic_data.get("offset_s") or 0.0)
+        except (TypeError, ValueError):
+            pass
 
     tracks: list[audio_mod.AudioTrack] = []
     for wav in sorted(temp_dir.glob("audio_*.wav")):
@@ -959,6 +1050,9 @@ def recover_session(
     except (TypeError, ValueError):
         session._camera_offset = 0.0
     session._camera_failed = bool(camera_data.get("failed") or False)
+    # El nombre real del dispositivo viaja en session.json; si falta, la pista recuperada se
+    # etiqueta «micrófono» (mismo texto que usaba la recuperación antes de docs/50).
+    session._mic_device = str(mic_data.get("device") or "")
     ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
     result = session._mux(tracks, offsets, recover=True)  # valida el MP4 o lanza
     result.started_at = started_at

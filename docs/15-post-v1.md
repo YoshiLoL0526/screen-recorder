@@ -22,8 +22,9 @@
 > ([43](43-crop-interactivo.md)), el **export personalizado** ([44](44-export-personalizado.md)),
 > el **texto multilínea con ancho máximo** ([45](45-texto-multilinea.md)), los **fundidos de
 > audio con crossfade por corte en el timeline** ([46](46-fundidos-audio.md)), el **fondo del
-> lienzo** con blur o imagen ([47](47-fondo-lienzo.md)) y los **formatos GIF/WebM**
-> ([48](48-gif-webm.md)).
+> lienzo** con blur o imagen ([47](47-fondo-lienzo.md)), los **formatos GIF/WebM**
+> ([48](48-gif-webm.md)), la **webcam como PiP** ([49](49-webcam-pip.md)) y las **pistas de
+> micrófono separadas** ([50](50-pistas-microfono.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -693,11 +694,16 @@ Resultados y decisiones completas en [48 — GIF y WebM](48-gif-webm.md).
 - **Criterio**: si el fps real cae por debajo del objetivo de forma sostenida, se avisa y se ofrece
   bajar a 30 fps; al primer arranque, el preset se propone según los encoders que funcionan.
 
-### C5 — Pistas de audio separadas (⏳ · M)
+### C5 — Pistas de audio separadas (✅ · M)
 
 - **Por qué**: docs/03 — el micrófono queda como WAV hermano, no como pista del proyecto.
 - **Dónde**: `services/recording.py` (mux de dos pistas), `core/project.py`, biblioteca.
 - **Criterio**: la grabación con mic produce dos pistas y el editor las importa por separado.
+- **Hecho** (2026-11-09, [docs/50](50-pistas-microfono.md)): `AudioConfig.mode` (`mix`/`separate`)
+  y `Settings.audio_mode`, selector **Modo** en Grabar, MP4 con el sistema y
+  `<nombre>-microfono.wav` hermano, bloque `mic` en el sidecar, recuperación que conserva el WAV,
+  chip/reproducción/borrado en la Biblioteca e importación automática como pista absoluta
+  «Micrófono» en su `offset_s`. El esquema del proyecto **no cambia** (sigue en 16).
 
 ---
 
@@ -783,8 +789,9 @@ Si hay que elegir un orden (y no simplemente el orden del documento):
 3. **Fase 4 del editor (resto)** — PiP de video, subtítulos y keyframes; el canvas interactivo,
    los elementos (figuras/imágenes/blur) y los efectos globales ya están hechos
    ([23](23-canvas-resize.md), [25](25-elementos.md), [26](26-efectos-globales.md)).
-4. ✅ **C1** — webcam PiP ([docs/49](49-webcam-pip.md)); el siguiente salto de producto es C5
-   (pistas de audio separadas) o el resto de la fase 4 del editor.
+4. ✅ **C1** — webcam PiP ([docs/49](49-webcam-pip.md)) y **C5** — pistas de audio separadas
+   ([docs/50](50-pistas-microfono.md)); el siguiente salto de producto es el resto de la fase 4
+   del editor.
 5. **D1** — GIF/WebM para compartir en un clic.
 6. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de
    Aurora (empezando por `chart` y `overflow`, que son los más baratos).

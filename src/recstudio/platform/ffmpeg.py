@@ -296,7 +296,13 @@ def mux_cmd(
     cada archivo son internamente coherentes. Esa deriva se corrige por pista con
     `MuxTrack.drift_ppm` (medida por regresión al parar): `asetrate` a la tasa real del
     dispositivo y `aresample` de vuelta a la nominal — ver docs/11.
+
+    `mix=False` es el modo de **pistas separadas** (docs/50): solo entra la **primera** pista
+    (el sistema) y el micrófono se guarda como WAV hermano. Se filtran las demás antes de abrir
+    entradas para no dejar cadenas de filtro sin conectar.
     """
+    if not mix and len(tracks) > 1:
+        tracks = tracks[:1]
     args = [exe, "-hide_banner", "-loglevel", "warning", "-y", "-i", str(video)]
     chains: list[str] = []
     labels: list[str] = []

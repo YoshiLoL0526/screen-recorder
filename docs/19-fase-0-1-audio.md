@@ -229,4 +229,7 @@ atómico y el `.bak` no cambia.
   el audio a mano, el video se reactiva con «Activar audio».
 - El crossfade por clip sigue siendo global de la pista secuencial; las pistas absolutas no
   usan transiciones.
+- El micrófono de una grabación con **pistas separadas** (C5, [docs/50](50-pistas-microfono.md))
+  se importa como pista absoluta «Micrófono» con `tl.add_audio_track` + `tl.insert_audio_clip`;
+  reutiliza este modelo sin cambios. El audio del sistema sigue en «Audio del video».
 - No se implementó el scroll vertical real ni una pista de video superpuesta (fase 2+).

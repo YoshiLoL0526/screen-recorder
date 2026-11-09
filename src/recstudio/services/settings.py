@@ -27,6 +27,7 @@ class Settings:
     audio_system: bool = True
     keepalive: bool = True
     mic_index: int = -1
+    audio_mode: str = "mix"  # mix | separate (pistas separadas, docs/50)
     # Webcam (docs/49): el nombre DirectShow sobrevive entre sesiones; si el dispositivo ya no
     # está, la pantalla de Grabar lo marca y el motor avisa sin romper la grabación de pantalla.
     camera_enabled: bool = False
@@ -73,6 +74,8 @@ class Settings:
         self.global_hotkeys = bool(self.global_hotkeys)
         self.tray = bool(self.tray)
         self.notify_finished = bool(self.notify_finished)
+        if self.audio_mode not in ("mix", "separate"):
+            self.audio_mode = "mix"
         self._normalize_camera()
         self._normalize_export()
         return self
