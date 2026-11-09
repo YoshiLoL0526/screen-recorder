@@ -15,7 +15,7 @@
 | `services/export.py` | `Exporter`: hilo con máquina de estados `preparing → rendering → verifying → done` (o `cancelled`/`error`), progreso por `-progress pipe:1`, ETA con media móvil de 20 ticks, cancelar (`terminate` + borrar parcial), verificación con `probe_media`, escritura en `.part.mp4` y renombrado al final, reintento con x264 si el encoder por hardware falla. |
 | `services/media.py` | `keyframes(path)`: índice de keyframes por demux (sin decodificar), cacheado en `cache/keyframes`. |
 | `services/playback.py` | El preview aplica los mismos efectos: zoom (recorte + reescalado), `eq` aproximado en RGB, fundido de imagen por clip y volumen/fundidos en el audio (`fade_envelope`). |
-| `ui/export_modal.py` | Modal «Exportar» (Ctrl+E): nombre, carpeta, presets (el de «sin recodificar» deshabilitado con el motivo), resumen, barra de progreso con ETA y velocidad, cancelar, «Reproducir» y «Mostrar en carpeta». Se puede ocultar con un export en marcha: la barra del editor muestra un chip con el %. |
+| `ui/export_modal.py` | Modal «Exportar» (Ctrl+E): nombre, carpeta, presets (el de «sin recodificar» deshabilitado con el motivo), tarjeta personalizada y accesos sociales (docs/44), resumen, barra de progreso con ETA y velocidad, cancelar, «Reproducir» y «Mostrar en carpeta». Se puede ocultar con un export en marcha: la barra del editor muestra un chip con el %. |
 | `ui/screens/editor.py` | Sección «Efectos» del inspector (volumen, fundidos, zoom, brillo, contraste, saturación, «Quitar efectos»), volumen del audio original en «Proyecto», botón «Reubicar…» en clips offline. El timeline marca `fx` en los clips con efectos. |
 | `ui/editor_controller.py` | Comandos de efectos con undo, `set_track_gain`, export (abrir/iniciar/cancelar/abrir resultado) y `relocate_to` (reubicar un asset offline comprobando que el archivo nuevo dura lo suficiente). |
 
@@ -115,9 +115,14 @@ el suelo del propio detector (ventanas de 5 ms y AAC): la fuente sin editar mide
   resultado avisa de cuánto se movió.
 - **Verificación**: duración ±0.2 s (o ±2 frames por segmento en el corte rápido), video
   presente y audio si se esperaba; hasta entonces el archivo se llama `*.part.mp4`.
+- **Export personalizado** (docs/44): desde la misma tarjeta se eligen tamaño exacto, fps, bitrate
+  de video/audio y códec H.264 (GPU/x264). Los cuatro presets de esta página no cambian: si no se
+  usa el modo personalizado, sus cadenas y goldens son byte a byte los mismos.
 
 ## No incluido en F4 (resuelto después)
 
+- **Export personalizado** (tamaño, fps, bitrate y códec): implementado en
+  [docs/44](44-export-personalizado.md), con presets sociales y persistencia en `Settings`.
 - **Pistas de audio independientes en la UI (música)**: implementado en el bloque B
   ([docs/17](17-bloque-b-editor.md)): pista M, `acrossfade`, `sidechaincompress` para ducking y
   preview con la mezcla completa.

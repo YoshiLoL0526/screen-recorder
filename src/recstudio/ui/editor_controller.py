@@ -131,6 +131,13 @@ def _nearest_fps(fps: float) -> int:
     return min(FPS_CHOICES, key=lambda f: abs(f - fps)) if fps > 0 else 60
 
 
+def _int_or(value: str, fallback: int) -> int:
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return fallback
+
+
 def _valid_audio_selection(project: Project, selection) -> bool:  # noqa: ANN001
     try:
         track_index, clip_index = int(selection[1]), int(selection[2])
@@ -228,8 +235,14 @@ class EditorController:
         state.insp_el_blur.subscribe(live(self._on_insp_element_blur))
         state.insp_el_gain.subscribe(live(self._on_insp_element_gain))
         state.insp_el_track.subscribe(live(self._on_insp_element_track))
-        if self.settings.export_preset in graph_mod.PRESET_IDS:
+        if self.settings.export_preset in (*graph_mod.PRESET_IDS, graph_mod.CUSTOM_PRESET_ID):
             state.export_preset.set(self.settings.export_preset)
+        state.export_custom_width.set(str(self.settings.export_custom_width))
+        state.export_custom_height.set(str(self.settings.export_custom_height))
+        state.export_custom_fps.set(str(self.settings.export_custom_fps))
+        state.export_custom_video_bitrate.set(self.settings.export_custom_video_bitrate)
+        state.export_custom_audio_bitrate.set(self.settings.export_custom_audio_bitrate)
+        state.export_custom_codec.set(self.settings.export_custom_codec)
         self.player.start()
         threading.Thread(target=self._autosave_loop, daemon=True, name="autosave").start()
         self.refresh_recent()
@@ -250,7 +263,23 @@ class EditorController:
                 pass
         self.settings.last_project = str(self.store.path) if self.store.path else ""
         self.settings.preview_audio = bool(state.preview_audio())
+        self._remember_export()
+
+    def _remember_export(self) -> None:
+        """Guarda el preset y la última configuración personalizada en `Settings` (docs/44)."""
         self.settings.export_preset = state.export_preset()
+        self.settings.export_custom_width = _int_or(
+            state.export_custom_width(), self.settings.export_custom_width)
+        self.settings.export_custom_height = _int_or(
+            state.export_custom_height(), self.settings.export_custom_height)
+        self.settings.export_custom_fps = _int_or(
+            state.export_custom_fps(), self.settings.export_custom_fps)
+        if graph_mod.parse_bitrate(state.export_custom_video_bitrate()):
+            self.settings.export_custom_video_bitrate = state.export_custom_video_bitrate()
+        if graph_mod.parse_bitrate(state.export_custom_audio_bitrate()):
+            self.settings.export_custom_audio_bitrate = state.export_custom_audio_bitrate()
+        if state.export_custom_codec() in graph_mod.CUSTOM_CODECS:
+            self.settings.export_custom_codec = state.export_custom_codec()
 
     def _autosave_loop(self) -> None:
         while not self._closing.wait(_AUTOSAVE_POLL):
@@ -4401,14 +4430,26 @@ class EditorController:
         if missing:
             state.toast("danger", f"Reubica los archivos que faltan antes de exportar: {', '.join(missing)}")
             return
-        preset = state.export_preset()
-        if preset == "copia" and state.export_blockers():
+        preset_id = state.export_preset()
+        if preset_id == graph_mod.CUSTOM_PRESET_ID:
+            error = state.export_custom_error()
+            if error:
+                state.toast("warning", f"Export personalizado no válido: {error}")
+                return
+            try:
+                preset: str | graph_mod.ExportPreset = state.export_custom_preset()
+            except RecStudioError as exc:
+                state.toast("warning", exc.message)
+                return
+        else:
+            preset = preset_id
+        if preset_id == "copia" and state.export_blockers():
             state.toast("warning", "«Sin recodificar» no es posible: " + "; ".join(state.export_blockers()))
             return
         name = state.export_name().strip() or project.name
         span = self.export_span()
         out = export_mod.unique_output(state.exports_dir(), name)
-        self.settings.export_preset = preset
+        self._remember_export()
         try:
             self.exporter.start(project, preset, out, span=span)
         except RecStudioError as exc:

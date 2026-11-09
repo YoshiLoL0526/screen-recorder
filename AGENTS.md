@@ -48,8 +48,10 @@ inspector; modelo **v13**, `docs/39`), el **easing de las envolventes de volumen
 envolvente; modelo **v14**, `docs/40`), el **copiar/pegar de claves** (`KeyClipboard` en el
 controlador, menús del asa y `Ctrl+C`/`Ctrl+V`; `docs/41`) y el **modo «añadir clave» desde el
 timeline** (`state.key_add_on`, tecla **N**, `keyframe_default`/`keyframe_value_at`; `docs/42`),
-y el **texto multilínea con ancho máximo** (`TextOverlay.wrap_width`, `core/text_layout.py`,
-bake RGBA de los textos envueltos; modelo **v15**, `docs/45`).
+el **texto multilínea con ancho máximo** (`TextOverlay.wrap_width`, `core/text_layout.py`,
+bake RGBA de los textos envueltos; modelo **v15**, `docs/45`) y el **export personalizado** con
+tamaño/fps/bitrate/códec y presets sociales (`core/graph.py`, `services/settings.py`,
+`ui/export_modal.py`; `docs/44`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -58,7 +60,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 555 tests; la integración usa FFmpeg real
+uv run pytest                                   # 565 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -173,11 +175,15 @@ depender de monitor, GPU ni audio reales del runner.
   `KeyEvent.matches("+")` lanza excepción; `on_drag` llega también con un clic (fase `start`,
   x de ventana → `TL_X0`). En Windows, `Condition.wait` va a saltos de ~15.6 ms: para relojes
   usa `time.sleep`.
-- Export (`docs/13`): cada clip es **una entrada** (`-ss IN -t LEN -i`) y dura un número entero
-  de frames (`tpad` + `trim=end_frame`; el audio, `apad`+`atrim` a lo mismo): no cambies eso sin
-  revisar los golden de `tests/test_f4_graph.py`. El concat del corte rápido necesita
-  `-auto_convert 0` o los keyframes dejan de ser idénticos. Preview y graph comparten las
-  curvas de `core/effects.py` (lo exportado = lo visto).
+- Export (`docs/13` y `docs/44`): cada clip es **una entrada** (`-ss IN -t LEN -i`) y dura un
+  número entero de frames (`tpad` + `trim=end_frame`; el audio, `apad`+`atrim` a lo mismo): no
+  cambies eso sin revisar los golden de `tests/test_f4_graph.py`. El concat del corte rápido
+  necesita `-auto_convert 0` o los keyframes dejan de ser idénticos. Preview y graph comparten
+  las curvas de `core/effects.py` (lo exportado = lo visto). El export personalizado reescala el
+  proyecto a `preset.fps` antes de calcular frames (el `fps=<objetivo>` va en la cadena de cada
+  clip) y sustituye CRF/CQ por `-b:v`/`-maxrate`/`-bufsize`; sin esas opciones las cadenas
+  históricas no cambian. La configuración vive en `Settings`, no en `Project`; `copia` no admite
+  tamaño/fps/bitrate.
 - v6 (`docs/22`–`26`): al importar un video con audio se separa a «Audio del video» y el clip de
   video queda con `audio_enabled=False`; el audio enlazado se recoloca con
   `tl.sync_linked_audio` en mover/recortar/dividir/cambiar velocidad y **no** se mueve por su
@@ -354,8 +360,9 @@ depender de monitor, GPU ni audio reales del runner.
   tamaño animados de textos (modelo v12), `docs/37` la edición de claves de envolvente en el
   timeline, `docs/38` las asas de animaciones visuales, `docs/39` el easing de las claves de
   animación (modelo v13), `docs/40` el easing de las envolventes de volumen (modelo v14),
-  `docs/41` el copiar/pegar de claves y `docs/42` el modo para añadir claves desde el timeline;
-  `docs/45` el texto multilínea con ancho máximo (modelo v15).
+  `docs/41` el copiar/pegar de claves, `docs/42` el modo para añadir claves desde el timeline,
+  `docs/44` el export personalizado (tamaño, fps, bitrate, códec y presets sociales) y `docs/45`
+  el texto multilínea con ancho máximo (modelo v15).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

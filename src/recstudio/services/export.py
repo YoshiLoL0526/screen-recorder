@@ -132,13 +132,22 @@ class Exporter:
         return not self._done.is_set()
 
     def start(
-        self, project: Project, preset_id: str, out_path: str | Path,
+        self, project: Project, preset_id: str | G.ExportPreset, out_path: str | Path,
         span: tuple[float, float] | None = None,
     ) -> None:
-        """Lanza el export; `span=(inicio, final)` exporta solo ese rango del timeline (fase 3)."""
+        """Lanza el export; `span=(inicio, final)` exporta solo ese rango del timeline (fase 3).
+
+        `preset_id` puede ser el id de un preset histórico o un `ExportPreset` ya construido
+        (export personalizado, docs/44).
+        """
         if self.busy:
             raise ProjectError("ya hay un export en curso")
-        preset = G.preset_by_id(preset_id)
+        preset = preset_id if isinstance(preset_id, G.ExportPreset) else G.preset_by_id(preset_id)
+        if preset.video == "copy" and G.preset_has_custom_stream(preset):
+            raise ProjectError(
+                "«Sin recodificar» no admite tamaño, fps ni bitrate personalizados: "
+                "elige otro preset o quita esas opciones"
+            )
         self._cancel = threading.Event()
         self._done.clear()
         self._started = time.perf_counter()
@@ -224,6 +233,7 @@ class Exporter:
         except (OSError, FfmpegError):
             available = {"libx264": True}
         encoder = G.resolve_encoder(preset, available)
+        fps = G.export_fps(project, preset)
         element_sources = None
         element_clips = None
         text_clips = None
@@ -232,7 +242,7 @@ class Exporter:
             try:
                 element_sources = element_assets.materialize(project, size)
                 element_clips = element_animation.materialize(
-                    project, size, fps=project.fps, folder=workdir, sources=element_sources,
+                    project, size, fps=fps, folder=workdir, sources=element_sources,
                 )
             except RecStudioError:
                 raise
@@ -241,7 +251,7 @@ class Exporter:
         if project.texts:
             try:
                 text_clips = text_animation.materialize(
-                    project, size, fps=project.fps, folder=workdir,
+                    project, size, fps=fps, folder=workdir,
                 ) or None
             except RecStudioError:
                 raise

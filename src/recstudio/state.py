@@ -332,6 +332,34 @@ export_preset = Signal("rapido")
 export_progress = Signal(None)  # services.export.ExportProgress | None
 export_blockers = Signal(())  # motivos por los que no se puede «sin recodificar»
 export_range = Signal("all")  # all | range (rango In/Out del timeline, fase 3)
+# Export personalizado (docs/44): texto editable para validar mientras se escribe.
+export_custom_width = Signal("1920")
+export_custom_height = Signal("1080")
+export_custom_fps = Signal("60")
+export_custom_video_bitrate = Signal("6M")
+export_custom_audio_bitrate = Signal("192k")
+export_custom_codec = Signal("auto")  # auto | x264
+
+
+def export_custom_error() -> str | None:
+    """Error de la configuración personalizada actual, o `None` (docs/44)."""
+    from .core import graph
+
+    return graph.custom_error(
+        export_custom_width(), export_custom_height(), export_custom_fps(),
+        export_custom_video_bitrate(), export_custom_audio_bitrate(),
+    )
+
+
+def export_custom_preset():
+    """`ExportPreset` personalizado a partir de los Signals (lanza `ProjectError` si no vale)."""
+    from .core import graph
+
+    return graph.custom_preset(
+        export_custom_width(), export_custom_height(), export_custom_fps(),
+        export_custom_video_bitrate(), export_custom_audio_bitrate(),
+        codec=export_custom_codec(),
+    )
 
 
 def toast(kind: str, text: str) -> None:

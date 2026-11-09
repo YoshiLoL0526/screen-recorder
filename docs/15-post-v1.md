@@ -17,9 +17,9 @@
 > envolvente en el timeline** ([37](37-editor-claves.md)), las **asas de animaciones visuales**
 > ([38](38-asas-animaciones.md)), el **easing de las animaciones y de las envolventes de audio**
 > ([39](39-easing.md) y [40](40-easing-audio.md)), el **copiar/pegar de claves**
-> ([41](41-copiar-pegar-claves.md)) y el **modo para añadir claves desde el timeline**
-> ([42](42-claves-desde-timeline.md)), y el **texto multilínea con ancho máximo**
-> ([45](45-texto-multilinea.md)).
+> ([41](41-copiar-pegar-claves.md)), el **modo para añadir claves desde el timeline**
+> ([42](42-claves-desde-timeline.md)), el **export personalizado** ([44](44-export-personalizado.md))
+> y el **texto multilínea con ancho máximo** ([45](45-texto-multilinea.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -526,6 +526,21 @@ Resultados y decisiones completas en [42 — Claves desde el timeline](42-claves
 - Tests nuevos en `test_key_add_mode`; **526 tests** en verde en su rama.
 - Tras integrar las tres ramas: **545 tests** en verde.
 
+### B31 - Export personalizado y presets sociales (✅ · M)
+
+- **Qué**: tamaño, fps, bitrate de video/audio y códec H.264 (GPU automática o x264) elegidos a
+  mano, con validación inline y botón Exportar bloqueado con el motivo. Accesos sociales 9:16,
+  1:1, 4:5 y 16:9 que rellenan la configuración; los cuatro presets históricos conservan orden,
+  comportamiento y cadenas byte a byte.
+- **Dónde**: `core/graph.py` (`ExportPreset` extendido, `custom_error`/`custom_preset`,
+  `SOCIAL_PRESETS`, `output_size` y `build` a fps/bitrate), `services/export.py`,
+  `services/settings.py`, `state.py`, `ui/export_modal.py`, `ui/editor_controller.py` (docs/44).
+- **Modelo**: `Project`/schema **sin cambios** (sigue en 15); la configuración vive en `Settings`
+  y se recupera al reabrir.
+- **Verificación**: 10 tests nuevos (`tests/test_export_custom.py`), incluido un export real
+  320×180/24 fps/400k medido con `probe_media` y conteo de frames.
+- Tests: **555** en esta rama (545 base + 10 nuevos).
+
 ### B32 - Texto multilínea con ancho máximo (✅ · M)
 
 Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multilinea.md).
@@ -546,6 +561,7 @@ Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multili
 - **Límite**: el ancho es una estimación de Arial compartida por preview y export; el
   interlineado y la alineación son fijos y el campo del inspector sigue siendo de una línea.
 - Tests nuevos en `test_text_multiline`; **555 tests** en verde en su rama.
+- Tras integrar texto y export: **565 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
