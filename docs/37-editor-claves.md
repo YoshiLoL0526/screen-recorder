@@ -76,13 +76,12 @@ explícito** y un menú nativo:
 
 ## Límites
 
-- **Solo audio**: no se editan desde el timeline los canales de `Animation` (x/y/opacity/scale/
-  rotation). Queda pendiente un selector de canal y asas para los puntos de animación; no se
-  entrega a medias en esta fase. Los keyframes visuales siguen editándose desde el inspector.
-- No hay copiar/pegar claves ni «grabar automáticamente» al mover el playhead. El easing de las
-  animaciones visuales ([docs/39](39-easing.md)) no se aplica a las envolventes de audio.
-- La interpolación de las envolventes sigue siendo **lineal** y la ganancia se acota a 0…4; no hay
-  ganancia negativa. El easing de docs/39 es solo de `Animation`.
+- Las claves de `Animation` (x/y/opacity/scale/rotation/size) tienen sus propias asas desde
+  [docs/38](38-asas-animaciones.md), con un selector de canal en el inspector; este documento
+  cubre solo `Clip.envelope` y `Element.envelope`.
+- No hay copiar/pegar claves ni «grabar automáticamente» al mover el playhead.
+- La interpolación de las envolventes de audio sigue siendo **lineal** y la ganancia se acota a
+  0…4; el easing de [docs/39](39-easing.md) es solo de `Animation`.
 - Si la pista está bloqueada, el clip no muestra asas; con la razor activa se ocultan para no
   mezclar gestos. El modo Env no cambia el bloqueo ni el modo lectura.
 - Cambiar la velocidad de un clip no reescala las claves (tiempos locales al timeline del clip),

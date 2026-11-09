@@ -13,6 +13,11 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   Animación del inspector (decide las nuevas claves y no se persiste) y paridad preview/export,
   incluidos los canales horneados. Las claves lineales conservan las cadenas históricas; las
   envolventes de audio y el color animado de textos siguen lineales.
+- **Asas de animaciones visuales en el timeline** (docs/38; modelo v12 sin cambios): selector de
+  canal en el inspector, polilínea y asas arrastrables sobre la barra de un elemento/texto para
+  `x`, `y`, `opacity`, `scale`, `rotation` y `size`. `dx` mueve el tiempo local y `dy` el valor
+  con su rango; un undo por gesto, clic sin undo, `Supr`/menú contextual para borrar y `Esc` para
+  cancelar. Las asas viven encima del playhead.
 - **Color y tamaño animados de textos/subtítulos** (docs/36; modelo v12 con migración v11 → v12):
   canal `size` (`8…200`) en `TextOverlay.animations` y `TextOverlay.color_keys` con
   `ColorKeyframe(t, color)` e interpolación lineal en sRGB. El preview y el export comparten el

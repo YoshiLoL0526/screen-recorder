@@ -699,7 +699,11 @@ def _transition_controls(index: int | None):
 
 def _animation_controls(kind: str, item, channels, *, color_keys=None) -> object:
     """Sección de keyframes; el valor de la clave es el campo actual en el playhead."""
-    rows = []
+    rows = [
+        _row("Canal del timeline", select(
+            state.keyframe_channel, list(channels), key=f"insp-{kind}-anim-channel",
+        )),
+    ]
     for channel, label in channels:
         animation = next((a for a in item.animations if a.channel == channel), None)
         count = len(animation.points) if animation is not None else 0
@@ -738,7 +742,7 @@ def _animation_controls(kind: str, item, channels, *, color_keys=None) -> object
     note = (
         "La clave usa el valor actual del campo en el playhead; mover el playhead no cambia "
         "el campo. El easing elegido decide la curva de las nuevas claves y de los tramos que "
-        "salen de ellas."
+        "salen de ellas. El canal elegido se edita con asas sobre la barra del timeline."
     )
     if kind in ("element", "text"):
         note += " Escala 1.0 = tamaño base; rotación en grados horarios."

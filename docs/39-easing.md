@@ -138,7 +138,7 @@ Animation("x", (
     en el MP4;
   - **UI con `pilot`**: el desplegable elige `ease_in`/`ease_out`/`ease_in_out`, las claves nuevas
     lo guardan y volver a grabar el mismo instante lo actualiza.
-- `uv run pytest -q`: **512 passed**.
+- `uv run pytest -q`: **520 passed** (512 en la rama aislada, antes de integrar docs/38).
 - `uv run aurora check main.py`: OK; `uv run aurora tree main.py`: sin avisos de layout.
 - `git diff --check`: limpio.
 
