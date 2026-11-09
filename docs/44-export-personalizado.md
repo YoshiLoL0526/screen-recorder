@@ -4,7 +4,8 @@
 > tamaño, fps, bitrate y códec elegidos a mano, más accesos rápidos a tamaños sociales. No cambia
 > el modelo del proyecto (`SCHEMA_VERSION` sigue en **15**): la configuración vive en `Settings` y
 > en los `Signal` de la UI. Los cuatro presets históricos conservan sus cadenas y goldens byte a
-> byte cuando no se usa el modo personalizado.
+> byte cuando no se usa el modo personalizado. Después se añadieron WebM y GIF con el mismo
+> mecanismo de preset ([docs/48](48-gif-webm.md)).
 
 ## Qué se implementó
 
@@ -107,7 +108,9 @@ salida no modifica el lienzo del proyecto.
 - `copia` sigue exigiendo las condiciones del corte rápido y no acepta el modo personalizado.
 - El tamaño personalizado no reencuadra elementos ni textos: usa la misma caja normalizada que el
   resto del export (letterbox si cambia la relación de aspecto).
-- No hay campo de códec H.265/AV1 ni de contenedor: el objetivo es H.264 (GPU o x264) en MP4.
+- No hay campo de códec H.265/AV1: en MP4 el objetivo es H.264 (GPU o x264). El contenedor se
+  elige aparte (MP4/WebM/GIF; ver [docs/48](48-gif-webm.md)); en WebM el códec es VP9 + Opus y en
+  GIF no aplica ni el bitrate ni el selector de códec H.264.
 
 ## Tests
 

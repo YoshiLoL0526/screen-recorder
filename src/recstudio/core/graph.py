@@ -25,6 +25,7 @@ import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Literal
 
 from . import animation as anim
 from . import audio_envelope as env
@@ -68,6 +69,9 @@ class ExportPreset:
     height: int | None = None
     fps: int | None = None
     video_bitrate: str | None = None
+    # Formato del contenedor (docs/48). `mp4` es el histórico y no cambia ninguna cadena; `webm`
+    # usa VP9/Opus y `gif` una paleta de 256 colores sin audio.
+    format: Literal["mp4", "webm", "gif"] = "mp4"
 
 
 @dataclass(frozen=True)
@@ -91,6 +95,14 @@ PRESETS: tuple[ExportPreset, ...] = (
 )
 PRESET_IDS = tuple(p.id for p in PRESETS)
 HW_ENCODERS = ("h264_nvenc", "h264_amf", "h264_qsv")
+
+# -- formatos de export (docs/48) -----------------------------------------------------
+EXPORT_FORMATS = ("mp4", "webm", "gif")
+FORMAT_EXTENSIONS = {"mp4": ".mp4", "webm": ".webm", "gif": ".gif"}
+#: GIF es un formato de intercambio: 20 fps y 720 px de lado máximo evitan archivos enormes sin
+#: que el movimiento de una grabación de pantalla se vea a saltos.
+GIF_MAX_FPS = 20
+GIF_MAX_SIDE = 720
 
 # -- export personalizado (docs/44) ---------------------------------------------------
 CUSTOM_PRESET_ID = "personalizado"
@@ -204,6 +216,7 @@ def custom_preset(
     audio_bitrate: str,
     *,
     codec: str = "x264",
+    format: str = "mp4",
 ) -> ExportPreset:
     """Preset de export personalizado ya validado (`ProjectError` si algo no cuadra)."""
     error = custom_error(width, height, fps, video_bitrate, audio_bitrate)
@@ -211,6 +224,8 @@ def custom_preset(
         raise ProjectError(error)
     if codec not in CUSTOM_CODECS:
         raise ProjectError(f"códec personalizado desconocido: {codec!r}")
+    if format not in EXPORT_FORMATS:
+        raise ProjectError(f"formato de export desconocido: {format!r}")
     video_bits = parse_bitrate(video_bitrate)
     audio_bits = parse_bitrate(audio_bitrate)
     assert video_bits is not None and audio_bits is not None  # lo garantiza custom_error
@@ -226,6 +241,7 @@ def custom_preset(
         height=even(int(str(height).strip())),
         fps=int(str(fps).strip()),
         video_bitrate=bitrate_arg(video_bits),
+        format=format,  # type: ignore[arg-type]
     )
 
 
@@ -236,9 +252,45 @@ def preset_has_custom_stream(preset: ExportPreset) -> bool:
 
 
 def export_fps(project: Project, preset: ExportPreset) -> int:
-    """FPS efectivos de salida (el del preset personalizado o el del proyecto)."""
-    return int(preset.fps) if preset.fps else int(project.fps)
+    """FPS efectivos de salida (el del preset personalizado o el del proyecto).
 
+    GIF se limita a `GIF_MAX_FPS`: es un formato de intercambio y a 50–60 fps el peso y el tiempo
+    de codificación se disparan sin ganancia visible.
+    """
+    fps = int(preset.fps) if preset.fps else int(project.fps)
+    return min(fps, GIF_MAX_FPS) if preset.format == "gif" else fps
+
+
+def format_error(preset: ExportPreset) -> str | None:
+    """Primer problema del formato/contenedor, o `None` si la combinación es válida."""
+    if preset.format not in EXPORT_FORMATS:
+        return f"formato de export desconocido: {preset.format!r}"
+    if preset.format != "mp4" and preset.video == "copy":
+        return (f"{preset.format.upper()} no admite el preset «sin recodificar»: "
+                "elige MP4 o un preset que recodifique")
+    return None
+
+
+def check_format(preset: ExportPreset) -> None:
+    """`ProjectError` si el formato del preset no es válido (lo usan `build` y `Exporter`)."""
+    error = format_error(preset)
+    if error:
+        raise ProjectError(error)
+
+
+def format_extension(fmt: str) -> str:
+    """Extensión con punto del formato (`.mp4`, `.webm`, `.gif`)."""
+    try:
+        return FORMAT_EXTENSIONS[fmt]
+    except KeyError as exc:
+        raise ProjectError(f"formato de export desconocido: {fmt!r}") from exc
+
+
+def with_format(preset: ExportPreset, fmt: str) -> ExportPreset:
+    """Copia del preset con otro contenedor (la UI elige el formato aparte del preset)."""
+    if fmt not in EXPORT_FORMATS:
+        raise ProjectError(f"formato de export desconocido: {fmt!r}")
+    return replace(preset, format=fmt)  # type: ignore[arg-type]
 
 
 def preset_by_id(preset_id: str) -> ExportPreset:
@@ -281,10 +333,14 @@ def output_size(project: Project, preset: ExportPreset) -> tuple[int, int]:
             raise ProjectError("el tamaño personalizado necesita ancho y alto")
         width = min(CUSTOM_MAX_DIMENSION, max(CUSTOM_MIN_DIMENSION, int(preset.width)))
         height = min(CUSTOM_MAX_DIMENSION, max(CUSTOM_MIN_DIMENSION, int(preset.height)))
-        return even(width), even(height)
-    width, height = project.width, project.height
-    if preset.max_height and height > preset.max_height:
-        width, height = width * preset.max_height / height, preset.max_height
+    else:
+        width, height = project.width, project.height
+        if preset.max_height and height > preset.max_height:
+            width, height = width * preset.max_height / height, preset.max_height
+    if preset.format == "gif" and max(width, height) > GIF_MAX_SIDE:
+        # Lado mayor acotado (720 px): un GIF de 1080p multiplica el peso y el tiempo de paleta.
+        factor = GIF_MAX_SIDE / max(width, height)
+        width, height = width * factor, height * factor
     return even(width), even(height)
 
 
@@ -380,6 +436,25 @@ def _bitrate_codec_args(encoder: str, preset: ExportPreset) -> list[str]:
 
 
 def video_codec_args(encoder: str, preset: ExportPreset) -> list[str]:
+    if preset.format == "webm":
+        if encoder != "libvpx-vp9":
+            raise ProjectError(
+                f"WebM usa VP9 (libvpx-vp9): el encoder {encoder!r} no vale para este formato"
+            )
+        common = ["-c:v", "libvpx-vp9", "-deadline", "good", "-cpu-used", "2", "-row-mt", "1"]
+        bits = parse_bitrate(preset.video_bitrate)
+        if preset.video_bitrate:
+            if bits is None:
+                raise ProjectError(f"bitrate de video no válido: {preset.video_bitrate!r}")
+            return [*common, "-b:v", bitrate_arg(bits), "-maxrate", bitrate_arg(int(bits * 1.5)),
+                    "-bufsize", bitrate_arg(bits * 2)]
+        return [*common, "-crf", str(preset.quality), "-b:v", "0"]
+    if preset.format == "gif":
+        if encoder != "gif":
+            raise ProjectError(
+                f"GIF se codifica con su propio encoder de paleta: {encoder!r} no vale"
+            )
+        return ["-c:v", "gif"]
     if preset.video_bitrate:
         return _bitrate_codec_args(encoder, preset)
     q = preset.quality
@@ -396,6 +471,14 @@ def video_codec_args(encoder: str, preset: ExportPreset) -> list[str]:
 
 def resolve_encoder(preset: ExportPreset, available: dict[str, bool]) -> str:
     """Encoder efectivo del preset con los encoders que funcionan en este equipo."""
+    if preset.format == "webm":
+        if not available.get("libvpx-vp9"):
+            raise ProjectError(
+                "WebM necesita el encoder VP9 (libvpx-vp9), que no está disponible en este FFmpeg"
+            )
+        return "libvpx-vp9"
+    if preset.format == "gif":
+        return "gif"
     if preset.video == "hw":
         for name in HW_ENCODERS:
             if available.get(name):
@@ -959,6 +1042,7 @@ def build(
     textos sin esos canales siguen usando `drawtext`; si un proyecto no tiene ninguno, las
     cadenas no cambian.
     """
+    check_format(preset)
     if preset.video == "copy":
         if preset_has_custom_stream(preset):
             raise ProjectError(
@@ -986,7 +1070,7 @@ def build(
     size = output_size(project, preset)
     frames, overlaps, total_frames = timeline_frames(project)
     by_id = {a.id: a for a in project.assets}
-    has_audio = project_has_audio(project)
+    has_audio = project_has_audio(project) and preset.format != "gif"
 
     inputs: list[str] = []
     chains: list[str] = []
@@ -1089,17 +1173,36 @@ def build(
             audio_out = "arange"
         total_frames = b - a
 
+    if preset.format == "gif":
+        # Una pasada: `split` alimenta a la vez el video y `palettegen`; `paletteuse` aplica la
+        # paleta al flujo original. Es el patrón recomendado por FFmpeg para GIF de calidad.
+        chains.append(f"[{video_out}]split=2[gifv][gifp]")
+        chains.append("[gifp]palettegen=stats_mode=diff[gifpal]")
+        chains.append(
+            "[gifv][gifpal]paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle[vgif]"
+        )
+        video_out = "vgif"
+
     filter_complex = ";".join(chains)
     args: list[str] = [exe, "-hide_banner", "-nostdin", "-loglevel", "error", "-y", *inputs,
                        "-filter_complex", filter_complex, "-map", f"[{video_out}]"]
     if audio_out:
         args += ["-map", f"[{audio_out}]"]
-    args += [*video_codec_args(encoder, preset), "-pix_fmt", "yuv420p"]
-    if audio_out:
-        args += ["-c:a", "aac", "-b:a", preset.audio_bitrate, "-ar", str(AUDIO_RATE)]
+    if preset.format == "webm":
+        args += [*video_codec_args(encoder, preset), "-pix_fmt", "yuv420p"]
+        if audio_out:
+            args += ["-c:a", "libopus", "-b:a", preset.audio_bitrate, "-ar", str(AUDIO_RATE)]
+        else:
+            args += ["-an"]
+    elif preset.format == "gif":
+        args += [*video_codec_args(encoder, preset), "-loop", "0", "-an"]
     else:
-        args += ["-an"]
-    args += ["-movflags", "+faststart"]
+        args += [*video_codec_args(encoder, preset), "-pix_fmt", "yuv420p"]
+        if audio_out:
+            args += ["-c:a", "aac", "-b:a", preset.audio_bitrate, "-ar", str(AUDIO_RATE)]
+        else:
+            args += ["-an"]
+        args += ["-movflags", "+faststart"]
     if progress:
         args += ["-progress", "pipe:1", "-nostats"]
     args += [str(out_path)]

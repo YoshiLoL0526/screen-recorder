@@ -1,4 +1,4 @@
-"""Export del proyecto a MP4 con FFmpeg en subprocess: progreso, ETA, cancelar y verificación.
+"""Export del proyecto con FFmpeg en subprocess: progreso, ETA, cancelar y verificación.
 
 Máquina de estados (`ExportProgress.state`):
 
@@ -9,9 +9,13 @@ Máquina de estados (`ExportProgress.state`):
   `out_time_us` y se divide por la duración esperada. ETA con la velocidad media de los
   últimos 20 ticks (docs/04).
 - «Sin recodificar»: `core.keyframes.plan` → un FFmpeg `-c copy` por clip y un `concat` final.
-- Se escribe en `<nombre>.part.mp4` y solo al verificar (`probe_media`: duración ±tolerancia,
-  video y audio presentes) se renombra al destino. Cancelar = `terminate()` + borrar el parcial.
-- Si el encoder por hardware falla a mitad (drivers), se reintenta una vez con libx264.
+- Formatos (docs/48): MP4 (H.264/AAC, histórico), WebM (VP9/Opus) y GIF (paleta, sin audio).
+  La extensión del destino y del `.part` sale del preset; el `.part` se escribe junto al
+  destino final para que `os.replace` sea atómico.
+- Se verifica con `probe_media` (duración ±tolerancia, video y audio esperados) antes de
+  renombrar. Cancelar = `terminate()` + borrar el parcial.
+- Si el encoder por hardware falla a mitad (drivers), se reintenta una vez con libx264; en
+  WebM/GIF no hay reintento H.264 porque el contenedor no lo admite.
 
 Agnóstico de la UI: avisa por un callback (`on_update`) desde su propio hilo.
 """
@@ -92,13 +96,17 @@ def partial_path(out_path: Path) -> Path:
     return out_path.with_name(f"{out_path.stem}.part{out_path.suffix or '.mp4'}")
 
 
-def unique_output(folder: Path, name: str) -> Path:
-    """`<carpeta>/<nombre>.mp4` sin pisar nada (` (2)`, ` (3)`…)."""
+def unique_output(folder: Path, name: str, extension: str = ".mp4") -> Path:
+    """`<carpeta>/<nombre><extensión>` sin pisar nada (` (2)`, ` (3)`…).
+
+    `extension` la decide el formato del preset (docs/48): `.mp4`, `.webm` o `.gif`.
+    """
+    suffix = extension if extension.startswith(".") else f".{extension}"
     safe = "".join(ch for ch in name if ch not in '<>:"/\\|?*').strip() or "export"
-    candidate = folder / f"{safe}.mp4"
+    candidate = folder / f"{safe}{suffix}"
     n = 2
     while candidate.exists():
-        candidate = folder / f"{safe} ({n}).mp4"
+        candidate = folder / f"{safe} ({n}){suffix}"
         n += 1
     return candidate
 
@@ -143,6 +151,7 @@ class Exporter:
         if self.busy:
             raise ProjectError("ya hay un export en curso")
         preset = preset_id if isinstance(preset_id, G.ExportPreset) else G.preset_by_id(preset_id)
+        G.check_format(preset)
         if preset.video == "copy" and G.preset_has_custom_stream(preset):
             raise ProjectError(
                 "«Sin recodificar» no admite tamaño, fps ni bitrate personalizados: "
@@ -232,7 +241,17 @@ class Exporter:
             available = F.probe_encoders()
         except (OSError, FfmpegError):
             available = {"libx264": True}
+        if preset.format == "webm":
+            try:
+                available = {**available, **F.probe_format_encoders()}
+            except (OSError, FfmpegError):
+                pass  # sin datos: `resolve_encoder` dará el error claro de VP9
         encoder = G.resolve_encoder(preset, available)
+        if preset.format == "webm" and G.project_has_audio(project) and not available.get("libopus"):
+            raise FfmpegError(
+                "WebM con audio necesita el encoder Opus (libopus), que no está disponible "
+                "en este FFmpeg"
+            )
         fps = G.export_fps(project, preset)
         element_sources = None
         element_clips = None
@@ -269,7 +288,7 @@ class Exporter:
                 self._run_ffmpeg(list(spec.args), workdir / "render.log", spec.duration, base, 0.0, 1.0)
                 return base, spec.duration, spec.has_audio
             except FfmpegError:
-                if self._cancel.is_set() or encoder == "libx264":
+                if self._cancel.is_set() or encoder == "libx264" or preset.format != "mp4":
                     raise
                 encoder = "libx264"  # el encoder HW falló de verdad: CPU
                 self._emit(replace(base, state="rendering", fraction=0.0,

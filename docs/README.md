@@ -14,9 +14,9 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > de envolvente en el timeline**, **asas de animaciones visuales**, **easing de las claves** y
 > **easing de las envolventes de volumen**, **copiar/pegar de claves**, **añadir claves desde
 > el timeline**, el **recorte interactivo en el preview**, el **export personalizado** con presets
-> sociales y el **texto multilínea con ancho máximo** (docs/27-45). Quedan las comprobaciones
-> manuales de A y la fase 4+. Los documentos 01-07 son la especificación de diseño; 08-45 recogen
-> lo implementado, con mediciones y bugs.
+> sociales, el **texto multilínea con ancho máximo** y los formatos **GIF/WebM** (docs/27-48).
+> Quedan las comprobaciones manuales de A y la fase 4+. Los documentos 01-07 son la especificación
+> de diseño; 08-48 recogen lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -67,6 +67,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 43 | [Recorte interactivo en el preview](43-crop-interactivo.md) | Modo `T`, preview sin recortar, velo y 8 asas, geometría con rotación/flip, mínimo del 5 %, undo por gesto y límites (modelo v15 sin cambios). |
 | 44 | [Export personalizado](44-export-personalizado.md) | Tamaño, fps, bitrate y códec H.264/GPU en el modal; presets sociales 9:16/1:1/4:5/16:9, validación, persistencia en `Settings` y export real (modelo v15 sin cambios). |
 | 45 | [Texto multilínea con ancho máximo](45-texto-multilinea.md) | `TextOverlay.wrap_width`, helper puro de wrap, preview con líneas, caja del bloque, bake RGBA para export, UI, migración v14 → v15 y límites. |
+| 48 | [GIF y WebM](48-gif-webm.md) | Formatos MP4/WebM/GIF, VP9 + Opus, paleta GIF con límites de 20 fps/720 px, selector del modal, persistencia, encoders y tests. |
 
 ## Orden de lectura sugerido
 

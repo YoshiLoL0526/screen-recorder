@@ -585,6 +585,26 @@ Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multili
 - Tras integrar texto y export: **565 tests** en verde.
 - Tras integrar las tres ramas: **579 tests** en verde.
 
+### B35 - GIF y WebM como formatos de export (✅ · M)
+
+Resultados y decisiones completas en [48 — GIF y WebM](48-gif-webm.md).
+
+- **Qué**: el modal de export añade **WebM (VP9/Opus)** y **GIF (paleta de 256 colores, sin
+  audio)** además del MP4. La extensión visible y la del archivo (`.mp4`/`.webm`/`.gif`, también
+  en el `.part`) salen del formato elegido.
+- **Dónde**: `core/graph.py` (`ExportPreset.format`, validación, `with_format`,
+  `format_extension`, `export_fps`/`output_size` con límites de GIF y ramas VP9/paleta en
+  `build`), `platform/ffmpeg.py` (`probe_format_encoders`), `services/export.py`,
+  `services/settings.py`, `state.py`, `ui/export_modal.py`, `ui/editor_controller.py`.
+- **Modelo**: `Project`/schema **sin cambios** (sigue en 15); el formato vive en el preset, la UI
+  y `Settings.export_format`.
+- **Calidad**: VP9 con CRF del preset o bitrate del personalizado + Opus 48 kHz; GIF a 20 fps
+  como máximo, lado mayor ≤ 720 px y `-loop 0`. GIF no lleva audio y «Sin recodificar» sigue
+  siendo solo MP4.
+- **Verificación**: 14 tests nuevos (`tests/test_export_formats.py`) con exports reales de 2 s
+  (VP9+Opus y GIF sin audio) medidos con `probe_media` y PyAV, UI con `pilot` y persistencia.
+- Tests: **593** en esta rama (579 base + 14 nuevos).
+
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
 > completar composición/export; subtítulos, keyframes, pistas V2/V3 y las envolventes de audio
@@ -633,14 +653,14 @@ Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multili
 
 | # | Qué falta | Estado | Tamaño |
 |---|---|---|---|
-| D1 | **GIF/WebM optimizado** en un clic (docs/01 nº6) | ⏳ | M |
+| D1 | **GIF/WebM optimizado** en un clic (docs/01 nº6) | ✅ | M |
 | D2 | Publicación directa a disco o `yt-dlp` (docs/01 nº7) | 💤 | M |
 | D3 | «Copiar el archivo al portapapeles» y «compartir» desde la Biblioteca | ⏳ | S |
 
-**D1** encaja en `services/export.py` (ya tiene presets y progreso) más un preset nuevo en
-`core/graph.py`; el criterio es un GIF de 10 s que pese menos de X MB y se vea bien en un móvil.
-**D2** está aparcado a propósito: depende de un tercero (yt-dlp) y de credenciales del usuario, y no
-aporta nada al núcleo del producto.
+**D1** está implementado en [48 — GIF y WebM](48-gif-webm.md): formato en el preset y el modal,
+VP9/Opus para WebM y GIF con paleta, 20 fps y 720 px de lado máximo. **D2** está aparcado a
+propósito: depende de un tercero (yt-dlp) y de credenciales del usuario, y no aporta nada al
+núcleo del producto.
 
 ---
 

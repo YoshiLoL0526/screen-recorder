@@ -7,6 +7,13 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **GIF y WebM como formatos de export** (docs/48; modelo v15 sin cambios): selector **Formato**
+  en el modal además de MP4, con la extensión visible y del `.part` según el contenedor. WebM usa
+  **VP9 + Opus** (CRF del preset o bitrate del personalizado) y GIF usa una **paleta de 256
+  colores** con `palettegen`/`paletteuse`, `-loop 0`, sin audio, 20 fps como máximo y 720 px de
+  lado mayor. `probe_format_encoders` comprueba `libvpx-vp9`/`libopus` codificando de verdad y
+  da un error claro si faltan. «Sin recodificar» sigue siendo solo MP4 y los cuatro presets MP4
+  conservan sus cadenas y goldens byte a byte. `Settings.export_format` persiste la elección.
 - **Recorte interactivo en el preview** (docs/43; modelo v15 sin cambios): modo **Recortar**
   (`T` o `switch` de la sección Transformación) solo con un clip de V1 seleccionado y en pausa.
   Mientras está activo, el preview muestra el clip **sin recortar** (copia solo del reproductor,
