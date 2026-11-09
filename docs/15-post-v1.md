@@ -525,6 +525,21 @@ Resultados y decisiones completas en [42 — Claves desde el timeline](42-claves
 - Tests nuevos en `test_key_add_mode`; **526 tests** en verde en su rama.
 - Tras integrar las tres ramas: **545 tests** en verde.
 
+### B31 - Export personalizado y presets sociales (✅ · M)
+
+- **Qué**: tamaño, fps, bitrate de video/audio y códec H.264 (GPU automática o x264) elegidos a
+  mano, con validación inline y botón Exportar bloqueado con el motivo. Accesos sociales 9:16,
+  1:1, 4:5 y 16:9 que rellenan la configuración; los cuatro presets históricos conservan orden,
+  comportamiento y cadenas byte a byte.
+- **Dónde**: `core/graph.py` (`ExportPreset` extendido, `custom_error`/`custom_preset`,
+  `SOCIAL_PRESETS`, `output_size` y `build` a fps/bitrate), `services/export.py`,
+  `services/settings.py`, `state.py`, `ui/export_modal.py`, `ui/editor_controller.py` (docs/44).
+- **Modelo**: `Project`/schema **sin cambios** (sigue en 14); la configuración vive en `Settings`
+  y se recupera al reabrir.
+- **Verificación**: 10 tests nuevos (`tests/test_export_custom.py`), incluido un export real
+  320×180/24 fps/400k medido con `probe_media` y conteo de frames.
+- Tests: **555** en esta rama (545 base + 10 nuevos).
+
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
 > completar composición/export; subtítulos, keyframes, pistas V2/V3 y las envolventes de audio

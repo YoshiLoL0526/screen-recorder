@@ -222,11 +222,11 @@ S ≤ 1 día, M 2–4 días, L 1–2 semanas, XL más (a tiempo parcial y con IA
 | E2 | Nuevo proyecto / guardar como / duplicar | ⛔ | Se crea al importar; no hay «guardar como» | P1 | S–M |
 | E3 | Panel de medios y reemplazo de asset online | ◐ | Panel de medios y quitar sin usar; falta reemplazar el archivo conservando clips | P2 | M |
 | E4 | Importar imágenes al timeline | ⛔ | Solo videos y audio de música | P2 | M |
-| E5 | Export personalizado (resolución, bitrate, fps, códec) | ⛔ | Cuatro presets cerrados | P1 | M |
+| E5 | Export personalizado (resolución, bitrate, fps, códec) | ✅ | Tarjeta del modal con tamaño/fps/bitrate/códec y validación (docs/44) | — | — |
 | E6 | Exportar un rango / la selección | ✅ (rango In/Out) | Opción del modal; render y corte rápido (docs/21) | — | — |
 | E7 | Exportar solo audio | ⛔ | Siempre MP4 con video | P2 | S–M |
 | E8 | GIF/WebM optimizado | ⛔ | Backlog D1 | P1 | M |
-| E9 | Presets sociales (9:16, 1:1, 4:5) | ⛔ | Depende de C1/C2 | P2 | S |
+| E9 | Presets sociales (9:16, 1:1, 4:5) | ✅ | Accesos rápidos que rellenan el export personalizado (docs/44) | — | — |
 | E10 | Exportar un fotograma (PNG) | ⛔ | No hay | P2 | S |
 | E11 | «Corte rápido» sin recodificar | ✅ | `core/keyframes`; hay que ampliar blockers con lo nuevo | — | — |
 
@@ -479,10 +479,10 @@ en el punto pulsado; marcar y reproducir en loop; exportar solo el rango marcado
 **Criterio:** un PiP de webcam se compone en preview y export; un SRT importado genera textos
 sincronizados; un zoom animado se ve igual en ambos; el proyecto reabre.
 
-### Fase 5 — Export y compartir (M)
+### Fase 5 — Export y compartir (M) — parcial
 
-- Presets personalizados (resolución/bitrate/fps/códec), export de audio, GIF/WebM, presets
-  sociales, exportar fotograma.
+- Presets personalizados (resolución/bitrate/fps/códec) ✅ y presets sociales ✅ (docs/44);
+  quedan export de audio, GIF/WebM y exportar fotograma.
 
 **Criterio:** exportar 9:16 a la resolución elegida; exportar WAV; GIF de 10 s con peso y calidad
 aceptables; el progreso/ETA/cancelar siguen funcionando.

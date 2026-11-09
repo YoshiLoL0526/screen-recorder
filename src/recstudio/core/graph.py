@@ -21,6 +21,7 @@ saliente hasta su final y el entrante empieza en `t_local = duración de la tran
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -60,6 +61,22 @@ class ExportPreset:
     x264_preset: str = "medium"
     audio_bitrate: str = "192k"
     max_height: int | None = None
+    # Export personalizado (docs/44): si `width` y `height` están, mandan sobre `max_height`;
+    # `fps` solo cambia la cadencia de salida y `video_bitrate` sustituye CRF/CQ por `-b:v`.
+    width: int | None = None
+    height: int | None = None
+    fps: int | None = None
+    video_bitrate: str | None = None
+
+
+@dataclass(frozen=True)
+class SocialPreset:
+    """Acceso rápido a un tamaño social (solo rellena la configuración personalizada)."""
+
+    id: str
+    label: str
+    width: int
+    height: int
 
 
 PRESETS: tuple[ExportPreset, ...] = (
@@ -73,6 +90,154 @@ PRESETS: tuple[ExportPreset, ...] = (
 )
 PRESET_IDS = tuple(p.id for p in PRESETS)
 HW_ENCODERS = ("h264_nvenc", "h264_amf", "h264_qsv")
+
+# -- export personalizado (docs/44) ---------------------------------------------------
+CUSTOM_PRESET_ID = "personalizado"
+CUSTOM_CODECS = ("auto", "x264")  # auto = GPU si hay; x264 = CPU
+CUSTOM_MIN_DIMENSION = 16
+CUSTOM_MAX_DIMENSION = 7680
+CUSTOM_FPS_MIN, CUSTOM_FPS_MAX = 1, 240
+VIDEO_BITRATE_MIN, VIDEO_BITRATE_MAX = 100_000, 200_000_000
+AUDIO_BITRATE_MIN, AUDIO_BITRATE_MAX = 32_000, 512_000
+DEFAULT_VIDEO_BITRATE = "6M"
+DEFAULT_AUDIO_BITRATE = "192k"
+SOCIAL_PRESETS: tuple[SocialPreset, ...] = (
+    SocialPreset("9x16", "9:16", 1080, 1920),
+    SocialPreset("1x1", "1:1", 1080, 1080),
+    SocialPreset("4x5", "4:5", 1080, 1350),
+    SocialPreset("16x9", "16:9", 1920, 1080),
+)
+
+_BITRATE_RE = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*([kKmMgG]?)\s*$")
+
+
+def parse_bitrate(value: str | None) -> int | None:
+    """Bits/s de un texto como `6M`, `6000k` o `6000` (sin sufijo = kbps), o `None`.
+
+    Se acepta coma decimal (`1,5M`) y mayúsculas. El rango lo valida quien llama: aquí solo se
+    comprueba el formato para que la UI y `Settings` compartan el mismo criterio.
+    """
+    if value is None:
+        return None
+    match = _BITRATE_RE.match(str(value))
+    if not match:
+        return None
+    number = float(match.group(1).replace(",", "."))
+    suffix = match.group(2).lower()
+    factor = {"": 1_000, "k": 1_000, "m": 1_000_000, "g": 1_000_000_000}[suffix]
+    bits = int(round(number * factor))
+    return bits if bits > 0 else None
+
+
+def bitrate_arg(bits: int) -> str:
+    """Argumento de FFmpeg (`192k`, `6M`) para unos bits/s."""
+    if bits % 1_000_000 == 0:
+        return f"{bits // 1_000_000}M"
+    if bits % 1_000 == 0:
+        return f"{bits // 1_000}k"
+    return str(bits)
+
+
+def format_bitrate(bits: int) -> str:
+    """Texto corto para el resumen: `6 Mbps`, `192 kbps`."""
+    if bits >= 1_000_000:
+        value = f"{bits / 1_000_000:.3f}".rstrip("0").rstrip(".")
+        return f"{value} Mbps"
+    value = f"{bits / 1_000:.3f}".rstrip("0").rstrip(".")
+    return f"{value} kbps"
+
+
+def _dimension_error(label: str, value: str) -> str | None:
+    text = str(value).strip()
+    if not text.isdigit():
+        return f"{label} debe ser un número entero entre {CUSTOM_MIN_DIMENSION} y {CUSTOM_MAX_DIMENSION}."
+    number = int(text)
+    if not CUSTOM_MIN_DIMENSION <= number <= CUSTOM_MAX_DIMENSION:
+        return f"{label} debe estar entre {CUSTOM_MIN_DIMENSION} y {CUSTOM_MAX_DIMENSION} px."
+    return None
+
+
+def custom_error(
+    width: str | int,
+    height: str | int,
+    fps: str | int,
+    video_bitrate: str | None,
+    audio_bitrate: str | None,
+) -> str | None:
+    """Primer error de la configuración personalizada, o `None` si es válida.
+
+    Los pares son obligatorios porque H.264 4:2:0 no admite dimensiones impares; el resto se acota
+    a rangos razonables. La UI y `Settings.normalized()` usan este mismo criterio.
+    """
+    error = _dimension_error("El ancho", width)
+    if error:
+        return error
+    error = _dimension_error("El alto", height)
+    if error:
+        return error
+    if int(str(width).strip()) % 2 or int(str(height).strip()) % 2:
+        return "El ancho y el alto deben ser pares (H.264 4:2:0)."
+    fps_text = str(fps).strip()
+    if not fps_text.isdigit() or not CUSTOM_FPS_MIN <= int(fps_text) <= CUSTOM_FPS_MAX:
+        return f"Los fps deben ser un número entero entre {CUSTOM_FPS_MIN} y {CUSTOM_FPS_MAX}."
+    video_bits = parse_bitrate(video_bitrate)
+    if video_bits is None:
+        return "Bitrate de video no válido: usa por ejemplo 6000k o 6M."
+    if not VIDEO_BITRATE_MIN <= video_bits <= VIDEO_BITRATE_MAX:
+        return (f"El bitrate de video debe estar entre {format_bitrate(VIDEO_BITRATE_MIN)} "
+                f"y {format_bitrate(VIDEO_BITRATE_MAX)}.")
+    audio_bits = parse_bitrate(audio_bitrate)
+    if audio_bits is None:
+        return "Bitrate de audio no válido: usa por ejemplo 192k."
+    if not AUDIO_BITRATE_MIN <= audio_bits <= AUDIO_BITRATE_MAX:
+        return (f"El bitrate de audio debe estar entre {format_bitrate(AUDIO_BITRATE_MIN)} "
+                f"y {format_bitrate(AUDIO_BITRATE_MAX)}.")
+    return None
+
+
+def custom_preset(
+    width: str | int,
+    height: str | int,
+    fps: str | int,
+    video_bitrate: str,
+    audio_bitrate: str,
+    *,
+    codec: str = "x264",
+) -> ExportPreset:
+    """Preset de export personalizado ya validado (`ProjectError` si algo no cuadra)."""
+    error = custom_error(width, height, fps, video_bitrate, audio_bitrate)
+    if error:
+        raise ProjectError(error)
+    if codec not in CUSTOM_CODECS:
+        raise ProjectError(f"códec personalizado desconocido: {codec!r}")
+    video_bits = parse_bitrate(video_bitrate)
+    audio_bits = parse_bitrate(audio_bitrate)
+    assert video_bits is not None and audio_bits is not None  # lo garantiza custom_error
+    return ExportPreset(
+        CUSTOM_PRESET_ID,
+        "Personalizado",
+        "Tamaño, fps y bitrate elegidos a mano; GPU si existe o x264.",
+        "hw" if codec == "auto" else "x264",
+        21,
+        "medium",
+        bitrate_arg(audio_bits),
+        width=even(int(str(width).strip())),
+        height=even(int(str(height).strip())),
+        fps=int(str(fps).strip()),
+        video_bitrate=bitrate_arg(video_bits),
+    )
+
+
+def preset_has_custom_stream(preset: ExportPreset) -> bool:
+    """¿El preset lleva tamaño, fps o bitrate personalizados? («copia» no los admite)."""
+    return any(value is not None for value in (preset.width, preset.height, preset.fps,
+                                               preset.video_bitrate))
+
+
+def export_fps(project: Project, preset: ExportPreset) -> int:
+    """FPS efectivos de salida (el del preset personalizado o el del proyecto)."""
+    return int(preset.fps) if preset.fps else int(project.fps)
+
 
 
 def preset_by_id(preset_id: str) -> ExportPreset:
@@ -110,6 +275,12 @@ def even(value: float) -> int:
 
 
 def output_size(project: Project, preset: ExportPreset) -> tuple[int, int]:
+    if preset.width is not None or preset.height is not None:
+        if preset.width is None or preset.height is None:
+            raise ProjectError("el tamaño personalizado necesita ancho y alto")
+        width = min(CUSTOM_MAX_DIMENSION, max(CUSTOM_MIN_DIMENSION, int(preset.width)))
+        height = min(CUSTOM_MAX_DIMENSION, max(CUSTOM_MIN_DIMENSION, int(preset.height)))
+        return even(width), even(height)
     width, height = project.width, project.height
     if preset.max_height and height > preset.max_height:
         width, height = width * preset.max_height / height, preset.max_height
@@ -188,7 +359,28 @@ def atempo_chain(speed: float) -> list[str]:
     return steps
 
 
+def _bitrate_codec_args(encoder: str, preset: ExportPreset) -> list[str]:
+    """Argumentos de bitrate: `-b:v` (+ maxrate/bufsize) en lugar de CRF/CQ (docs/44)."""
+    bits = parse_bitrate(preset.video_bitrate)
+    if bits is None:
+        raise ProjectError(f"bitrate de video no válido: {preset.video_bitrate!r}")
+    rate = bitrate_arg(bits)
+    extra = ["-b:v", rate, "-maxrate", bitrate_arg(int(bits * 1.5)),
+             "-bufsize", bitrate_arg(bits * 2)]
+    if encoder == "h264_nvenc":
+        return ["-c:v", encoder, "-preset", "p5", "-rc", "vbr", *extra]
+    if encoder == "h264_amf":
+        return ["-c:v", encoder, "-quality", "balanced", "-rc", "vbr", *extra]
+    if encoder == "h264_qsv":
+        return ["-c:v", encoder, "-preset", "veryfast", *extra]
+    if encoder == "libx264":
+        return ["-c:v", encoder, "-preset", preset.x264_preset, *extra]
+    raise ProjectError(f"encoder desconocido: {encoder!r}")
+
+
 def video_codec_args(encoder: str, preset: ExportPreset) -> list[str]:
+    if preset.video_bitrate:
+        return _bitrate_codec_args(encoder, preset)
     q = preset.quality
     if encoder == "h264_nvenc":
         return ["-c:v", encoder, "-preset", "p5", "-rc", "vbr", "-cq", str(q), "-b:v", "0"]
@@ -765,10 +957,23 @@ def build(
     cadenas no cambian.
     """
     if preset.video == "copy":
+        if preset_has_custom_stream(preset):
+            raise ProjectError(
+                "«Sin recodificar» no admite tamaño, fps ni bitrate personalizados: "
+                "elige otro preset o quita esas opciones"
+            )
         raise ProjectError("el preset «sin recodificar» no usa filter graph (ver core.keyframes)")
     if not project.video.clips:
         raise ProjectError("el timeline está vacío: no hay nada que exportar")
     project.validate()
+    # El fps personalizado se aplica antes de calcular frames/transiciones: `fps=<objetivo>` entra
+    # en la cadena de cada clip (el punto que exige la regla 1: todo igual antes de concat/xfade) y
+    # las duraciones, offsets y `GraphSpec` quedan en la cadencia de salida (docs/44).
+    if preset.fps is not None and not CUSTOM_FPS_MIN <= int(preset.fps) <= CUSTOM_FPS_MAX:
+        raise ProjectError(f"fps de export no válido: {preset.fps!r} (usa {CUSTOM_FPS_MIN}–{CUSTOM_FPS_MAX})")
+    target_fps = export_fps(project, preset)
+    if target_fps != project.fps:
+        project = replace(project, fps=target_fps)
     window: tuple[int, int] | None = None
     if span is not None:
         window = range_frames(project, *span)

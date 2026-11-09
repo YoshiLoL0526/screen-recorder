@@ -7,6 +7,13 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Export personalizado y presets sociales** (docs/44; modelo v14 sin cambios): tamaño exacto
+  (par y acotado), fps de salida (1–240), bitrate de video/audio y códec H.264 (GPU automática o
+  x264) en el modal de export. Accesos rápidos 9:16, 1:1, 4:5 y 16:9; validación inline con el
+  botón Exportar bloqueado y su motivo; resumen con los valores efectivos. La configuración vive
+  en `Settings` y se recupera al reabrir; los cuatro presets históricos mantienen sus cadenas y
+  goldens byte a byte. Un export real 320×180/24 fps/400k se verifica con `probe_media` y conteo
+  de frames.
 - **Easing de las envolventes de volumen** (docs/40; modelo v14 con migración v13 → v14):
   `VolumePoint.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) en `Clip.envelope` y
   `Element.envelope`, con la curva de la clave izquierda compartida por `value_at` y las

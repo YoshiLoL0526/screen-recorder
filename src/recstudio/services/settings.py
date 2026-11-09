@@ -8,6 +8,7 @@ import threading
 from dataclasses import asdict, dataclass, fields
 from typing import Any
 
+from ..core import graph as graph_mod
 from ..platform import paths
 
 _SAVE_LOCK = threading.Lock()
@@ -31,6 +32,14 @@ class Settings:
     last_project: str = ""  # project.json abierto al cerrar (se reabre al arrancar)
     preview_audio: bool = True
     export_preset: str = "rapido"  # preset del último export (core.graph.PRESETS)
+    # Export personalizado (docs/44): última configuración usada en el modal. Vive aquí, no en
+    # `Project`: cambiar la resolución de salida no altera el lienzo del proyecto.
+    export_custom_width: int = 1920
+    export_custom_height: int = 1080
+    export_custom_fps: int = 60
+    export_custom_video_bitrate: str = graph_mod.DEFAULT_VIDEO_BITRATE
+    export_custom_audio_bitrate: str = graph_mod.DEFAULT_AUDIO_BITRATE
+    export_custom_codec: str = "auto"  # auto | x264
     # Escritorio: bandeja, atajos globales y avisos (post-v1)
     global_hotkeys: bool = False  # hook del sistema: opt-in (antivirus, permisos)
     tray: bool = True
@@ -56,7 +65,32 @@ class Settings:
         self.global_hotkeys = bool(self.global_hotkeys)
         self.tray = bool(self.tray)
         self.notify_finished = bool(self.notify_finished)
+        self._normalize_export()
         return self
+
+    def _normalize_export(self) -> None:
+        """Valida la configuración personalizada (docs/44) sin tocar el proyecto."""
+        if self.export_preset not in (*graph_mod.PRESET_IDS, graph_mod.CUSTOM_PRESET_ID):
+            self.export_preset = "rapido"
+        self.export_custom_width = _clamp_int(
+            self.export_custom_width, 1920, graph_mod.CUSTOM_MIN_DIMENSION,
+            graph_mod.CUSTOM_MAX_DIMENSION, even=True,
+        )
+        self.export_custom_height = _clamp_int(
+            self.export_custom_height, 1080, graph_mod.CUSTOM_MIN_DIMENSION,
+            graph_mod.CUSTOM_MAX_DIMENSION, even=True,
+        )
+        self.export_custom_fps = _clamp_int(
+            self.export_custom_fps, 60, graph_mod.CUSTOM_FPS_MIN, graph_mod.CUSTOM_FPS_MAX,
+        )
+        if not _bitrate_in_range(self.export_custom_video_bitrate,
+                                 graph_mod.VIDEO_BITRATE_MIN, graph_mod.VIDEO_BITRATE_MAX):
+            self.export_custom_video_bitrate = graph_mod.DEFAULT_VIDEO_BITRATE
+        if not _bitrate_in_range(self.export_custom_audio_bitrate,
+                                 graph_mod.AUDIO_BITRATE_MIN, graph_mod.AUDIO_BITRATE_MAX):
+            self.export_custom_audio_bitrate = graph_mod.DEFAULT_AUDIO_BITRATE
+        if self.export_custom_codec not in graph_mod.CUSTOM_CODECS:
+            self.export_custom_codec = "auto"
 
     @classmethod
     def load(cls) -> "Settings":
@@ -86,3 +120,19 @@ class Settings:
                 os.replace(tmp, path)
             except OSError:
                 pass
+
+
+def _clamp_int(value: Any, default: int, minimum: int, maximum: int, *, even: bool = False) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+    number = min(maximum, max(minimum, number))
+    if even:
+        number -= number % 2
+    return number
+
+
+def _bitrate_in_range(value: Any, minimum: int, maximum: int) -> bool:
+    bits = graph_mod.parse_bitrate(str(value) if value is not None else None)
+    return bits is not None and minimum <= bits <= maximum
