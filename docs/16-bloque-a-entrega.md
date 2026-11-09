@@ -217,6 +217,29 @@ visible en el frame exportado.
 
 ---
 
+## C5 — Pistas de micrófono (prueba manual)
+
+Procedimiento (detalle en [docs/50](50-pistas-microfono.md)):
+
+```bash
+uv run python tools/rec.py --list
+uv run python tools/rec.py --duration 3 --fps 30 --preset baja --audio both --mic 11 \
+  --audio-mode separate -o salida/
+```
+
+Comprobar que quedan `<nombre>.mp4`, `<nombre>-microfono.wav` y `<nombre>.json`; el MP4 debe tener
+**una sola** pista AAC (sistema) y el sidecar el bloque `mic` con `file`, `device`, `offset_s`,
+`duration_s`, `drift_ppm` y `rate`. Abrir la grabación con **✂ Editar**: deben aparecer «Audio del
+video» y «Micrófono» (pista absoluta en su offset), sin sonar dos veces.
+
+**Ejecutado el 2026-11-09** con `Microphone (Realtek(R) Audio)` y loopback: MP4 3,03 s / 1280×720 /
+30 fps con una pista AAC; WAV 3,48 s / 48 kHz / estéreo / 16 bits; `offset_s = -0,1728`; importado
+en el editor como «Micrófono» con recorte inicial de 0,167 s. En una segunda prueba sin keep-alive
+el loopback no entregó muestras: el MP4 quedó sin audio y el WAV se conservó (comportamiento
+documentado).
+
+---
+
 ## Cierre
 
 Con A1/A3/A4/A5 cerrados, la v1 ya tiene red de seguridad (CI), medidas reales de arranque/memoria,

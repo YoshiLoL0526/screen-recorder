@@ -26,7 +26,7 @@ CAMERA_FPS_MIN = 5
 CAMERA_FPS_MAX = 120
 
 SourceKind = Literal["monitor", "window", "region"]
-
+AUDIO_MODES = ("mix", "separate")
 
 CursorMode = Literal["software", "native", "off"]
 
@@ -80,15 +80,34 @@ class AudioConfig:
 
     `keepalive` reproduce silencio por la salida por defecto mientras se graba loopback:
     sin él, WASAPI deja de entregar datos cuando no suena nada (F0/S3b: cobertura 14.7 % → 99.96 %).
+
+    `mode` decide qué entra en el MP4 (docs/50):
+    - `"mix"`: sistema + micrófono mezclados en una sola pista AAC (comportamiento histórico).
+    - `"separate"`: el MP4 lleva el audio del sistema y el micrófono queda como WAV hermano
+      (`<nombre>-microfono.wav`) para importarlo al editor como pista propia. Sin micrófono
+      seleccionado se comporta como `"mix"` (no hay nada que separar).
     """
 
     system: bool = True
     mic_device_index: int | None = None
     keepalive: bool = True
+    mode: Literal["mix", "separate"] = "mix"
+
+    def validate(self) -> "AudioConfig":
+        if self.mode not in AUDIO_MODES:
+            raise ConfigError(f"modo de audio desconocido: {self.mode!r} (opciones: {AUDIO_MODES})")
+        if self.mic_device_index is not None and self.mic_device_index < 0:
+            raise ConfigError(f"índice de micrófono inválido: {self.mic_device_index}")
+        return self
 
     @property
     def any(self) -> bool:
         return self.system or self.mic_device_index is not None
+
+    @property
+    def separate_mic(self) -> bool:
+        """¿Hay que guardar el micrófono aparte? (modo separado **y** micrófono elegido)."""
+        return self.mode == "separate" and self.mic_device_index is not None
 
 
 @dataclass(frozen=True)
@@ -143,6 +162,7 @@ class RecordingConfig:
         if self.preset not in PRESETS:
             raise ConfigError(f"preset desconocido: {self.preset!r} (opciones: {tuple(PRESETS)})")
         self.source.validate()
+        self.audio.validate()
         self.camera.validate()
         if self.max_size_gb is not None and self.max_size_gb <= 0:
             raise ConfigError("max_size_gb debe ser positivo")

@@ -59,16 +59,16 @@ el **recorte interactivo en el preview** (`core/crop_edit.py`, `state.crop_on`, 
 de V1 o imagen; `core/background.py`, modelo **v16**, `docs/47`), los **formatos GIF/WebM**
 (`ExportPreset.format`, VP9/Opus y paleta GIF con límites de 20 fps/720 px; `docs/48`) y la
 **webcam junto a la pantalla** (`platform/camera.py`, `CameraConfig`, `<nombre>-camara.mp4` y
-PiP automático con `core.elements.add_camera_pip`; `docs/49`).
-Lo siguiente es el resto de
-la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales,
-C5 —pistas de audio separadas— y el resto del bloque C).
+PiP automático con `core.elements.add_camera_pip`; `docs/49`) y las **pistas de micrófono
+separadas** (`AudioConfig.mode`, `<nombre>-microfono.wav`, sidecar `mic` e importación como pista
+absoluta «Micrófono»; `docs/50`). Lo siguiente es el resto de la fase 4 (más composición y
+export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y el resto del bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 640 tests; la integración usa FFmpeg real
+uv run pytest                                   # 655 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -148,6 +148,12 @@ depender de monitor, GPU ni audio reales del runner.
   parar; si falla o desaparece, se avisa y la pantalla sigue. `CameraRecorder.start()` reintenta
   sin `-video_size`/`-framerate` y `stop()` cierra con `q` por stdin. La pausa se deshabilita con
   cámara activa. El `offset_s` del sidecar alinea el PiP automático (`in_`/inicio).
+- Micrófono separado (docs/50): `AudioConfig.mode="separate"` muxa **solo la primera pista**
+  (sistema) con `mux_cmd(mix=False)` y copia `audio_mic.wav` a `<nombre>-microfono.wav` **antes**
+  de borrar el temporal. El sidecar guarda `mic` (`file` solo el nombre, `offset_s` negativo si el
+  mic arrancó antes) y `mix` lo deja en `null`. La importación crea una pista **absoluta**
+  «Micrófono» en `clip_start + offset_s`; con offset negativo inserta con margen, recorta con
+  `trim_audio` y vuelve a `move_audio` para no adelantar el audio. El esquema no cambia (16).
 - WGC: `frame_buffer` ya es un numpy BGRA contiguo (copiar: el buffer se recicla);
   `convert_to_bgr()` muta el frame y devuelve el propio `Frame`, no un array.
 - Deriva del reloj de audio (~90 ppm): se compensa en el mux con `asetrate` calculado por
@@ -407,8 +413,8 @@ depender de monitor, GPU ni audio reales del runner.
   bitrate, códec y presets sociales), `docs/45` el texto multilínea con ancho máximo (modelo v15),
   `docs/46` los fundidos de audio con crossfade por corte (modelo v16 sin cambios), `docs/47` el
   fondo del lienzo con blur o imagen (modelo v16), `docs/48` los formatos GIF/WebM (VP9/Opus y
-  paleta GIF sin audio) y `docs/49` la webcam junto a la pantalla con PiP automático (modelo v16
-  sin cambios).
+  paleta GIF sin audio), `docs/49` la webcam junto a la pantalla con PiP automático (modelo v16
+  sin cambios) y `docs/50` las pistas de micrófono separadas (modelo v16 sin cambios).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

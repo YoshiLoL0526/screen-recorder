@@ -31,6 +31,10 @@ PRESET_OPTIONS = (
     ("insane", "Insane · 2K"),
 )
 COUNTDOWN_OPTIONS = ((0, "Sin cuenta atrás"), (3, "3 segundos"), (5, "5 segundos"), (10, "10 segundos"))
+AUDIO_MODE_OPTIONS = (
+    ("mix", "Mezclar en el MP4"),
+    ("separate", "Pistas separadas (micrófono editable)"),
+)
 CAMERA_RESOLUTIONS = (("640x360", "640×360"), ("1280x720", "1280×720"), ("1920x1080", "1920×1080"))
 CAMERA_FPS_OPTIONS = (15, 24, 30, 60)
 
@@ -275,7 +279,26 @@ def config_panel():
             [(-1, "Sin micrófono")] + [(d.index, d.name[:26]) for d in devices],
             key="sel-mic",
         )),
+        field("Modo", select(state.audio_mode, list(AUDIO_MODE_OPTIONS), key="sel-audio-mode")),
     ]
+    if state.mic_index() < 0:
+        audio_block.append(
+            text(
+                "Sin micrófono, «Pistas separadas» se comporta como mezclar: el MP4 llevará "
+                "solo el audio del sistema.",
+                size=11,
+                color="$muted",
+            )
+        )
+    elif state.audio_mode() == "separate":
+        audio_block.append(
+            text(
+                "El MP4 llevará el audio del sistema y el micrófono se guardará como "
+                "«<nombre>-microfono.wav» para editarlo como pista aparte.",
+                size=11,
+                color="$muted",
+            )
+        )
 
     video_block = [
         field("FPS", select(state.fps_target, list(FPS_OPTIONS), key="sel-fps")),

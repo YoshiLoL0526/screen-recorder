@@ -52,6 +52,7 @@ def build_config(args: argparse.Namespace) -> RecordingConfig:
         system=args.audio in ("system", "both"),
         mic_device_index=args.mic if args.audio in ("mic", "both") else None,
         keepalive=not args.no_keepalive,
+        mode=args.audio_mode,
     )
     width, height = (int(v) for v in args.camera_size.lower().split("x", 1))
     camera = CameraConfig(
@@ -169,6 +170,8 @@ def run(args: argparse.Namespace) -> int:
         print(f"    · {track.device} · {track.seconds:.2f}s")
     if result.camera is not None:
         print(f"  cámara: {result.camera}  (desfase {result.camera_offset_s:+.3f}s)")
+    if result.mic is not None:
+        print(f"  micrófono: {result.mic}  (desfase {result.mic_offset_s:+.3f}s)")
     if result.thumbnail:
         print(f"  miniatura: {result.thumbnail}")
     print(f"  sidecar: {result.sidecar}")
@@ -190,6 +193,8 @@ def run(args: argparse.Namespace) -> int:
             "audio": [asdict(track) | {"path": str(track.path)} for track in result.audio],
             "camera": str(result.camera) if result.camera is not None else None,
             "camera_offset_s": round(result.camera_offset_s, 4),
+            "mic": str(result.mic) if result.mic is not None else None,
+            "mic_offset_s": round(result.mic_offset_s, 4),
         }
         print(json.dumps(payload, ensure_ascii=False))
     return exit_code
@@ -217,6 +222,8 @@ def main() -> int:
                         choices=["auto", "h264_nvenc", "h264_amf", "h264_qsv", "libx264"])
     parser.add_argument("--audio", default="system", choices=["system", "mic", "both", "none"])
     parser.add_argument("--mic", type=int, default=None, help="índice del micrófono (--list)")
+    parser.add_argument("--audio-mode", default="mix", choices=["mix", "separate"],
+                        help="mix: sistema+mic en el MP4; separate: MP4 con el sistema y WAV del micrófono")
     parser.add_argument("--camera", default=None, help="webcam DirectShow junto a la pantalla (--list-cameras)")
     parser.add_argument("--camera-size", default="1280x720", help="resolución de la cámara (default 1280x720)")
     parser.add_argument("--camera-fps", type=int, default=30, help="fps de la cámara (default 30)")

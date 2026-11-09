@@ -77,6 +77,7 @@ encoder = Signal("auto")
 audio_system = Signal(True)
 keepalive = Signal(True)
 mic_index = Signal(-1)  # -1 = sin micrófono
+audio_mode = Signal("mix")  # mix | separate (pistas separadas, docs/50)
 # Webcam (docs/49): nombre DirectShow, resolución/fps y snapshot JPEG de la vista previa.
 camera_enabled = Signal(False)
 camera_device = Signal("")

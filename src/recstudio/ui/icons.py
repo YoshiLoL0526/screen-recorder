@@ -31,6 +31,8 @@ ALERT = _svg('<path d="M12 4l9 16H3z"/><path d="M12 10v4.5M12 17.2v.1"/>')
 INFO = _svg('<circle cx="12" cy="12" r="8.5"/><path d="M12 11v5M12 7.8v.1"/>')
 CAMERA = _svg('<rect x="3" y="6.5" width="18" height="13" rx="2.5"/><circle cx="12" cy="13" r="3.6"/>'
               '<path d="M8.5 6.5L10 4h4l1.5 2.5"/>')
+MIC = _svg('<rect x="9" y="3.5" width="6" height="11" rx="3"/>'
+           '<path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7"/>')
 
 # -- editor (F3) ----------------------------------------------------------------
 CUT = _svg('<circle cx="6.5" cy="17" r="2.6"/><circle cx="17.5" cy="17" r="2.6"/>'

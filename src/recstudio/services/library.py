@@ -25,6 +25,18 @@ class CameraInfo:
 
 
 @dataclass(frozen=True)
+class MicInfo:
+    """WAV del micrófono de una grabación separada (docs/50)."""
+
+    path: Path
+    device: str = ""
+    offset_s: float = 0.0
+    duration_s: float = 0.0
+    drift_ppm: float = 0.0
+    rate: int = 0
+
+
+@dataclass(frozen=True)
 class Recording:
     mp4: Path
     thumb: Path | None
@@ -39,6 +51,11 @@ class Recording:
     camera: Path | None = None
     camera_duration_s: float = 0.0
     camera_offset_s: float = 0.0
+    mic: Path | None = None
+    mic_duration_s: float = 0.0
+    mic_offset_s: float = 0.0
+    mic_drift_ppm: float = 0.0
+    mic_rate: int = 0
 
     @property
     def name(self) -> str:
@@ -47,6 +64,10 @@ class Recording:
     @property
     def has_camera(self) -> bool:
         return self.camera is not None
+
+    @property
+    def has_mic(self) -> bool:
+        return self.mic is not None
 
     @property
     def recovered(self) -> bool:
@@ -106,6 +127,64 @@ def camera_info(mp4: str | Path) -> CameraInfo | None:
     return _sidecar_camera(mp4.parent, data)
 
 
+def _sidecar_mic(folder: Path, data: dict) -> MicInfo | None:
+    """Resuelve `mic.file` (nombre relativo) a un WAV existente y no vacío."""
+    raw = data.get("mic")
+    if not isinstance(raw, dict):
+        return None
+    name = str(raw.get("file") or "").strip()
+    if not name:
+        return None
+    path = folder / Path(name).name  # solo el nombre: el sidecar nunca apunta fuera
+    try:
+        if not path.is_file() or path.stat().st_size == 0:
+            return None
+    except OSError:
+        return None
+    try:
+        offset = float(raw.get("offset_s") or 0.0)
+        duration = float(raw.get("duration_s") or 0.0)
+        drift = float(raw.get("drift_ppm") or 0.0)
+        rate = int(raw.get("rate") or 0)
+    except (TypeError, ValueError):
+        offset, duration, drift, rate = 0.0, 0.0, 0.0, 0
+    return MicInfo(
+        path=path,
+        device=str(raw.get("device") or ""),
+        offset_s=offset,
+        duration_s=duration,
+        drift_ppm=drift,
+        rate=rate,
+    )
+
+
+def mic_info(mp4: str | Path) -> MicInfo | None:
+    """Micrófono separado de una grabación (solo si el WAV existe y tiene datos)."""
+    mp4 = Path(mp4)
+    sidecar = mp4.with_suffix(".json")
+    if not sidecar.is_file():
+        return None
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return _sidecar_mic(mp4.parent, data)
+
+
+def mic_declared(mp4: str | Path) -> bool:
+    """¿El sidecar declara un micrófono separado, exista o no el WAV?"""
+    mp4 = Path(mp4)
+    sidecar = mp4.with_suffix(".json")
+    if not sidecar.is_file():
+        return False
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return False
+    raw = data.get("mic")
+    return isinstance(raw, dict) and bool(str(raw.get("file") or "").strip())
+
+
 def list_recordings(out_dir: str | Path) -> list[Recording]:
     """Todos los MP4 de la carpeta (con sidecar/miniatura si existen), el más nuevo primero."""
     if not str(out_dir).strip():  # carpeta sin configurar: no listar el directorio actual
@@ -130,6 +209,7 @@ def list_recordings(out_dir: str | Path) -> list[Recording]:
         except OSError:
             continue
         camera = _sidecar_camera(folder, data)
+        mic = _sidecar_mic(folder, data)
         items.append(
             Recording(
                 mp4=mp4,
@@ -145,6 +225,11 @@ def list_recordings(out_dir: str | Path) -> list[Recording]:
                 camera=camera.path if camera is not None else None,
                 camera_duration_s=camera.duration_s if camera is not None else 0.0,
                 camera_offset_s=camera.offset_s if camera is not None else 0.0,
+                mic=mic.path if mic is not None else None,
+                mic_duration_s=mic.duration_s if mic is not None else 0.0,
+                mic_offset_s=mic.offset_s if mic is not None else 0.0,
+                mic_drift_ppm=mic.drift_ppm if mic is not None else 0.0,
+                mic_rate=mic.rate if mic is not None else 0,
             )
         )
     items.sort(key=lambda r: r.created_at, reverse=True)
@@ -207,9 +292,11 @@ def move_to_trash(path: Path) -> bool:
 
 
 def delete_recording_files(recording: Recording) -> list[Path]:
-    """Borra (a la papelera) el mp4 y sus hermanos: miniatura, sidecar y cámara."""
+    """Borra (a la papelera) el mp4 y sus hermanos: miniatura, sidecar, cámara y micrófono."""
     removed: list[Path] = []
-    for path in (recording.mp4, recording.thumb, recording.sidecar, recording.camera):
+    for path in (
+        recording.mp4, recording.thumb, recording.sidecar, recording.camera, recording.mic,
+    ):
         if path is not None and path.exists() and move_to_trash(path):
             removed.append(path)
     return removed

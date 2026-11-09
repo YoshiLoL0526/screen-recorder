@@ -151,6 +151,7 @@ class Controller:
         state.audio_system.set(s.audio_system)
         state.keepalive.set(s.keepalive)
         state.mic_index.set(s.mic_index)
+        state.audio_mode.set(s.audio_mode)
         state.camera_enabled.set(s.camera_enabled)
         state.camera_device.set(s.camera_device)
         state.camera_resolution.set(f"{s.camera_width}x{s.camera_height}")
@@ -185,7 +186,8 @@ class Controller:
             state.theme_name, state.source_kind, state.monitor_index, state.window_title,
             state.region, state.countdown_s,
             state.fps_target, state.preset, state.encoder, state.audio_system,
-            state.keepalive, state.mic_index, state.camera_enabled, state.camera_device,
+            state.keepalive, state.mic_index, state.audio_mode,
+            state.camera_enabled, state.camera_device,
             state.camera_resolution, state.camera_fps,
             state.out_dir, state.project_path, state.preview_audio,
             state.inspector_w, state.inspector_open, state.tl_tracks_extra,
@@ -222,6 +224,7 @@ class Controller:
         s.audio_system = bool(state.audio_system())
         s.keepalive = bool(state.keepalive())
         s.mic_index = int(state.mic_index())
+        s.audio_mode = state.audio_mode()
         s.camera_enabled = bool(state.camera_enabled())
         s.camera_device = state.camera_device()
         s.camera_width, s.camera_height = _camera_size()
@@ -602,6 +605,7 @@ class Controller:
                     system=bool(state.audio_system()),
                     mic_device_index=None if int(state.mic_index()) < 0 else int(state.mic_index()),
                     keepalive=bool(state.keepalive()),
+                    mode=state.audio_mode(),  # type: ignore[arg-type]
                 ),
                 camera=CameraConfig(
                     enabled=bool(state.camera_enabled()),

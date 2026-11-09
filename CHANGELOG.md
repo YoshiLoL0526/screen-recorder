@@ -7,6 +7,15 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Pistas de micrófono separadas** (docs/50; modelo v16 sin cambios): `AudioConfig.mode`
+  (`mix`/`separate`) y `Settings.audio_mode`, con selector **Modo** en Grabar. En separado, el
+  MP4 lleva solo el audio del sistema y el micrófono se guarda como
+  `<nombre>-microfono.wav` con `mic.file`/`device`/`offset_s`/`duration_s`/`drift_ppm`/`rate` en
+  el sidecar; la recuperación lo conserva. La Biblioteca muestra el chip **🎤 micrófono** y
+  permite reproducirlo/borrarlo, y al importar la grabación el editor añade una pista absoluta
+  **«Micrófono»** en su `offset_s` (recorta el arranque si el WAV empezó antes) sin duplicar el
+  sonido. `tools/rec.py --audio-mode separate` para la prueba manual; sin micrófono el modo se
+  comporta como mezclar y sin sistema el MP4 puede quedar sin audio.
 - **Webcam junto a la pantalla y PiP automático** (docs/49; modelo v16 sin cambios): `CameraConfig`
   (dispositivo DirectShow, 1280×720, 30 fps) persistida en `Settings` y sección **Cámara** en
   Grabar con snapshot periódico. La captura usa **FFmpeg + DirectShow** (sin OpenCV), reintenta
