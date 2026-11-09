@@ -18,6 +18,7 @@ from recstudio.core import store
 from recstudio.core import timeline as tl
 from recstudio.core.errors import ProjectError
 from recstudio.core.project import (
+    SCHEMA_VERSION,
     Clip,
     Effect,
     MediaAsset,
@@ -103,14 +104,14 @@ def test_clip_serializa_la_envolvente_y_migra_v9_al_esquema_actual() -> None:
         fps=30,
     ).validate()
     data = to_dict(project)
-    assert data["schema_version"] == 11
+    assert data["schema_version"] == SCHEMA_VERSION
     assert data["video"]["clips"][0]["envelope"] == [
         {"t": 0.0, "gain": 1.0}, {"t": 1.5, "gain": 0.25},
     ]
     assert from_dict(data).video.clips[0].envelope == points
 
     migrated, read_only = store.migrate({"schema_version": 9, "video": {"clips": []}})
-    assert read_only is False and migrated["schema_version"] == 11
+    assert read_only is False and migrated["schema_version"] == SCHEMA_VERSION
     assert from_dict({
         "schema_version": 10,
         "assets": [{"id": "a", "path": "x.mp4", "duration": 2, "width": 320, "height": 180,

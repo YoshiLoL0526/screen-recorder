@@ -24,9 +24,10 @@ from typing import Any, Literal
 
 from . import animation as anim
 from . import audio_envelope as env
+from . import text_color as tc
 from .errors import ProjectError
 
-SCHEMA_VERSION = 11  # v11: envolventes de audio de elementos (docs/34)
+SCHEMA_VERSION = 12  # v12: color animado de textos (docs/36)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -142,7 +143,8 @@ class TextOverlay:
     bold: bool = False
     opacity: float = 1.0  # v9: opacidad base (los keyframes la sustituyen)
     subtitle: bool = False  # v9: cue importada de SRT/VTT (docs/30)
-    animations: tuple[anim.Animation, ...] = ()  # v9: x, y, opacity (docs/31) y escala/rotación (docs/35)
+    animations: tuple[anim.Animation, ...] = ()  # v9: x, y, opacity (docs/31); escala/rotación/tamaño (docs/35 y docs/36)
+    color_keys: tuple[tc.ColorKeyframe, ...] = ()  # v12: color animado (docs/36)
 
     def __post_init__(self) -> None:
         if not self.text.strip():
@@ -158,6 +160,7 @@ class TextOverlay:
         if not math.isfinite(float(self.opacity)) or not 0.0 <= self.opacity <= 1.0:
             raise ProjectError(f"texto {self.id}: opacidad fuera de [0, 1] ({self.opacity})")
         anim.validate(self.animations, anim.TEXT_CHANNELS)
+        tc.validate(self.color_keys)
 
     @property
     def seconds(self) -> float:
@@ -639,6 +642,7 @@ def to_dict(project: Project) -> dict[str, Any]:
                 "x": t.x, "y": t.y, "size": t.size, "color": t.color, "bold": t.bold,
                 "opacity": t.opacity, "subtitle": t.subtitle,
                 "animations": [animation_dict(a) for a in t.animations],
+                "color_keys": [{"t": key.t, "color": key.color} for key in t.color_keys],
             }
             for t in project.texts
         ],
@@ -758,6 +762,10 @@ def from_dict(data: dict[str, Any]) -> Project:
                 opacity=float(t.get("opacity", 1.0)),
                 subtitle=bool(t.get("subtitle", False)),
                 animations=tuple(animation_of(a) for a in t.get("animations", ())),
+                color_keys=tuple(
+                    tc.ColorKeyframe(t=float(key["t"]), color=str(key["color"]))
+                    for key in t.get("color_keys", ())
+                ),
             )
             for t in data.get("texts", ())
         )

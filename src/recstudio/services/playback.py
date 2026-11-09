@@ -343,18 +343,20 @@ _TEXT_STROKE = 2.0  # px de contorno a la altura del proyecto (igual que `drawte
 
 
 def _text_layout(overlay, t: float, frame_size: tuple[int, int], project_height: int):  # noqa: ANN001, ANN202
-    """Métricas compartidas por el preview y el bake de export (docs/35).
+    """Métricas compartidas por el preview y el bake de export (docs/35 y docs/36).
 
-    Devuelve `(x, y, opacity, font, border, (left, top, width, height), rotation)` o `None` si
-    el texto no se ve en `t`. `left/top` son la caja de la fuente respecto al centro; la imagen
-    aislada se dibuja desplazada `(-left, -top)`.
+    Devuelve `(x, y, opacity, font, border, (left, top, width, height), rotation, color)` o
+    `None` si el texto no se ve en `t`. `left/top` son la caja de la fuente respecto al centro;
+    la imagen aislada se dibuja desplazada `(-left, -top)`. El tamaño y el color salen de
+    `timeline.text_style_values` (keyframes de tamaño y claves de color incluidos).
     """
     x, y, opacity, value_scale, rotation = tl.text_values(overlay, t)
     if opacity <= 1e-4:
         return None
     frame_h = max(1, int(frame_size[1]))
     project_h = max(1, int(project_height))
-    size = max(8, int(round(overlay.size * frame_h / project_h * value_scale)))
+    style_size, color = tl.text_style_values(overlay, t)
+    size = max(8, int(round(style_size * frame_h / project_h * value_scale)))
     font = _font(overlay.bold, size)
     border = max(1, int(round(_TEXT_STROKE * frame_h / project_h)))
     try:
@@ -363,7 +365,7 @@ def _text_layout(overlay, t: float, frame_size: tuple[int, int], project_height:
         left, top, right, bottom = font.getbbox(overlay.text)
     width = max(1, int(round(right - left)))
     height = max(1, int(round(bottom - top)))
-    return x, y, opacity, font, border, (int(left), int(top), width, height), rotation
+    return x, y, opacity, font, border, (int(left), int(top), width, height), rotation, color
 
 
 def text_extent(
@@ -373,14 +375,14 @@ def text_extent(
     metrics = _text_layout(overlay, t, frame_size, project_height)
     if metrics is None:
         return (1, 1)
-    _x, _y, _opacity, _font, _border, (left, top, width, height), rotation = metrics
+    _x, _y, _opacity, _font, _border, (left, top, width, height), rotation, _color = metrics
     return el.rotated_size(width, height, rotation)
 
 
 def text_rgba(
     overlay, t: float, frame_size: tuple[int, int], *, project_height: int,  # noqa: ANN001
 ):
-    """Texto RGBA aislado con escala, rotación y opacidad horneadas (docs/35).
+    """Texto RGBA aislado con escala, rotación, tamaño, color y opacidad horneados (docs/35/36).
 
     Es la única rasterización del texto transformado: la usan el preview y el bake del export,
     así que ambos ven exactamente los mismos píxeles (salvo la codificación del intermedio).
@@ -390,10 +392,10 @@ def text_rgba(
     metrics = _text_layout(overlay, t, frame_size, project_height)
     if metrics is None:
         return None
-    _x, _y, opacity, font, border, (left, top, width, height), rotation = metrics
+    _x, _y, opacity, font, border, (left, top, width, height), rotation, color = metrics
     image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    red, green, blue = ImageColor.getrgb(overlay.color)
+    red, green, blue = ImageColor.getrgb(color)
     alpha = max(0, min(255, int(round(opacity * 255))))
     draw.text((-left, -top), overlay.text, font=font, fill=(red, green, blue, alpha),
               anchor="mm", stroke_width=border, stroke_fill=(0, 0, 0, alpha))
@@ -428,10 +430,14 @@ def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
         metrics = _text_layout(overlay, t, frame_size, project.height)
         if metrics is None:
             continue
-        x, y, opacity, font, border, _box, _rotation = metrics
+        x, y, opacity, font, border, _box, _rotation, color = metrics
         cx, cy = x * base.width, y * base.height
         if (anim.is_animated(overlay.animations, "scale")
-                or anim.is_animated(overlay.animations, "rotation")):
+                or anim.is_animated(overlay.animations, "rotation")
+                or anim.is_animated(overlay.animations, "size")
+                or bool(overlay.color_keys)):
+            # Tamaño y color animados comparten la rasterización del bake (docs/36); así el
+            # preview y el export no tienen dos implementaciones del mismo estilo.
             image = text_rgba(overlay, t, frame_size, project_height=project.height)
             if image is None:
                 continue
@@ -439,7 +445,7 @@ def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
                 layer, image, int(round(cx - image.width / 2)), int(round(cy - image.height / 2)),
             )
             continue
-        red, green, blue = ImageColor.getrgb(overlay.color)
+        red, green, blue = ImageColor.getrgb(color)
         alpha = max(0, min(255, int(round(opacity * 255))))
         # Mismo contorno que `drawtext` (borderw=2) para que el preview no mienta: antes se
         # dibujaba una sombra desplazada que el export no tenía. La capa RGBA permite animar

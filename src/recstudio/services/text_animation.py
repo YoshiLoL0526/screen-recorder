@@ -1,15 +1,16 @@
-"""Bake de textos con escala/rotación animadas (docs/35).
+"""Bake de textos con escala, rotación, tamaño o color animados (docs/35 y docs/36).
 
-`drawtext` no permite rotar el texto por frame ni cambiar `fontsize` con la fiabilidad del
-rasterizado de PIL. Por eso el export sigue la misma estrategia que los elementos animados
-(docs/33): el texto se compone frame a frame con la **misma** función que usa el preview
-(`services.playback.text_rgba`), se codifica a un vídeo RGBA `qtrle` y se superpone con `overlay`
-en `(x, y)`, con la opacidad ya horneada.
+`drawtext` no permite rotar el texto por frame, ni cambiar `fontsize` con la fiabilidad del
+rasterizado de PIL, ni interpolar el color. Por eso el export sigue la misma estrategia que los
+elementos animados (docs/33): el texto se compone frame a frame con la **misma** función que usa
+el preview (`services.playback.text_rgba`), se codifica a un vídeo RGBA `qtrle` y se superpone
+con `overlay` en `(x, y)`, con el estilo ya horneado.
 
-- Solo se hornean los textos con claves de `scale` o `rotation`. Los demás siguen usando
-  `drawtext`, y un proyecto sin esos canales conserva las cadenas del graph byte a byte.
-- El lienzo del `.mov` es el máximo que necesita el texto en todo su intervalo (escala y rotación
-  incluidas), porque `overlay` exige un tamaño constante.
+- Solo se hornean los textos con claves de `scale`, `rotation` o `size`, o con `color_keys`.
+  Los demás siguen usando `drawtext`, y un proyecto sin esos canales conserva las cadenas del
+  graph byte a byte.
+- El lienzo del `.mov` es el máximo que necesita el texto en todo su intervalo (tamaño, escala y
+  rotación incluidos), porque `overlay` exige un tamaño constante.
 - Los intermedios viven en el directorio temporal del export y se borran con él.
 """
 
@@ -30,11 +31,14 @@ from . import playback
 from .rgba_video import encoder_args, safe_name
 
 GEOMETRY_CHANNELS = anim.TRANSFORM_CHANNELS
+BAKE_CHANNELS = anim.TEXT_BAKE_CHANNELS
 
 
 def needs_bake(overlay: TextOverlay) -> bool:
-    """¿El texto tiene claves de escala o rotación? (x/y/opacidad solos no necesitan bake)."""
-    return any(anim.is_animated(overlay.animations, channel) for channel in GEOMETRY_CHANNELS)
+    """¿El texto tiene claves de escala/rotación/tamaño o color animado? (docs/35 y docs/36)."""
+    return bool(overlay.color_keys) or any(
+        anim.is_animated(overlay.animations, channel) for channel in BAKE_CHANNELS
+    )
 
 
 def _visible_in_timeline(project: Project, overlay: TextOverlay) -> bool:
@@ -121,7 +125,7 @@ def materialize(
     fps: int,
     folder: str | Path,
 ) -> dict[str, overlays.TextClip]:
-    """Hornea los textos con escala/rotación animadas al tamaño de salida `size`.
+    """Hornea los textos con escala/rotación/tamaño o color animados al tamaño de salida `size`.
 
     `folder` debe ser el directorio temporal del export: los `.mov` se borran con él.
     """
@@ -141,4 +145,4 @@ def materialize(
     }
 
 
-__all__ = ["GEOMETRY_CHANNELS", "materialize", "needs_bake"]
+__all__ = ["BAKE_CHANNELS", "GEOMETRY_CHANNELS", "materialize", "needs_bake"]

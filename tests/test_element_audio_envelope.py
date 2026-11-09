@@ -18,6 +18,7 @@ from recstudio.core import store
 from recstudio.core import timeline as tl
 from recstudio.core.errors import ProjectError
 from recstudio.core.project import (
+    SCHEMA_VERSION,
     Clip,
     Effect,
     Element,
@@ -64,7 +65,7 @@ def test_element_serializa_la_envolvente_y_migra_v10_a_v11() -> None:
     points = _points()
     project = _project(points)
     data = to_dict(project)
-    assert data["schema_version"] == 11
+    assert data["schema_version"] == SCHEMA_VERSION
     assert data["elements"][0]["envelope"] == [
         {"t": 0.0, "gain": 1.0}, {"t": 0.75, "gain": 0.25},
     ]
@@ -77,7 +78,7 @@ def test_element_serializa_la_envolvente_y_migra_v10_a_v11() -> None:
     for element in old["elements"]:
         element.pop("envelope")
     migrated, read_only = store.migrate(old)
-    assert read_only is False and migrated["schema_version"] == 11
+    assert read_only is False and migrated["schema_version"] == SCHEMA_VERSION
     assert from_dict(migrated).elements[0].envelope == ()
 
 

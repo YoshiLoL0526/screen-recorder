@@ -247,6 +247,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v9_v10(data)
     if version < 11:
         data = _migrate_v10_v11(data)
+    if version < 12:
+        data = _migrate_v11_v12(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -379,6 +381,15 @@ def _migrate_v10_v11(data: dict[str, Any]) -> dict[str, Any]:
 
     Los elementos antiguos no tenían `envelope`; `from_dict` los deja en `()` (sin curva), así
     que el audio de los PiP y de V2/V3 suena exactamente igual y no hay nada que reescribir.
+    """
+    return {**data}
+
+
+def _migrate_v11_v12(data: dict[str, Any]) -> dict[str, Any]:
+    """v11 → v12: color animado de textos (docs/36).
+
+    Los textos antiguos no tenían `color_keys`; `from_dict` los deja en `()` (sin curva), así
+    que conservan su `color` base y se dibujan exactamente igual que antes.
     """
     return {**data}
 

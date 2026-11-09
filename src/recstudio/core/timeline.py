@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 
 from . import animation as anim
 from . import audio_envelope as env
+from . import text_color as tc
 from .errors import ProjectError
 from .project import (
     AUDIO_VIDEO_TRACK_NAME,
@@ -1212,7 +1213,7 @@ def add_text(
     p: Project, text: str, start: float, duration: float = 3.0, *,
     x: float = 0.5, y: float = 0.82, size: int = 42, color: str = "#FFFFFF",
     bold: bool = False, opacity: float = 1.0, subtitle: bool = False,
-    animations: tuple = (),
+    animations: tuple = (), color_keys: tuple = (),
 ) -> tuple[Project, TextOverlay]:
     """Añade un texto en `start` (acotado al timeline) y devuelve `(proyecto, overlay)`."""
     total = total_duration(p)
@@ -1227,7 +1228,7 @@ def add_text(
     overlay = TextOverlay(
         id=new_id("t"), text=str(text), start=round(start, 4), end=round(end, 4),
         x=x, y=y, size=int(size), color=color, bold=bold,
-        opacity=opacity, subtitle=subtitle, animations=animations,
+        opacity=opacity, subtitle=subtitle, animations=animations, color_keys=color_keys,
     )
     return replace(p, texts=(*p.texts, overlay)), overlay
 
@@ -1237,7 +1238,7 @@ def update_text(p: Project, text_id: str, **changes) -> Project:  # noqa: ANN003
     current = p.text(text_id)
     allowed = {
         "text", "start", "end", "x", "y", "size", "color", "bold",
-        "opacity", "subtitle", "animations",
+        "opacity", "subtitle", "animations", "color_keys",
     }
     unknown = set(changes) - allowed
     if unknown:
@@ -1263,6 +1264,19 @@ def text_values(overlay: TextOverlay, t: float) -> tuple[float, float, float, fl
     scale = anim.value_at(overlay.animations, "scale", local, 1.0)
     rotation = anim.value_at(overlay.animations, "rotation", local, 0.0)
     return x, y, opacity, scale, rotation
+
+
+def text_style_values(overlay: TextOverlay, t: float) -> tuple[float, str]:
+    """`(size, color)` del texto en `t`: tamaño animado y color interpolado (docs/36).
+
+    Es una función aparte para no cambiar la firma pública de `text_values`, que ya devuelve
+    cinco valores y comparten preview, export y tests. `size` es un float (se redondea al pintar)
+    y `color` siempre es `#RRGGBB`.
+    """
+    local = max(0.0, float(t) - overlay.start)
+    size = anim.value_at(overlay.animations, "size", local, float(overlay.size))
+    color = tc.value_at(overlay.color_keys, local, overlay.color)
+    return size, color
 
 
 # -- snap --------------------------------------------------------------------------

@@ -7,6 +7,11 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Color y tamaño animados de textos/subtítulos** (docs/36; modelo v12 con migración v11 → v12):
+  canal `size` (`8…200`) en `TextOverlay.animations` y `TextOverlay.color_keys` con
+  `ColorKeyframe(t, color)` e interpolación lineal en sRGB. El preview y el export comparten el
+  rasterizado de PIL y el bake `.mov` `qtrle`; los textos sin estas animaciones conservan
+  `drawtext`. Claves **Color** y **Tamaño** desde el inspector.
 - **Animación de escala y rotación de textos** (docs/35; modelo v10 sin cambios): canales `scale`
   (`0.05…4.0`) y `rotation` (`-360…360`) en `TextOverlay.animations`, campos no persistidos y
   claves desde el inspector. El texto transformado se rasteriza con PIL (la misma función del
