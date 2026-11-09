@@ -3,9 +3,10 @@
 > Implementado el **2026-11-05** sobre los keyframes de textos ([31 — Keyframes](31-keyframes.md))
 > y el bake de elementos ([33 — Escala y rotación](33-escala-rotacion.md)).
 > Añade los canales **escala** (multiplicador del `size`) y **rotación** (grados horarios
-> absolutos) a `TextOverlay.animations`. **No cambia `SCHEMA_VERSION` (sigue en 10)** ni añade
-> campos al proyecto: se reutilizan `TextOverlay.animations` y dos campos de inspector no
-> persistidos.
+> absolutos) a `TextOverlay.animations`. **No cambia `SCHEMA_VERSION` en su momento (siguió en
+> 10)** ni añade campos al proyecto: se reutilizan `TextOverlay.animations` y dos campos de
+> inspector no persistidos. El color y el tamaño animados llegaron después con el modelo v12
+> ([36 — Color y tamaño de textos](36-color-tamano-textos.md)).
 
 ## Qué se puede hacer
 
@@ -34,8 +35,9 @@ TextOverlay(
 
 - `core/animation.py` valida por canal (`CHANNEL_RANGES`): `x`/`y`/`opacity` `0…1`,
   `scale` `0.05…4.0`, `rotation` `-360…360`.
-- `TEXT_CHANNELS` pasa a ser `("x", "y", "opacity", "scale", "rotation")`; `TextOverlay` ya
-  validaba contra esa tupla, así que no hay campos ni migraciones nuevas.
+- `TEXT_CHANNELS` pasó a `("x", "y", "opacity", "scale", "rotation")`; desde
+  [docs/36](36-color-tamano-textos.md) incluye también `"size"`. `TextOverlay` ya validaba contra
+  esa tupla, así que no hubo campos ni migraciones nuevas en esta feature.
 - `core.timeline.text_values(overlay, t)` devuelve ahora
   `(x, y, opacity, scale, rotation)`, con los valores por defecto `scale=1.0` y `rotation=0.0`.
 - La serialización no cambia (`channel` + `points` con `t`/`value`): un proyecto v10 anterior
@@ -106,8 +108,9 @@ Consecuencias:
 
 ## Límites
 
-- Sin animación de **color** ni de fuente; la escala es un multiplicador del `size` y la rotación
-  es absoluta (no hay rotación base en `TextOverlay`).
+- Sin animación de **color** ni de fuente **en este documento**; la escala es un multiplicador del
+  `size` y la rotación es absoluta (no hay rotación base en `TextOverlay`). El color y el tamaño
+  animados se añadieron en [docs/36](36-color-tamano-textos.md).
 - El tamaño de fuente efectivo se acota a 8 px, como el texto estático (`_font`), así que una
   clave de escala `0.05` sobre un texto pequeño puede no reducirse más.
 - Interpolación lineal, sin easing; las claves son explícitas y no se graban al mover el
@@ -116,8 +119,9 @@ Consecuencias:
   claves tarda más en la fase de preparación. El `.mov` sin pérdidas puede ser grande, pero se
   borra con el temporal.
 - El corte rápido sigue bloqueado por `Project.texts`, como cualquier superposición.
-- Los textos sin escala/rotación mantienen el rasterizado de `drawtext` en el export (no se
-  hornean), así que su diferencia de antialias con el preview es la que ya existía.
+- Los textos sin escala/rotación (ni color/tamaño animados, docs/36) mantienen el rasterizado de
+  `drawtext` en el export (no se hornean), así que su diferencia de antialias con el preview es la
+  que ya existía.
 
 ## Tests y verificación
 

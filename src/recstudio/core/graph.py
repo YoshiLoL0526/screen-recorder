@@ -609,8 +609,9 @@ def text_filters(project: Project, output_height: int) -> list[str]:
 
 
 def _text_needs_bake(overlay) -> bool:  # noqa: ANN001
-    return any(
-        anim.is_animated(overlay.animations, channel) for channel in anim.TRANSFORM_CHANNELS
+    """¿El texto necesita el vídeo RGBA intermedio? (escala/rotación/tamaño o color animados)."""
+    return bool(getattr(overlay, "color_keys", ())) or any(
+        anim.is_animated(overlay.animations, channel) for channel in anim.TEXT_BAKE_CHANNELS
     )
 
 
@@ -629,7 +630,7 @@ def _text_overlays(
     first_input: int,
     text_clips: Mapping[str, overlays.TextClip],
 ) -> str:
-    """Compone los textos en orden: `drawtext` o `overlay` de un `.mov` horneado (docs/35).
+    """Compone los textos en orden: `drawtext` o `overlay` de un `.mov` horneado (docs/35/36).
 
     Se recorre `Project.texts` de principio a fin y cada texto se aplica sobre la etiqueta
     anterior, así que el orden de apilado es el mismo que el del preview aunque unos textos usen
@@ -758,9 +759,10 @@ def build(
     rotación animadas; los prepara `services.element_animation.materialize`. Sin animación de
     geometría no se usan y las cadenas quedan como siempre.
 
-    `text_clips` (docs/35) son los vídeos RGBA intermedios de los textos con escala o rotación
-    animadas; los prepara `services.text_animation.materialize`. Los textos sin esos canales
-    siguen usando `drawtext`; si un proyecto no tiene ninguno, las cadenas no cambian.
+    `text_clips` (docs/35 y docs/36) son los vídeos RGBA intermedios de los textos con escala,
+    rotación, tamaño o color animados; los prepara `services.text_animation.materialize`. Los
+    textos sin esos canales siguen usando `drawtext`; si un proyecto no tiene ninguno, las
+    cadenas no cambian.
     """
     if preset.video == "copy":
         raise ProjectError("el preset «sin recodificar» no usa filter graph (ver core.keyframes)")

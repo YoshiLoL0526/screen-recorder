@@ -14,7 +14,9 @@
   seleccionado al resto; X se centra en 0.5.
 - **Exportar SRT…**: guarda los textos `subtitle=True` como `.srt` en UTF-8, ordenados por inicio.
 - Los subtítulos pueden **animarse** con keyframes igual que cualquier texto
-  ([docs/31](31-keyframes.md)): posición, opacidad, escala y rotación ([docs/35](35-textos-escala-rotacion.md)).
+  ([docs/31](31-keyframes.md)): posición, opacidad, escala, rotación y tamaño
+  ([docs/35](35-textos-escala-rotacion.md) y [docs/36](36-color-tamano-textos.md)), además de
+  claves de color.
 
 ## Parser (`core/subtitles.py`)
 
@@ -27,7 +29,7 @@
   y aplica el estilo por defecto: centrado, `y=0.88`, tamaño 44, blanco, negrita.
 - `format_srt(texts)` es el inverso: `HH:MM:SS,mmm`, numeración y UTF-8.
 
-## Modelo (`SCHEMA_VERSION = 9`)
+## Modelo (v12; el subtítulo nació en v9)
 
 ```python
 TextOverlay(
@@ -36,7 +38,8 @@ TextOverlay(
     x=0.5, y=0.88, size=44, color="#FFFFFF", bold=True,
     subtitle=True,      # v9: cue importada (SRT/VTT)
     opacity=1.0,        # v9: opacidad base
-    animations=(),      # v9: x/y/opacity (docs/31); scale/rotation (docs/35)
+    animations=(),      # v9: x/y/opacity (docs/31); scale/rotation (docs/35) y size (docs/36)
+    color_keys=(),      # v12: color animado (docs/36)
 )
 ```
 
@@ -44,7 +47,7 @@ TextOverlay(
   puede convertirse en subtítulo editando el JSON o desde una futura UI; no cambia el dibujo.
 - Los proyectos v8 se migran a v9 con `subtitle=False`, `opacity=1` y sin animaciones.
 - `TextOverlay` valida `opacity` en `[0, 1]` y los canales de animación (`x`, `y`, `opacity`,
-  `scale`, `rotation`).
+  `scale`, `rotation`, `size`); `color_keys` se valida por separado (docs/36).
 
 ## Importación y exportación
 

@@ -28,6 +28,7 @@ from ..core import graph as graph_mod
 from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
 from ..core import subtitles as subtitles_mod
+from ..core import text_color as text_color_mod
 from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
 from ..core.project import (
@@ -1845,7 +1846,7 @@ class EditorController:
     def _key_label(channel: str) -> str:
         return {
             "x": "X", "y": "Y", "opacity": "opacidad",
-            "scale": "escala", "rotation": "rotación",
+            "scale": "escala", "rotation": "rotación", "size": "tamaño",
         }.get(channel, channel)
 
     def _key_time(self, item) -> float | None:  # noqa: ANN001
@@ -1906,6 +1907,8 @@ class EditorController:
             value = float(state.insp_text_scale())
         elif channel == "rotation":
             value = float(state.insp_text_rotation())
+        elif channel == "size":
+            value = float(state.insp_text_size())
         else:
             value = float(getattr(overlay, channel))
         animations = anim.set_keyframe(overlay.animations, channel, local, value)
@@ -1932,6 +1935,37 @@ class EditorController:
             state.toast("warning", exc.message)
             return
         if self._apply(f"quitar animación {self._key_label(channel)}", project):
+            self._sync_inspector()
+
+    def add_text_color_keyframe(self) -> None:
+        """Graba una clave de color en el playhead local con el color actual del inspector."""
+        overlay = self.selected_text()
+        if overlay is None:
+            return
+        local = self._key_time(overlay)
+        if local is None:
+            return
+        color = str(state.insp_text_color())
+        try:
+            keys = text_color_mod.set_keyframe(overlay.color_keys, local, color)
+            project = tl.update_text(self.project, overlay.id, color_keys=keys)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("añadir clave color", project):
+            self._sync_inspector()
+            state.toast("success", f"Clave color en {tl.format_time(state.playhead())}")
+
+    def clear_text_color_animation(self) -> None:
+        overlay = self.selected_text()
+        if overlay is None or not overlay.color_keys:
+            return
+        try:
+            project = tl.update_text(self.project, overlay.id, color_keys=())
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        if self._apply("quitar animación color", project):
             self._sync_inspector()
 
     # -- envolventes de volumen (v10, docs/32) -------------------------------------

@@ -10,8 +10,10 @@
 ## Qué se puede hacer
 
 - Añadir claves a un **elemento** (imagen, figura, PiP o clip V2/V3): **X** e **Y**.
-- Añadir claves a un **texto/subtítulo**: **X**, **Y**, **Opacidad**, **Escala** y **Rotación**
-  (las dos últimas, desde [docs/35](35-textos-escala-rotacion.md)).
+- Añadir claves a un **texto/subtítulo**: **X**, **Y**, **Opacidad**, **Escala**, **Rotación** y
+  **Tamaño** (las tres últimas, desde [docs/35](35-textos-escala-rotacion.md) y
+  [docs/36](36-color-tamano-textos.md)); el color animado va en un modelo aparte
+  (`TextOverlay.color_keys`, [docs/36](36-color-tamano-textos.md)).
 - La clave se graba en el **playhead actual** con el valor que tenga el campo en ese momento.
 - Repetir en otro instante para crear la curva; el preview y el export interpolan linealmente.
 - **Quitar** una animación de un canal con un clic.
@@ -23,7 +25,7 @@
 ```python
 Keyframe(t=0.0, value=0.2)     # t local: 0 = inicio del elemento/texto
 Animation(
-    channel="x",               # x | y | opacity | scale | rotation
+    channel="x",               # x | y | opacity | scale | rotation | size (textos)
     points=(Keyframe(0.0, 0.2), Keyframe(1.0, 0.8)),
 )
 Element(..., animations=(...))
@@ -37,7 +39,9 @@ TextOverlay(..., animations=(...))
 - `core/animation.py` es puro: `value_at`, `expr`, `set_keyframe`, `clear_channel` y `validate`.
 - Los elementos admiten `x`/`y`/`scale`/`rotation` (los dos últimos llegaron en
   [docs/33](33-escala-rotacion.md)); los textos admiten `x`/`y`/`opacity` y, desde
-  [docs/35](35-textos-escala-rotacion.md), `scale`/`rotation`. Un elemento con `opacity` animada
+  [docs/35](35-textos-escala-rotacion.md) y [docs/36](36-color-tamano-textos.md),
+  `scale`/`rotation`/`size`. El color de un texto no es un `Animation` (los valores son floats):
+  vive en `color_keys` ([docs/36](36-color-tamano-textos.md)). Un elemento con `opacity` animada
   lanza `ProjectError` (no se puede exportar con el filtro actual).
 - Los proyectos v8 se migran a v9 sin cambios (`animations=()`).
 
@@ -78,9 +82,10 @@ TextOverlay(..., animations=(...))
 
 ## Límites
 
-- No hay animación de **color** ni de la transformación de un clip de V1. Los elementos
-  ampliaron los canales con **escala y rotación** en [docs/33](33-escala-rotacion.md) y los textos
-  en [docs/35](35-textos-escala-rotacion.md).
+- No hay animación de **color** en elementos ni de la transformación de un clip de V1. Los
+  textos añadieron color y tamaño en [docs/36](36-color-tamano-textos.md); los elementos
+  ampliaron los canales con **escala y rotación** en [docs/33](33-escala-rotacion.md) y los
+  textos en [docs/35](35-textos-escala-rotacion.md).
 - Interpolación **lineal**; no hay curvas Bézier/easing ni copiar/pegar claves.
 - Las claves son **explícitas**: no hay modo «grabar automáticamente al mover el playhead».
 - La caja del preview no se muestra para capas con geometría animada; la posición y la escala se
@@ -94,6 +99,7 @@ TextOverlay(..., animations=(...))
 - `tests/test_animation_export.py` (2): preview + export real de un PiP que se mueve y de un texto
   que se desplaza y se apaga; texto animado solo en X conserva la opacidad.
 - `tests/test_text_transform.py` (9): escala/rotación de textos en modelo, preview y export real.
+- `tests/test_text_color_size.py` (9): tamaño/color de textos en modelo, preview, export real y UI.
 - `tests/test_project_panel.py`: claves de elemento y de texto (incluida escala/rotación) desde el
   inspector, con undo.
 - `uv run pytest -q`: **479 passed**.

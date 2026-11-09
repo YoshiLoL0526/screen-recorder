@@ -1,20 +1,22 @@
-"""Keyframes de animación (v9, docs/31, docs/33 y docs/35): posición, escala, rotación y opacidad.
+"""Keyframes de animación (v9, docs/31, docs/33, docs/35 y docs/36): posición, escala, rotación,
+opacidad y tamaño de texto.
 
 Un `Animation` es una lista de puntos `(t, value)` **en segundos locales del elemento/texto**
 (`t = 0` es su `start`). La interpolación es lineal y se evalúa en el preview y en el export:
 
 - **Textos**: `x`, `y` y `opacity` se traducen a expresiones de `drawtext` (`x=`, `y=`, `alpha=`),
-  que FFmpeg evalúa por frame. `scale` y `rotation` no se pueden evaluar en `drawtext` con el
-  rasterizado de PIL: el export hornea el texto a un vídeo RGBA intermedio (docs/35), igual que
-  los elementos.
+  que FFmpeg evalúa por frame. `scale`, `rotation` y `size` no se pueden evaluar en `drawtext`
+  con el rasterizado de PIL: el export hornea el texto a un vídeo RGBA intermedio (docs/35 y
+  docs/36), igual que los elementos.
 - **Elementos** (PiP, imágenes, figuras y V2/V3): `x`, `y`, `scale` y `rotation`. El export
   hornea escala/rotación en un vídeo RGBA intermedio (docs/33); x/y siguen siendo expresiones de
   `overlay`.
 
 Los valores válidos dependen del canal (`CHANNEL_RANGES`): x/y/opacity van de 0 a 1, `scale` es
-un multiplicador de 0.05 a 4.0 y `rotation` son grados horarios absolutos de -360 a 360. Las
-curvas se acotan en los extremos (antes del primer punto vale el primero; después del último, el
-último), igual que `value_at`.
+un multiplicador de 0.05 a 4.0, `rotation` son grados horarios absolutos de -360 a 360 y `size`
+es el tamaño de fuente base del texto, de 8 a 200 (el mismo rango que `TEXT_SIZE_MIN/MAX`; se
+repite aquí para que el core no dependa de `project`). Las curvas se acotan en los extremos
+(antes del primer punto vale el primero; después del último, el último), igual que `value_at`.
 """
 
 from __future__ import annotations
@@ -26,19 +28,22 @@ from .errors import ProjectError
 
 #: Rango válido de cada canal. `scale` es un multiplicador sobre la caja del elemento o el tamaño
 #: del texto (1 = base); `rotation` son grados horarios absolutos (en el texto no hay base: 0° es
-#: sin rotación).
+#: sin rotación); `size` es el tamaño de fuente base del texto (8…200, docs/36).
 CHANNEL_RANGES: dict[str, tuple[float, float]] = {
     "x": (0.0, 1.0),
     "y": (0.0, 1.0),
     "opacity": (0.0, 1.0),
     "scale": (0.05, 4.0),
     "rotation": (-360.0, 360.0),
+    "size": (8.0, 200.0),
 }
 CHANNELS = tuple(CHANNEL_RANGES)
-TEXT_CHANNELS = ("x", "y", "opacity", "scale", "rotation")
+TEXT_CHANNELS = ("x", "y", "opacity", "scale", "rotation", "size")
 ELEMENT_CHANNELS = ("x", "y", "scale", "rotation")
-#: Canales que obligan a hornear un vídeo RGBA intermedio (docs/33 y docs/35).
+#: Canales que obligan a hornear un vídeo RGBA intermedio (docs/33, docs/35 y docs/36).
 TRANSFORM_CHANNELS = ("scale", "rotation")
+#: Canales de texto que `drawtext` no puede evaluar (tamaño incluido, docs/36).
+TEXT_BAKE_CHANNELS = (*TRANSFORM_CHANNELS, "size")
 
 
 def channel_range(channel: str) -> tuple[float, float]:
@@ -190,6 +195,7 @@ __all__ = [
     "CHANNEL_RANGES",
     "ELEMENT_CHANNELS",
     "Keyframe",
+    "TEXT_BAKE_CHANNELS",
     "TEXT_CHANNELS",
     "TRANSFORM_CHANNELS",
     "channel_range",

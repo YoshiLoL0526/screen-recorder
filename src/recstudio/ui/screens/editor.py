@@ -350,7 +350,7 @@ def _texts_layer(project, stage_w: int, stage_h: int):  # noqa: ANN001, ANN202
     for overlay in project.texts:
         if not (overlay.start <= t < overlay.end):
             continue
-        if any(a.channel in ("x", "y", "scale", "rotation") for a in overlay.animations):
+        if any(a.channel in ("x", "y", "scale", "rotation", "size") for a in overlay.animations):
             continue  # la caja seguiría la animación pero el arrastre edita la base: mejor el inspector
         frame_box = element_overlay.text_box(project, overlay, (stage_w, stage_h))
         if frame_box is None or frame_box.width < 2 or frame_box.height < 2:
@@ -684,7 +684,7 @@ def _transition_controls(index: int | None):
     )
 
 
-def _animation_controls(kind: str, item, channels) -> object:
+def _animation_controls(kind: str, item, channels, *, color_keys=None) -> object:
     """Sección de keyframes; el valor de la clave es el campo actual en el playhead."""
     rows = []
     for channel, label in channels:
@@ -703,6 +703,23 @@ def _animation_controls(kind: str, item, channels) -> object:
             count > 0 and button(
                 "Quitar", _call(f"clear_{kind}_animation", channel), variant="ghost",
                 padding=(3, 7), font_size=10.5, key=f"insp-{kind}-clear-{channel}",
+            ),
+        ])
+    if color_keys is not None:
+        count = len(color_keys)
+        rows.append(row(gap=6, align="center")[
+            text(
+                f"Color: {count} clave{'s' if count != 1 else ''}" if count
+                else "Color: sin animación",
+                size=11.5, color="$muted" if not count else "$text", grow=1, width=0,
+            ),
+            button(
+                "Clave color", _call(f"add_{kind}_color_keyframe"), variant="soft",
+                padding=(3, 7), font_size=10.5, key=f"insp-{kind}-key-color",
+            ),
+            count > 0 and button(
+                "Quitar", _call(f"clear_{kind}_color_animation"), variant="ghost",
+                padding=(3, 7), font_size=10.5, key=f"insp-{kind}-clear-color",
             ),
         ])
     note = (
@@ -1038,7 +1055,8 @@ def inspector():
             _animation_controls(
                 "text", overlay,
                 [("x", "X"), ("y", "Y"), ("opacity", "Opacidad"),
-                 ("scale", "Escala"), ("rotation", "Rotación")],
+                 ("scale", "Escala"), ("rotation", "Rotación"), ("size", "Tamaño")],
+                color_keys=overlay.color_keys,
             ),
             text("Se quema en el video exportado; en el preview se dibuja con la misma posición.",
                  size=11, color="$muted", line_height=1.35),

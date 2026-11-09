@@ -374,9 +374,28 @@ Resultados y decisiones completas en [35 — Textos con escala y rotación](35-t
   usando `drawtext` en orden; sin textos transformados, las cadenas del graph no cambian.
 - **UI**: campos **Escala** y **Rotación** no persistidos, claves **Escala**/**Rotación**,
   «Quitar» y caja del preview oculta si hay geometría animada.
-- **Límite**: sin animación de color ni rotación base; interpolación lineal; el corte rápido
+- **Límite**: sin color ni rotación base en esa entrega (el color llegó en B23); interpolación
+  lineal; el corte rápido
   sigue bloqueado por `Project.texts`.
 - Tests nuevos en `test_text_transform` y `test_project_panel`; **479 tests** en verde.
+
+### B23 - Color y tamaño animados de textos (✅ · M)
+
+Resultados y decisiones completas en [36 — Color y tamaño de textos](36-color-tamano-textos.md).
+
+- **Modelo v12**: canal `size` (`8…200`) en `TextOverlay.animations` y modelo aparte de color
+  `core/text_color.py` con `ColorKeyframe(t, color)`, interpolación lineal en sRGB,
+  `TextOverlay.color_keys` y migración v11 → v12 sin cambios visibles.
+- **Preview**: `services.playback.text_rgba` aplica tamaño y color animados; los textos con esos
+  canales usan la misma ruta que escala/rotación y los estáticos conservan el dibujo directo.
+- **Export**: `services.text_animation` hornea también color y tamaño (`.mov` `qtrle` RGBA) y
+  `drawtext` sigue intacto cuando no hay animación de estilo. El orden de `Project.texts` se
+  mantiene mezclando `drawtext` y overlays.
+- **UI**: claves **Color** y **Tamaño** en el inspector (contador, «Quitar»), con el valor actual
+  de los campos en el playhead local.
+- **Límite**: sin color animado en elementos/clips; interpolación lineal sin easing; el corte
+  rápido sigue bloqueado por `Project.texts`.
+- Tests nuevos en `test_text_color_size`; **498 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
