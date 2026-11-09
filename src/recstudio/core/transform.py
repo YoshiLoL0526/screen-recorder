@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from . import background
 from .errors import ProjectError
 from .project import Clip, Project, Transform, normalize_rotation  # noqa: F401  (reexport)
 
@@ -187,6 +188,8 @@ def layout(
 def needs_custom_render(project: Project, clip: Clip) -> bool:
     """¿Hace falta la cadena nueva? Si no, se mantiene el graph histórico de F4 (golden)."""
     if project.default_fit != "fit" or project.background.upper() != "#000000":
+        return True
+    if background.has_special_background(project):
         return True
     if clip.transform is not None:
         return True

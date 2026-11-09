@@ -52,7 +52,8 @@ el **recorte interactivo en el preview** (`core/crop_edit.py`, `state.crop_on`, 
 `docs/43`), el **texto multilínea con ancho máximo** (`TextOverlay.wrap_width`,
 `core/text_layout.py`, bake RGBA de los textos envueltos; modelo **v15**, `docs/45`) y el
 **export personalizado** con tamaño/fps/bitrate/códec y presets sociales (`core/graph.py`,
-`services/settings.py`, `ui/export_modal.py`; `docs/44`).
+`services/settings.py`, `ui/export_modal.py`; `docs/44`) y el **fondo del lienzo** (color, blur
+de V1 o imagen; `core/background.py`, modelo **v16**, `docs/47`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -61,7 +62,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 579 tests; la integración usa FFmpeg real
+uv run pytest                                   # 592 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -253,6 +254,15 @@ depender de monitor, GPU ni audio reales del runner.
   todas las líneas centradas con `LINE_HEIGHT = 1.15` y bloque centrado en `(x, y)`;
   `ui/element_overlay.text_box` calcula el bloque completo. Un cambio en el helper o en el
   interlineado afecta a la paridad: cámbialo en un solo sitio.
+- Fondo del lienzo (docs/47): `Project.background` sigue siendo el color; `background_mode`
+  (`color`/`blur`/`image`), `background_blur` (0…100 px del proyecto) y `background_asset`
+  añaden blur de V1 e imagen de fondo (modelo **v16**). `core/background.py` decide el modo
+  efectivo (una imagen ausente o que no sea imagen cae a color) y la geometría cover; preview y
+  export lo comparten. El fondo se compone **antes de V1** (blur: `split`+`boxblur`+`overlay`;
+  imagen: entrada `-loop 1` después de los clips, `split` y `overlay`) y V2/V3, efectos,
+  elementos y textos siguen encima en el orden de siempre. El modo color conserva el graph
+  byte a byte; `needs_custom_render` y `keyframes.blockers` consideran el fondo especial. La
+  imagen del fondo cuenta como archivo usado (`remove_asset`, `export.offline_assets`).
 - Envolventes de volumen (docs/32, docs/34 y docs/40): `Clip.envelope` y `Element.envelope` son
   independientes de `Animation`; sus claves son locales al clip/elemento (0…duración) y la
   ganancia 0…4. Cada clave tiene `easing` (el de la clave izquierda aplica al tramo) y `expr`
@@ -371,7 +381,8 @@ depender de monitor, GPU ni audio reales del runner.
   animación (modelo v13), `docs/40` el easing de las envolventes de volumen (modelo v14),
   `docs/41` el copiar/pegar de claves, `docs/42` el modo para añadir claves desde el timeline,
   `docs/43` el recorte interactivo en el preview, `docs/44` el export personalizado (tamaño, fps,
-  bitrate, códec y presets sociales) y `docs/45` el texto multilínea con ancho máximo (modelo v15).
+  bitrate, códec y presets sociales) y `docs/45` el texto multilínea con ancho máximo (modelo v15)
+  y `docs/47` el fondo del lienzo con blur o imagen (modelo v16).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

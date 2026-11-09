@@ -32,6 +32,7 @@ from pathlib import Path
 import numpy as np
 
 from ..core import animation as anim
+from ..core import background as background_ops
 from ..core import effects as fx
 from ..core import elements as el
 from ..core import global_effects
@@ -566,6 +567,89 @@ def video_element_image(
     return image
 
 
+# -- fondo del lienzo (v16, docs/47) ----------------------------------------------------
+
+
+_BACKGROUND_IMAGES: dict[tuple[str, float, int, int], np.ndarray] = {}
+_BACKGROUND_FAILED: set[tuple[str, float, int, int]] = set()
+_BACKGROUND_LOCK = threading.Lock()
+
+
+def _cover_image(image, size: tuple[int, int]):  # noqa: ANN001, ANN202
+    """Imagen PIL escalada y recortada al centro para cubrir `size` (misma regla que el export)."""
+    from PIL import Image
+
+    target_w, target_h = max(1, int(size[0])), max(1, int(size[1]))
+    x, y, width, height = background_ops.cover_crop(
+        image.width, image.height, target_w, target_h
+    )
+    if (width, height) != image.size:
+        image = image.resize((width, height), Image.BILINEAR)
+    return image.crop((x, y, x + target_w, y + target_h))
+
+
+def _background_image_rgb(asset, size: tuple[int, int]) -> np.ndarray | None:  # noqa: ANN001
+    """Imagen del fondo enderezada (EXIF), a cover y cacheada por archivo + tamaño."""
+    try:
+        stamp = os.path.getmtime(asset.path)
+    except OSError:
+        stamp = 0.0
+    key = (str(asset.path), float(stamp), int(size[0]), int(size[1]))
+    with _BACKGROUND_LOCK:
+        cached = _BACKGROUND_IMAGES.get(key)
+        failed = key in _BACKGROUND_FAILED
+    if cached is not None:
+        return cached
+    if failed:
+        return None
+    from PIL import Image, ImageOps
+
+    try:
+        with Image.open(asset.path) as opened:
+            image = ImageOps.exif_transpose(opened).convert("RGB")
+        image = _cover_image(image, size)
+        rgb = np.asarray(image)
+    except Exception:  # imagen ausente o ilegible: el fondo cae al color
+        with _BACKGROUND_LOCK:
+            _BACKGROUND_FAILED.add(key)
+            if len(_BACKGROUND_FAILED) >= 16:
+                _BACKGROUND_FAILED.clear()
+        return None
+    with _BACKGROUND_LOCK:
+        if len(_BACKGROUND_IMAGES) >= 8:
+            _BACKGROUND_IMAGES.clear()
+        _BACKGROUND_IMAGES[key] = rgb
+    return rgb
+
+
+def background_canvas(
+    project: Project, size: tuple[int, int], source_rgb: np.ndarray | None = None
+) -> np.ndarray:
+    """Lienzo RGB del fondo antes de dibujar V1 (color, blur del clip o imagen).
+
+    Con `blur`, `source_rgb` es el frame del clip ya encajado: se escala a cover, se recorta al
+    lienzo y se desenfoca con `GaussianBlur`. Sin frame (decoder caído) se usa el color.
+    """
+    mode = background_ops.effective_mode(project)
+    if mode == "image":
+        asset = background_ops.image_asset(project)
+        if asset is not None:
+            rgb = _background_image_rgb(asset, size)
+            if rgb is not None:
+                return rgb.copy()
+    if mode == "blur" and source_rgb is not None:
+        from PIL import Image, ImageFilter
+
+        image = _cover_image(Image.fromarray(np.ascontiguousarray(source_rgb)), size)
+        radius = background_ops.blur_radius(project, size[1])
+        if radius >= 0.5:
+            image = image.filter(ImageFilter.GaussianBlur(radius=radius))
+        return np.array(image)
+    canvas = np.empty((size[1], size[0], 3), np.uint8)
+    canvas[:] = tx.hex_to_rgb(project.background)
+    return canvas
+
+
 class FrameRenderer:
     """Compone el frame del preview para un instante global del proyecto."""
 
@@ -662,8 +746,6 @@ class FrameRenderer:
             return canvas
 
         lay = tx.layout(project, clip, size)
-        canvas = np.empty((size[1], size[0], 3), np.uint8)
-        canvas[:] = tx.hex_to_rgb(project.background)
         left, top, right, bottom = lay.crop
         # Decodificar justo lo necesario para que el recorte llene `out_width × out_height`
         # (sin superar la resolución nativa del asset).
@@ -678,7 +760,7 @@ class FrameRenderer:
         except Exception:
             rgb = None
         if rgb is None:
-            return canvas
+            return background_canvas(project, size)
         rgb = rotate_rgb(rgb, lay.asset_rotation, clockwise=False)
         rgb = rotate_rgb(rgb, lay.rotation, clockwise=True)
         if lay.flip_h:
@@ -699,7 +781,9 @@ class FrameRenderer:
 
             image = Image.fromarray(np.ascontiguousarray(rgb))
             rgb = np.asarray(image.resize((lay.out_width, lay.out_height), Image.BILINEAR))
-        # Composición con recorte contra los bordes del lienzo (offsets negativos incluidos).
+        # Fondo del lienzo (v16, docs/47): color, copia desenfocada de V1 o imagen. Va detrás
+        # del clip; los elementos, V2/V3, efectos globales y textos se aplican después.
+        canvas = background_canvas(project, size, rgb)
         dst_x, dst_y = max(0, lay.x), max(0, lay.y)
         src_x, src_y = max(0, -lay.x), max(0, -lay.y)
         copy_w = min(lay.out_width - src_x, size[0] - dst_x)

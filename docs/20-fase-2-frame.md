@@ -278,8 +278,9 @@ admitiéndolo.
   la fase 3 ([21](21-fase-3-flujo.md)).
 - ~~No hay arrastre/recorte interactivo sobre el preview (fase 2 lo deja como controles
   numéricos).~~ Resuelto en [43 — Recorte interactivo](43-crop-interactivo.md).
-- Solo hay un fondo de color sólido; el fondo desenfocado (blur) y la imagen de fondo quedan para
-  más adelante (C8 parcial).
+- ~~Solo hay un fondo de color sólido; el fondo desenfocado (blur) y la imagen de fondo quedan para
+  más adelante (C8 parcial).~~ Resuelto en [47 — Fondo del lienzo](47-fondo-lienzo.md): el color
+  se mantiene y se añaden el blur de V1 y una imagen del proyecto (modelo v16).
 - El lienzo no tiene presets sociales automáticos de export (E9) ni export por rango (fase 3/5).
 - El `scale` del clip es estático: no hay keyframes ni animación (fase 4).
 - El zoom heredado (`Effect("zoom")`) sigue existiendo por compatibilidad; se aplica después del

@@ -53,7 +53,9 @@ El mismo en el graph y en el preview:
 
 El graph aplica la cadena sobre la etiqueta del video ya compuesto (después de `concat`/`xfade`,
 de las transformaciones por clip y de las pistas V2/V3 de [docs/29](29-pistas-video.md)) y antes
-de la capa «Elementos» y de los textos. Con efectos, el resultado es una sola cadena:
+de la capa «Elementos» y de los textos. El **fondo del lienzo** (color, blur de V1 o imagen,
+[docs/47](47-fondo-lienzo.md)) se compone antes que V1; los efectos globales siguen aplicándose
+al video ya compuesto, con el fondo ya incluido. Con efectos, el resultado es una sola cadena:
 
 ```text
 [v0]eq=brightness=0.1:contrast=1.25:saturation=0.5,gblur=sigma=8,

@@ -7,6 +7,17 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Fondo del lienzo configurable** (docs/47; modelo **v16** con migración v15 → v16 no-op):
+  `Project.background_mode` (`color`/`blur`/`image`), `background_blur` (0…100 px del proyecto)
+  y `background_asset` (id de una imagen). El **blur** rellena el lienzo con una copia del frame
+  de V1 escalada a cover y desenfocada (PIL en preview, `split`+`boxblur`+`overlay` en export);
+  la **imagen** se escala a cover (EXIF incluido) y se compone detrás de V1. V2/V3, efectos
+  globales, elementos y textos siguen encima y en el mismo orden. El modo color conserva el
+  graph histórico byte a byte; el corte rápido se bloquea con fondo especial y la imagen del
+  fondo entra en los archivos necesarios del export. UI en la sección Proyecto: selector de
+  fondo, intensidad y **Elegir imagen…/Quitar** con diálogo nativo y un undo por cambio.
+  `tests/test_background.py` (13) cubre modelo, migración, preview, export real
+  color/blur/imagen, transición con blur y UI con `pilot`.
 - **Recorte interactivo en el preview** (docs/43; modelo v15 sin cambios): modo **Recortar**
   (`T` o `switch` de la sección Transformación) solo con un clip de V1 seleccionado y en pausa.
   Mientras está activo, el preview muestra el clip **sin recortar** (copia solo del reproductor,

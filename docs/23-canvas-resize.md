@@ -27,6 +27,8 @@ preview mide su hueco con `on_resize` (`state.preview_area`, un `PreviewArea` fr
 **escenario** de tamaño fijo con el aspecto del proyecto (`canvas_edit.fit_stage`). El escenario se
 centra y la imagen se pinta con `fit="fill"` al 100 %, así los píxeles del escenario y los de la
 imagen coinciden. El panel exterior sigue siendo negro; el fondo del proyecto lo pinta el escenario.
+El escenario pinta `Project.background` como respaldo, pero con fondo blur/imagen el propio frame
+del preview ya trae el fondo compuesto ([47](47-fondo-lienzo.md)); el escenario no duplica el fondo.
 
 `on_resize` solo escribe el `Signal` si el tamaño redondeado cambia. El escenario se calcula hacia
 abajo (`floor`) para no pasarse del hueco medido y no realimentar el layout. Mientras no hay medida

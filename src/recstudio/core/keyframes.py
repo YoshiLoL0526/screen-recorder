@@ -16,6 +16,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import background
 from . import effects as fx
 from . import transform as tx
 from .errors import ProjectError
@@ -91,6 +92,8 @@ def blockers(project: Project) -> list[str]:
         reasons.append("cambia el tamaño del lienzo")
     if project.background.upper() != "#000000" or project.default_fit != "fit":
         reasons.append("cambia el fondo o el encaje del lienzo")
+    if background.has_special_background(project):
+        reasons.append("tiene fondo desenfocado o una imagen de fondo")
     if any(c.transform is not None for c in track.clips):
         reasons.append("hay transformaciones de clip")
     if any(tx.normalize_rotation(a.rotation) for a in by_id.values()):

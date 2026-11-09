@@ -28,7 +28,7 @@ from . import text_color as tc
 from . import text_layout
 from .errors import ProjectError
 
-SCHEMA_VERSION = 15  # v15: ancho máximo y texto multilínea (docs/45)
+SCHEMA_VERSION = 16  # v16: fondo del lienzo: color, blur o imagen (docs/47)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -53,6 +53,9 @@ TRANSFORM_FITS = ("inherit", *FIT_MODES)
 TRANSFORM_ROTATIONS = (0, 90, 180, 270)
 TRANSFORM_SCALE_MIN, TRANSFORM_SCALE_MAX = 0.25, 4.0
 DEFAULT_BACKGROUND = "#000000"
+BACKGROUND_MODES = ("color", "blur", "image")
+BACKGROUND_BLUR_MIN, BACKGROUND_BLUR_MAX = 0, 100
+DEFAULT_BACKGROUND_BLUR = 24
 _HEX_COLOR = re.compile(r"^#[0-9A-Fa-f]{6}$")
 # Holgura al comparar con la duración del asset (los probes redondean a µs).
 _EPS = 1e-6
@@ -406,6 +409,11 @@ class Project:
     width: int = 1920
     height: int = 1080
     background: str = DEFAULT_BACKGROUND  # color del lienzo (#RRGGBB)
+    # v16 (docs/47): el fondo del lienzo puede ser el color, una copia desenfocada de V1 o una
+    # imagen del proyecto. `background_asset` es un id de `assets` de tipo imagen.
+    background_mode: Literal["color", "blur", "image"] = "color"
+    background_blur: int = DEFAULT_BACKGROUND_BLUR
+    background_asset: str | None = None
     default_fit: Literal["fit", "fill", "stretch"] = "fit"
     markers: tuple[Marker, ...] = ()  # ordenados por tiempo (fase 3)
     range_in: float | None = None  # In/Out del timeline (loop y export de rango); None = sin punto
@@ -474,6 +482,21 @@ class Project:
             raise ProjectError(f"encaje del proyecto desconocido ({self.default_fit!r})")
         if not isinstance(self.background, str) or not _HEX_COLOR.match(self.background):
             raise ProjectError(f"color de fondo inválido ({self.background!r}); usa #RRGGBB")
+        if self.background_mode not in BACKGROUND_MODES:
+            raise ProjectError(f"modo de fondo desconocido ({self.background_mode!r})")
+        if isinstance(self.background_blur, bool) or not isinstance(self.background_blur, int):
+            raise ProjectError(
+                f"intensidad de fondo inválida ({self.background_blur!r}); usa un entero"
+            )
+        if not BACKGROUND_BLUR_MIN <= self.background_blur <= BACKGROUND_BLUR_MAX:
+            raise ProjectError(
+                f"la intensidad del fondo debe estar entre {BACKGROUND_BLUR_MIN} y "
+                f"{BACKGROUND_BLUR_MAX} ({self.background_blur})"
+            )
+        if self.background_asset is not None and not isinstance(self.background_asset, str):
+            raise ProjectError(
+                f"asset de fondo inválido ({self.background_asset!r}); usa un id o None"
+            )
         ids = [a.id for a in self.assets]
         if len(set(ids)) != len(ids):
             raise ProjectError("ids de asset duplicados")
@@ -648,6 +671,9 @@ def to_dict(project: Project) -> dict[str, Any]:
         "width": project.width,
         "height": project.height,
         "background": project.background,
+        "background_mode": project.background_mode,
+        "background_blur": project.background_blur,
+        "background_asset": project.background_asset,
         "default_fit": project.default_fit,
         "assets": [
             {
@@ -850,6 +876,11 @@ def from_dict(data: dict[str, Any]) -> Project:
             width=int(data.get("width", 1920)),
             height=int(data.get("height", 1080)),
             background=str(data.get("background", DEFAULT_BACKGROUND)),
+            background_mode=str(data.get("background_mode", "color")),  # type: ignore[arg-type]
+            background_blur=int(data.get("background_blur", DEFAULT_BACKGROUND_BLUR)),
+            background_asset=(
+                None if not data.get("background_asset") else str(data["background_asset"])
+            ),
             default_fit=str(data.get("default_fit", "fit")),  # type: ignore[arg-type]
             markers=markers,
             range_in=None if range_in is None else float(range_in),

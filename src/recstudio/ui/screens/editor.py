@@ -18,6 +18,7 @@ from aurora import (
 )
 
 from ... import state
+from ...core import background as background_ops
 from ...core import canvas_edit as ce
 from ...core import crop_edit
 from ...core import elements as element_mod
@@ -53,6 +54,7 @@ _SATURATION = [(v, f"{v:g}×" if v != 1 else "1× (original)") for v in (0.0, 0.
 _CANVAS_COLORS = [("#000000", "Negro"), ("#FFFFFF", "Blanco"), ("#808080", "Gris"),
                   ("#1E1E1E", "Grafito")]
 _PROJECT_FITS = [("fit", "Encajar"), ("fill", "Rellenar"), ("stretch", "Estirar")]
+_BACKGROUND_MODES_UI = [("color", "Color"), ("blur", "Desenfoque"), ("image", "Imagen")]
 _CLIP_FITS = [("inherit", "Heredar del proyecto"), ("fit", "Encajar"), ("fill", "Rellenar"),
               ("stretch", "Estirar")]
 _SCALES = [(v, f"{v:g}×") for v in (0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)]
@@ -1229,6 +1231,7 @@ def inspector():
         canvas_options = [(key, label) for key, label in CANVAS_LABELS.items()] + [
             ("custom", "Personalizado"),
         ]
+        background_asset = background_ops.image_asset(project)
         children.append(section(
             "Proyecto",
             _row("Duración", tl.format_time(total)),
@@ -1239,10 +1242,37 @@ def inspector():
             _row("Alto", text_input(state.proj_height, key="proj-height", on_submit=_submit_height,
                                     on_key=mark_input_key, font_family="Consolas", padding=(7, 10))),
             _row("Encaje", select(state.proj_fit, _PROJECT_FITS, key="proj-fit")),
-            _row("Fondo", select(state.proj_background, _color_options(state.proj_background()),
-                                 key="proj-bg")),
-            _row("Hex", text_input(state.proj_bg_hex, key="proj-bg-hex", on_submit=_submit_background,
-                                   on_key=mark_input_key, font_family="Consolas", padding=(7, 10))),
+            _row("Fondo", select(state.proj_bg_mode, _BACKGROUND_MODES_UI, key="proj-bg-mode")),
+            state.proj_bg_mode() == "color" and _row(
+                "Color", select(state.proj_background, _color_options(state.proj_background()),
+                                key="proj-bg")),
+            state.proj_bg_mode() == "color" and _row(
+                "Hex", text_input(state.proj_bg_hex, key="proj-bg-hex",
+                                  on_submit=_submit_background, on_key=mark_input_key,
+                                  font_family="Consolas", padding=(7, 10))),
+            state.proj_bg_mode() == "blur" and _row(
+                "Intensidad", number_input(state.proj_bg_blur, min=0, max=100, step=1,
+                                           key="proj-bg-blur")),
+            state.proj_bg_mode() == "image" and row(gap=8, align="center")[
+                text("Imagen", size=12.5, color="$muted", width=74, shrink=0),
+                box(grow=1)[row(gap=6, align="center")[
+                    button("Elegir imagen…", _call("browse_background_image"), variant="soft",
+                           padding=(5, 10), font_size=11.5, key="proj-bg-choose"),
+                    background_asset and button(
+                        "Quitar", _call("clear_background_image"), variant="ghost",
+                        padding=(5, 10), font_size=11.5, key="proj-bg-clear"),
+                ]],
+            ],
+            state.proj_bg_mode() == "image" and text(
+                "Sin imagen: se usa el color del lienzo." if background_asset is None
+                else (f"{background_asset.name}"
+                      + (" · no disponible: se usa el color"
+                         if background_asset.id in state.offline_assets() else "")),
+                size=11,
+                color=("#F5B851" if background_asset is None
+                       or background_asset.id in state.offline_assets() else "$muted"),
+                max_lines=2,
+            ),
             _row("FPS", select(state.insp_fps, [(f, f"{f} fps") for f in (24, 30, 60)], key="insp-fps")),
             _row("Audio", select(state.insp_track_gain,
                                  _options([(0.0, "Silenciado"), *_VOLUMES[1:]],
