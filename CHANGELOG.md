@@ -7,6 +7,14 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Recorte interactivo en el preview** (docs/43; modelo v14 sin cambios): modo **Recortar**
+  (`T` o `switch` de la sección Transformación) solo con un clip de V1 seleccionado y en pausa.
+  Mientras está activo, el preview muestra el clip **sin recortar** (copia solo del reproductor,
+  el proyecto no cambia) y superpone un velo, el rectángulo del `Transform.crop` y **8 asas**
+  (esquinas y lados). Arrastrar ajusta `l/t/r/b` con mínimo del 5 % y clamp a `0…1`, o mueve el
+  rectángulo completo; una sola entrada de undo (`recortar clip`) abierta en el primer
+  movimiento. `Esc` cancela el gesto y después sale del modo; los campos L/T/R/B siguen
+  funcionando y la geometría soporta rotación y flip.
 - **Easing de las envolventes de volumen** (docs/40; modelo v14 con migración v13 → v14):
   `VolumePoint.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) en `Clip.envelope` y
   `Element.envelope`, con la curva de la clave izquierda compartida por `value_at` y las

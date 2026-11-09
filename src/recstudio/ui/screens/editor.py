@@ -19,11 +19,12 @@ from aurora import (
 
 from ... import state
 from ...core import canvas_edit as ce
+from ...core import crop_edit
 from ...core import elements as element_mod
 from ...core import timeline as tl
 from ...core import transform as tx
 from ...core.errors import ProjectError
-from ...core.project import TRANSITION_KINDS
+from ...core.project import TRANSITION_KINDS, Transform
 from .. import element_overlay, icons
 from ..components import chip, icon_button, label_control, mark_input_key, section
 from ..export_modal import export_chip, export_modal
@@ -145,11 +146,22 @@ def editor_toolbar():
 
 
 _CANVAS_HANDLE = 12.0
+_CROP_HANDLE = 14.0
 _HANDLE_LABELS = {
     "tl": "esquina superior izquierda",
     "tr": "esquina superior derecha",
     "bl": "esquina inferior izquierda",
     "br": "esquina inferior derecha",
+}
+_CROP_HANDLE_LABELS = {
+    "tl": "esquina superior izquierda",
+    "tr": "esquina superior derecha",
+    "bl": "esquina inferior izquierda",
+    "br": "esquina inferior derecha",
+    "t": "lado superior",
+    "b": "lado inferior",
+    "l": "lado izquierdo",
+    "r": "lado derecho",
 }
 
 
@@ -184,6 +196,22 @@ def _canvas_drag(kind: str, handle: str | None = None, clip_id: str | None = Non
         else:
             editor.drag_canvas(e.dx, e.dy)
             editor.end_canvas_drag()
+
+    return handler
+
+
+def _crop_drag(handle: str):
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_crop_drag(handle)
+        elif e.phase == "move":
+            editor.drag_crop(e.dx, e.dy)
+        else:
+            editor.drag_crop(e.dx, e.dy)
+            editor.end_crop_drag()
 
     return handler
 
@@ -285,6 +313,73 @@ def _canvas_layer(project, stage_w: int, stage_h: int):  # noqa: ANN001, ANN202
                 label=f"Redimensionar desde la {_HANDLE_LABELS[name]}",
                 on_drag=_canvas_drag("scale", name, clip.id),
             ))
+    return box(position="absolute", left=0, top=0, width=stage_w, height=stage_h)[children]
+
+
+def _crop_layer(project, stage_w: int, stage_h: int):  # noqa: ANN001, ANN202
+    """Recuadro de recorte con velo y ocho asas sobre el preview (docs/43).
+
+    El reproductor muestra el clip **sin recortar** mientras el modo está activo, así que el
+    rectángulo se calcula sobre el layout completo y el crop normalizado se mapea directo. Las
+    cajas del clip, elementos y textos se sustituyen por esta capa para no robar el clic.
+    """
+    if not state.crop_on() or state.playing() or state.project_read_only():
+        return None
+    selection = state.selection()
+    if not selection or selection[0] != "clip" or not project.has_clip(selection[1]):
+        return None
+    clip = project.clip(selection[1])
+    try:
+        pos = tl.locate(project, state.playhead())
+    except ProjectError:
+        pos = None
+    if pos is None or pos.clip.id != clip.id:
+        return None  # el playhead no está en el clip seleccionado: no hay dónde recortar
+    try:
+        layout = crop_edit.full_layout(project, clip, (stage_w, stage_h))
+        crop_rect = crop_edit.crop_box(layout, (clip.transform or Transform()).crop)
+    except (ProjectError, ValueError):
+        return None
+    visible = crop_edit.visible_box(crop_rect, (stage_w, stage_h))
+    if visible is None:
+        return None
+    children = []
+    # Velo fuera del rectángulo (cuatro bandas, sin cajas de tamaño cero).
+    if visible.top > 0:
+        children.append(box(key="crop-veil-top", position="absolute", left=0, top=0,
+                            width=stage_w, height=visible.top, bg="#00000099"))
+    if visible.bottom < stage_h:
+        children.append(box(key="crop-veil-bottom", position="absolute", left=0,
+                            top=visible.bottom, width=stage_w,
+                            height=max(0.0, stage_h - visible.bottom), bg="#00000099"))
+    if visible.left > 0:
+        children.append(box(key="crop-veil-left", position="absolute", left=0, top=visible.top,
+                            width=visible.left, height=visible.height, bg="#00000099"))
+    if visible.right < stage_w:
+        children.append(box(key="crop-veil-right", position="absolute", left=visible.right,
+                            top=visible.top, width=max(0.0, stage_w - visible.right),
+                            height=visible.height, bg="#00000099"))
+    children.append(box(
+        key="crop-body", position="absolute", left=visible.left, top=visible.top,
+        width=visible.width, height=visible.height, bg="#00000000",
+        border_width=2, border_color="#FFFFFF", radius=2, cursor=crop_edit.HANDLE_CURSORS[crop_edit.MOVE],
+        tooltip="Arrastra dentro para mover el recorte · Esc para salir",
+        label="Mover el rectángulo de recorte", on_drag=_crop_drag(crop_edit.MOVE),
+    ))
+    for name, (cx, cy) in crop_edit.handle_centres(
+        visible, (stage_w, stage_h), _CROP_HANDLE
+    ).items():
+        label = _CROP_HANDLE_LABELS[name]
+        children.append(box(
+            key=f"crop-handle-{name}", position="absolute",
+            left=cx - _CROP_HANDLE / 2, top=cy - _CROP_HANDLE / 2,
+            width=_CROP_HANDLE, height=_CROP_HANDLE, radius=4,
+            bg="#FFFFFF", border_width=2, border_color="$primary",
+            cursor=crop_edit.HANDLE_CURSORS[name],
+            tooltip=f"Arrastra para recortar desde la {label}",
+            label=f"Recortar desde la {label}",
+            on_drag=_crop_drag(name),
+        ))
     return box(position="absolute", left=0, top=0, width=stage_w, height=stage_h)[children]
 
 
@@ -398,7 +493,11 @@ def _texts_layer(project, stage_w: int, stage_h: int):  # noqa: ANN001, ANN202
 @component
 def preview_panel():
     frame = state.preview_frame()
-    note = state.preview_note()
+    crop_on = state.crop_on()
+    note = (
+        "Recorte activo: arrastra las asas o el interior · T o Esc para salir"
+        if crop_on else state.preview_note()
+    )
     project = state.editor_project()
     has_clips = bool(project.video.clips)
     area = state.preview_area()
@@ -412,9 +511,10 @@ def preview_panel():
             box(key="ed-stage", width=stage_w, height=stage_h, shrink=0, bg=project.background,
                 overflow="hidden", radius=2, drop_target=True)[
                 image(frame, fit="fill", width="100%", height="100%", key="ed-preview-img"),
-                _canvas_layer(project, stage_w, stage_h),
-                _elements_layer(project, stage_w, stage_h),
-                _texts_layer(project, stage_w, stage_h),
+                crop_on and _crop_layer(project, stage_w, stage_h),
+                not crop_on and _canvas_layer(project, stage_w, stage_h),
+                not crop_on and _elements_layer(project, stage_w, stage_h),
+                not crop_on and _texts_layer(project, stage_w, stage_h),
             ]
             if stage_w > 1 and stage_h > 1
             else image(frame, fit="contain", grow=1, height=0, width="100%", key="ed-preview-img")
@@ -563,6 +663,10 @@ def _transform_controls(clip):
     transform = clip.transform or Transform()
     return section(
         "Transformación",
+        switch(state.crop_on, "Recortar en el preview (T)", key="insp-crop-mode"),
+        text("El recorte muestra el clip completo y un recuadro con 8 asas. Solo con un clip de "
+             "V1 seleccionado y en pausa; Esc sale del modo.", size=11, color="$muted",
+             line_height=1.35),
         _row("Encaje", select(state.insp_fit, _CLIP_FITS, key="insp-fit")),
         _row("Escala", select(state.insp_scale, _options(_SCALES, transform.scale), key="insp-scale")),
         _row("Posición X", select(state.insp_pos_x, _options(_POSITIONS, transform.x), key="insp-pos-x")),
@@ -1255,6 +1359,7 @@ def timeline_toolbar():
     snap_on = state.snap_on()
     has_selection = state.selection() is not None
     key_add = state.key_add_on()
+    crop_on = state.crop_on()
     project = state.editor_project()
     start, end = tl.play_range(project)
     return row(gap=6, align="center", shrink=0)[
@@ -1294,13 +1399,15 @@ def timeline_toolbar():
         tl.has_range(project) and text(f"In/Out {tl.format_time(start)}–{tl.format_time(end)}", key="tl-range",
                                        size=11, color="$primary", family="Consolas", max_lines=1, shrink=0),
         spacer(),
-        text("Razor activa: clic para cortar · V o Esc para salir" if state.razor_on() else
+        text("Recorte activo: arrastra las asas del preview · T o Esc para salir" if crop_on else
+             "Razor activa: clic para cortar · V o Esc para salir" if state.razor_on() else
              "Añadir clave activa: clic en la barra del elemento/texto seleccionado · N o Esc "
              "para salir" if key_add else
              "Env activa: clic en la waveform para añadir claves · arrastra los puntos · Supr borra"
              if state.env_edit_on() else
              "Arrastra clips y asas para mover/recortar · M/S/L en las cabeceras · la regla para moverte",
-             size=11, color="$primary" if state.razor_on() or state.env_edit_on() or key_add else "$muted",
+             size=11, color="$primary" if state.razor_on() or state.env_edit_on() or key_add
+             or crop_on else "$muted",
              max_lines=1),
     ]
 
