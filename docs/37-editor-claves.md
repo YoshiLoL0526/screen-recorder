@@ -94,6 +94,10 @@ explícito** y un menú nativo:
 - El corte rápido sigue bloqueado por cualquier envolvente o superposición.
 - El audio de un clip de V1 con `audio_enabled=False` conserva su curva y sus asas: la curva se
   aplicará si se vuelve a vincular el audio (misma política que docs/32).
+- Los **fundidos de audio** (`audio_fade_in/out`) y el **crossfade por corte** tienen asas
+  propias en la misma zona del timeline desde [docs/46](46-fundidos-audio.md). Se dibujan en otra
+  capa y no son claves de `envelope`: sus gestos usan `fundido de audio` y `crossfade de audio` y
+  no entran en el copiar/pegar de claves.
 
 ## Tests y verificación
 

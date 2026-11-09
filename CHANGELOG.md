@@ -7,6 +7,16 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Fundidos de audio y crossfade por corte en el timeline** (docs/46; modelo v15 sin cambios):
+  con un clip de una pista de audio seleccionado aparecen dos asas azules en su banda superior
+  (entrada a la derecha, salida a la izquierda) que editan `audio_fade_in`/`audio_fade_out` con
+  un límite de `min(2 s, duración/2)` y sin cruzar el otro fundido. Un undo por gesto
+  (`fundido de audio`), abierto en el primer movimiento; clic sin undo y `Esc` revierte. En cada
+  corte de una pista secuencial, un asa crea/ajusta un `Transition(kind="fade")` con
+  `transition_limit` (arrastrar a la izquierda alarga y por debajo de 0.2 s vuelve al corte
+  limpio; undo `crossfade de audio`). Se reutilizan el modelo y el `acrossfade` del export, sin
+  campos ni cambios de esquema; las pistas absolutas y bloqueadas no muestran el asa de
+  crossfade.
 - **Recorte interactivo en el preview** (docs/43; modelo v15 sin cambios): modo **Recortar**
   (`T` o `switch` de la sección Transformación) solo con un clip de V1 seleccionado y en pausa.
   Mientras está activo, el preview muestra el clip **sin recortar** (copia solo del reproductor,
