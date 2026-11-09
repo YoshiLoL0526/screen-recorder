@@ -9,7 +9,8 @@
 - **Importar** uno o varios `.srt`/`.vtt` desde la pestaña **Capas** con **Subtítulos…**.
 - Cada cue aparece como un texto en el timeline (fila «Textos», color teal), en la capa
   «Capas» con el prefijo `Subtítulo ·` y en el inspector como texto normal.
-- **Editar** texto, intervalo, tamaño, color, X/Y, opacidad y negrita por cue.
+- **Editar** texto, intervalo, tamaño, color, X/Y, opacidad, negrita y **ancho máximo**
+  (`wrap_width`, [docs/45](45-texto-multilinea.md)) por cue.
 - **Aplicar estilo a todos los subtítulos**: copia Y, tamaño, color, negrita y opacidad del cue
   seleccionado al resto; X se centra en 0.5.
 - **Exportar SRT…**: guarda los textos `subtitle=True` como `.srt` en UTF-8, ordenados por inicio.
@@ -23,13 +24,14 @@
 - Acepta SRT (`HH:MM:SS,mmm`) y WebVTT (`HH:MM:SS.mmm` y `MM:SS.mmm`).
 - Tolera BOM, CRLF, índices SRT, ajustes de cue VTT (`align:start position:10%`), bloques
   `NOTE`/`STYLE`/`REGION`, etiquetas HTML (`<i>`, `<v Ana>`) y etiquetas ASS (`{\an8}`).
-- Junta las líneas de un cue con un espacio (el modelo de texto es de una línea).
+- Junta las líneas de un cue con un espacio (comportamiento histórico del import; el modelo ya
+  admite texto multilínea y `wrap_width` desde [docs/45](45-texto-multilinea.md)).
 - Descarta cues sin texto, con fin ≤ inicio o con tiempos ilegibles; ordena por inicio.
 - `cues_to_texts(cues, total=…)` recorta al timeline, salta los cues que empiezan después del final
   y aplica el estilo por defecto: centrado, `y=0.88`, tamaño 44, blanco, negrita.
 - `format_srt(texts)` es el inverso: `HH:MM:SS,mmm`, numeración y UTF-8.
 
-## Modelo (v12; el subtítulo nació en v9)
+## Modelo (v15; el subtítulo nació en v9)
 
 ```python
 TextOverlay(
@@ -40,6 +42,7 @@ TextOverlay(
     opacity=1.0,        # v9: opacidad base
     animations=(),      # v9: x/y/opacity (docs/31); scale/rotation (docs/35) y size (docs/36)
     color_keys=(),      # v12: color animado (docs/36)
+    wrap_width=0.0,     # v15: ancho máximo como fracción del lienzo (docs/45)
 )
 ```
 
@@ -57,7 +60,9 @@ TextOverlay(
 - **Exportar**: `export_subtitles()` abre «Guardar como», escribe en un hilo y avisa. El nombre
   por defecto es `<proyecto>.srt`.
 - El texto se quema con el mismo `drawtext` de los textos (`expansion=none`, texto escapado,
-  borde negro) y el preview usa PIL con el mismo contorno. La opacidad se comparte.
+  borde negro) y el preview usa PIL con el mismo contorno. La opacidad se comparte. Un subtítulo
+  con `wrap_width > 0` o `\n` se hornea con el mismo rasterizado multilínea que cualquier texto
+  ([docs/45](45-texto-multilinea.md)).
 
 ## UI
 
@@ -68,8 +73,9 @@ TextOverlay(
 
 ## Límites
 
-- **Una línea por cue**: las líneas múltiples se unen con un espacio. No hay salto de línea real
-  en `drawtext`/preview.
+- **Una línea por cue al importar**: el parser une las líneas del cue con un espacio y deja
+  `wrap_width=0.0`; el modelo admite multilínea y ajuste automático desde
+  [docs/45](45-texto-multilinea.md), pero el import SRT/VTT no cambia.
 - Fuente **Arial fija** (regular/negrita) y sin caja de fondo, alineación por cue ni estilos ASS.
 - No se importan animaciones ASS (`\move`, `\fad`); los keyframes se añaden desde la app.
 - La exportación SRT no incluye animaciones ni estilos (solo tiempos y texto).

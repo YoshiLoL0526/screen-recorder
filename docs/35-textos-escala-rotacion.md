@@ -50,9 +50,11 @@ TextOverlay(
   transformado. Calcula el tamaño de fuente (`size · alto_frame / alto_proyecto · escala`),
   el contorno de 2 px escalado, la opacidad y la rotación; dibuja el texto en una imagen RGBA
   aislada y la rota con `core.overlays.rotate_rgba` (misma convención horaria que FFmpeg).
-- `_draw_texts` conserva el camino actual para los textos **sin** claves de escala/rotación:
-  se dibujan directamente sobre la capa RGBA como hasta ahora. Solo los transformados pasan
-  por `text_rgba` y se componen centrados en `(x·ancho, y·alto)` con recorte contra el lienzo.
+- `_draw_texts` conserva el camino actual para los textos **sin** claves de escala/rotación: se
+  dibujan directamente sobre la capa RGBA como hasta ahora. Solo los transformados pasan por
+  `text_rgba` y se componen centrados en `(x·ancho, y·alto)` con recorte contra el lienzo. Los
+  textos multilínea también pasan por `text_rgba` con todas sus líneas
+  ([docs/45](45-texto-multilinea.md)).
 - La posición sigue siendo el **centro** `(x, y)`; `text_extent` calcula el tamaño ya rotado
   para que el bake reserve el lienzo máximo del intervalo.
 - La caja de selección del preview se oculta también cuando el texto tiene claves de escala o
@@ -123,7 +125,8 @@ Consecuencias:
 - El corte rápido sigue bloqueado por `Project.texts`, como cualquier superposición.
 - Los textos sin escala/rotación (ni color/tamaño animados, docs/36) mantienen el rasterizado de
   `drawtext` en el export (no se hornean), así que su diferencia de antialias con el preview es la
-  que ya existía.
+  que ya existía. Los textos con `wrap_width > 0` o multilínea sí se hornean siempre
+  ([docs/45](45-texto-multilinea.md)).
 
 ## Tests y verificación
 

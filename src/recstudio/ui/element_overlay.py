@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..core import elements as el
+from ..core import text_layout
 from ..core.project import Element, Project, TextOverlay
 from ..services import playback
 
@@ -89,20 +90,37 @@ def element_box(project: Project, element: Element, panel: tuple[float, float]) 
 
 
 def text_box(project: Project, overlay: TextOverlay, panel: tuple[float, float]) -> TextBox | None:
-    """Caja del texto en el panel, con la misma fuente y escala que `_draw_texts`.
+    """Caja del bloque de texto completo en el panel (una o varias líneas; docs/45).
 
-    `drawtext` del export usa la misma fuente y el centro normalizado; la caja del preview es
-    una aproximación con las métricas reales de la fuente para poder seleccionar y arrastrar.
+    Usa la misma fuente y el mismo corte de `core.text_layout.wrap_text` que
+    `services.playback`, para que la caja cubra todas las líneas y su centro sea el mismo
+    `(x, y)` que dibuja el preview.
     """
     frame = preview_frame(project, panel)
     if frame.scale <= 0 or project.height <= 0:
         return None
     size = max(8, int(round(overlay.size * frame.frame_height / project.height)))
     font = playback.text_font(overlay.bold, size)
-    try:
-        left, top, right, bottom = font.getbbox(overlay.text, anchor="mm")
-    except (AttributeError, TypeError, ValueError):
-        left, top, right, bottom = font.getbbox(overlay.text)
+    lines = (
+        text_layout.wrap_text(
+            overlay.text, size=overlay.size, wrap_width=overlay.wrap_width,
+            project_width=project.width,
+        )
+        if text_layout.breaks_lines(overlay)
+        else (overlay.text,)
+    ) or (overlay.text,)
+    step = max(1.0, float(size) * text_layout.LINE_HEIGHT)
+    offsets = [(index - (len(lines) - 1) / 2.0) * step for index in range(len(lines))]
+    boxes = []
+    for line in lines:
+        try:
+            boxes.append(font.getbbox(line, anchor="mm"))
+        except (AttributeError, TypeError, ValueError):
+            boxes.append(font.getbbox(line))
+    left = min(box[0] for box in boxes)
+    top = min(box[1] + offset for box, offset in zip(boxes, offsets))
+    right = max(box[2] for box in boxes)
+    bottom = max(box[3] + offset for box, offset in zip(boxes, offsets))
     width = max(2, right - left)
     height = max(2, bottom - top)
     # Un pequeño margen para que el borde y las asas no se coman el texto ni el clic.

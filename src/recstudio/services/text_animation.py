@@ -1,16 +1,17 @@
-"""Bake de textos con escala, rotación, tamaño o color animados (docs/35 y docs/36).
+"""Bake de textos con escala, rotación, tamaño o color animados, y textos multilínea (docs/35,
+docs/36 y docs/45).
 
 `drawtext` no permite rotar el texto por frame, ni cambiar `fontsize` con la fiabilidad del
-rasterizado de PIL, ni interpolar el color. Por eso el export sigue la misma estrategia que los
-elementos animados (docs/33): el texto se compone frame a frame con la **misma** función que usa
-el preview (`services.playback.text_rgba`), se codifica a un vídeo RGBA `qtrle` y se superpone
-con `overlay` en `(x, y)`, con el estilo ya horneado.
+rasterizado de PIL, ni interpolar el color, ni ajustar líneas. Por eso el export sigue la misma
+estrategia que los elementos animados (docs/33): el texto se compone frame a frame con la
+**misma** función que usa el preview (`services.playback.text_rgba`), se codifica a un vídeo RGBA
+`qtrle` y se superpone con `overlay` en `(x, y)`, con el estilo ya horneado.
 
-- Solo se hornean los textos con claves de `scale`, `rotation` o `size`, o con `color_keys`.
-  Los demás siguen usando `drawtext`, y un proyecto sin esos canales conserva las cadenas del
-  graph byte a byte.
-- El lienzo del `.mov` es el máximo que necesita el texto en todo su intervalo (tamaño, escala y
-  rotación incluidos), porque `overlay` exige un tamaño constante.
+- Se hornean los textos con claves de `scale`, `rotation` o `size`, con `color_keys`, con
+  `wrap_width > 0` o con un `\\n` explícito. Los demás siguen usando `drawtext`, y un proyecto
+  sin esos canales conserva las cadenas del graph byte a byte.
+- El lienzo del `.mov` es el máximo que necesita el texto en todo su intervalo (tamaño, escala,
+  rotación y líneas incluidas), porque `overlay` exige un tamaño constante.
 - Los intermedios viven en el directorio temporal del export y se borran con él.
 """
 
@@ -23,6 +24,7 @@ from PIL import Image
 
 from ..core import animation as anim
 from ..core import overlays
+from ..core import text_layout
 from ..core.errors import MediaError
 from ..core.project import Project, TextOverlay
 from ..core.timeline import total_duration
@@ -35,9 +37,15 @@ BAKE_CHANNELS = anim.TEXT_BAKE_CHANNELS
 
 
 def needs_bake(overlay: TextOverlay) -> bool:
-    """¿El texto tiene claves de escala/rotación/tamaño o color animado? (docs/35 y docs/36)."""
-    return bool(overlay.color_keys) or any(
-        anim.is_animated(overlay.animations, channel) for channel in BAKE_CHANNELS
+    """¿El texto necesita el vídeo RGBA intermedio? (docs/35, docs/36 y docs/45).
+
+    Incluye las animaciones que `drawtext` no puede reproducir y cualquier texto multilínea:
+    `wrap_width > 0` (ajuste automático) o un `\\n` explícito en el texto.
+    """
+    return (
+        bool(overlay.color_keys)
+        or text_layout.breaks_lines(overlay)
+        or any(anim.is_animated(overlay.animations, channel) for channel in BAKE_CHANNELS)
     )
 
 
@@ -72,7 +80,7 @@ def _bake(
     for index in range(frames):
         t = overlay.start + index / fps
         extent_w, extent_h = playback.text_extent(
-            overlay, t, size, project_height=project.height,
+            overlay, t, size, project_height=project.height, project_width=project.width,
         )
         width, height = max(width, extent_w), max(height, extent_h)
 
@@ -86,7 +94,9 @@ def _bake(
     try:
         for index in range(frames):
             t = overlay.start + index / fps
-            image = playback.text_rgba(overlay, t, size, project_height=project.height)
+            image = playback.text_rgba(
+                overlay, t, size, project_height=project.height, project_width=project.width,
+            )
             canvas.paste((0, 0, 0, 0), (0, 0, width, height))
             if image is not None:
                 # Sin máscara: el lienzo ya está vacío y `paste` con la propia imagen como

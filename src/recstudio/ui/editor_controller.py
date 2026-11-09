@@ -29,6 +29,7 @@ from ..core import keyframes as keyframes_mod
 from ..core import store as store_mod
 from ..core import subtitles as subtitles_mod
 from ..core import text_color as text_color_mod
+from ..core import text_layout
 from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
 from ..core.project import (
@@ -218,6 +219,7 @@ class EditorController:
         state.insp_text_x.subscribe(live(lambda value: self._on_insp_text("x", value)))
         state.insp_text_y.subscribe(live(lambda value: self._on_insp_text("y", value)))
         state.insp_text_opacity.subscribe(live(lambda value: self._on_insp_text("opacity", value)))
+        state.insp_text_wrap.subscribe(live(lambda value: self._on_insp_text("wrap_width", value)))
         state.insp_text_bold.subscribe(live(lambda value: self._on_insp_text("bold", value)))
         for signal, field, label in ELEMENT_FIELDS:
             signal.subscribe(live(lambda value, f=field, lb=label: self._on_insp_element(f, value, lb)))
@@ -387,6 +389,7 @@ class EditorController:
             state.insp_text_x.set(overlay.x)
             state.insp_text_y.set(overlay.y)
             state.insp_text_opacity.set(overlay.opacity)
+            state.insp_text_wrap.set(overlay.wrap_width)
             state.insp_text_bold.set(overlay.bold)
         else:
             self._last_text_id = None
@@ -561,10 +564,25 @@ class EditorController:
         overlay = self.selected_text()
         if overlay is None:
             return
+        if name == "wrap_width":
+            value = self._normalize_text_wrap(value)
         current = getattr(overlay, name)
         if current == value:
+            if name == "wrap_width" and state.insp_text_wrap() != current:
+                state.insp_text_wrap.set(current)
             return
         self._update_text(**{name: value})
+
+    @staticmethod
+    def _normalize_text_wrap(value) -> float:  # noqa: ANN001
+        """`0` = sin límite; si no, un mínimo de `TEXT_WRAP_MIN` para que el ajuste sea útil."""
+        try:
+            wrap = float(value)
+        except (TypeError, ValueError):
+            return 0.0
+        if wrap != wrap or wrap <= 0.0:  # NaN o vacío: sin límite
+            return 0.0
+        return round(max(text_layout.TEXT_WRAP_MIN, min(1.0, wrap)), 4)
 
     def _on_insp_element(self, name: str, value, label: str) -> None:  # noqa: ANN001
         element = self.selected_element()

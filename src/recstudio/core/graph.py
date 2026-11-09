@@ -31,6 +31,7 @@ from . import effects as fx
 from . import elements as el
 from . import global_effects
 from . import overlays
+from . import text_layout
 from . import timeline as tl
 from . import transform as tx
 from .errors import ProjectError
@@ -609,9 +610,11 @@ def text_filters(project: Project, output_height: int) -> list[str]:
 
 
 def _text_needs_bake(overlay) -> bool:  # noqa: ANN001
-    """¿El texto necesita el vídeo RGBA intermedio? (escala/rotación/tamaño o color animados)."""
-    return bool(getattr(overlay, "color_keys", ())) or any(
-        anim.is_animated(overlay.animations, channel) for channel in anim.TEXT_BAKE_CHANNELS
+    """¿Necesita el vídeo RGBA intermedio? Animaciones no dibujables o texto multilínea."""
+    return (
+        bool(getattr(overlay, "color_keys", ()))
+        or text_layout.breaks_lines(overlay)
+        or any(anim.is_animated(overlay.animations, channel) for channel in anim.TEXT_BAKE_CHANNELS)
     )
 
 

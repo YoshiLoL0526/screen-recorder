@@ -47,7 +47,9 @@ inspector; modelo **v13**, `docs/39`), el **easing de las envolventes de volumen
 (`VolumePoint.easing`, las mismas curvas en preview/export y selector en las dos secciones de
 envolvente; modelo **v14**, `docs/40`), el **copiar/pegar de claves** (`KeyClipboard` en el
 controlador, menús del asa y `Ctrl+C`/`Ctrl+V`; `docs/41`) y el **modo «añadir clave» desde el
-timeline** (`state.key_add_on`, tecla **N**, `keyframe_default`/`keyframe_value_at`; `docs/42`).
+timeline** (`state.key_add_on`, tecla **N**, `keyframe_default`/`keyframe_value_at`; `docs/42`),
+y el **texto multilínea con ancho máximo** (`TextOverlay.wrap_width`, `core/text_layout.py`,
+bake RGBA de los textos envueltos; modelo **v15**, `docs/45`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -56,7 +58,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 545 tests; la integración usa FFmpeg real
+uv run pytest                                   # 555 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -229,14 +231,21 @@ depender de monitor, GPU ni audio reales del runner.
   (`core/text_color.py`) y se interpola en sRGB. La escala/rotación/tamaño se hornea a un `.mov`
   `qtrle` RGBA con PIL (`services/element_animation.py` y `services/text_animation.py`) y se
   superpone con X/Y como siempre; el color animado usa el mismo bake. Sin esos canales, las
-  cadenas del graph son las de antes. Los textos solo se hornean si tienen
-  scale/rotation/size/color animados; los estáticos siguen con `drawtext` y el orden de
+  cadenas del graph son las de antes. Los textos se hornean también si son multilínea
+  (`wrap_width > 0` o `\n`, docs/45); el resto de estáticos sigue con `drawtext` y el orden de
   `Project.texts` se conserva encadenando cada texto sobre la etiqueta anterior. La caja del
   preview se oculta si hay geometría animada (x/y/scale/rotation/size en textos y
   x/y/scale/rotation en elementos). `text_values` devuelve `(x, y, opacity, scale, rotation)`;
   `text_style_values` devuelve `(size, color)` aparte para no cambiar esa firma;
-  `format_srt` exporta solo `subtitle=True`. `TextOverlay` es de una línea (los cues multilínea
-  se unen con espacios).
+  `format_srt` exporta solo `subtitle=True`. El import SRT/VTT sigue uniendo los cues con
+  espacios y `wrap_width=0.0`; el modelo ya admite `\n` y ajuste automático (docs/45).
+- Texto multilínea (docs/45): `TextOverlay.wrap_width` es una fracción del ancho del lienzo
+  (`0` = sin límite, mínimo `0.1`). `core/text_layout.wrap_text` es puro (sin PIL) y estima el
+  ancho con una tabla de Arial; preview y bake usan **el mismo** helper y el mismo tamaño del
+  proyecto, así que el corte no depende de la resolución. `_text_layout`/`text_rgba` dibujan
+  todas las líneas centradas con `LINE_HEIGHT = 1.15` y bloque centrado en `(x, y)`;
+  `ui/element_overlay.text_box` calcula el bloque completo. Un cambio en el helper o en el
+  interlineado afecta a la paridad: cámbialo en un solo sitio.
 - Envolventes de volumen (docs/32, docs/34 y docs/40): `Clip.envelope` y `Element.envelope` son
   independientes de `Animation`; sus claves son locales al clip/elemento (0…duración) y la
   ganancia 0…4. Cada clave tiene `easing` (el de la clave izquierda aplica al tramo) y `expr`
@@ -345,7 +354,8 @@ depender de monitor, GPU ni audio reales del runner.
   tamaño animados de textos (modelo v12), `docs/37` la edición de claves de envolvente en el
   timeline, `docs/38` las asas de animaciones visuales, `docs/39` el easing de las claves de
   animación (modelo v13), `docs/40` el easing de las envolventes de volumen (modelo v14),
-  `docs/41` el copiar/pegar de claves y `docs/42` el modo para añadir claves desde el timeline.
+  `docs/41` el copiar/pegar de claves y `docs/42` el modo para añadir claves desde el timeline;
+  `docs/45` el texto multilínea con ancho máximo (modelo v15).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

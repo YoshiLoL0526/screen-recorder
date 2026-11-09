@@ -158,7 +158,7 @@ def _project_with_envelopes() -> Project:
 
 def test_serializacion_easing_de_volumen_y_migracion_v13_v14() -> None:
     project = _project_with_envelopes()
-    assert SCHEMA_VERSION == 14
+    assert SCHEMA_VERSION == 15
     data = json.loads(json.dumps(to_dict(project)))
     assert data["video"]["clips"][0]["envelope"] == [
         {"t": 0.0, "gain": 1.0, "easing": "ease_in"},
@@ -179,7 +179,7 @@ def test_serializacion_easing_de_volumen_y_migracion_v13_v14() -> None:
             for point in item["envelope"]:
                 point.pop("easing")
     migrated, read_only = store.migrate(old)
-    assert read_only is False and migrated["schema_version"] == 14
+    assert read_only is False and migrated["schema_version"] == 15
     restored = from_dict(migrated)
     assert [point.easing for point in restored.video.clips[0].envelope] == [
         "linear", "linear",
