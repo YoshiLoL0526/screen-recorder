@@ -77,6 +77,9 @@ TextOverlay(..., animations=(...))
   campo». Para cambiar una curva se coloca el playhead, se ajusta el campo base y se vuelve a
   grabar en ese instante.
 - La barra del timeline añade **◆** cuando la capa tiene animación.
+- El canal elegido en la sección **Animación** también se edita con **asas sobre la barra** del
+  elemento/texto: arrastrar cambia tiempo y valor, y `Supr` borra la clave seleccionada
+  ([docs/38](38-asas-animaciones.md)).
 - La caja del preview se oculta si la capa tiene geometría animada (X/Y y, en elementos, escala o
   rotación); el timeline y el inspector siguen funcionando.
 
@@ -89,7 +92,7 @@ TextOverlay(..., animations=(...))
 - Interpolación **lineal**; no hay curvas Bézier/easing ni copiar/pegar claves.
 - Las claves son **explícitas**: no hay modo «grabar automáticamente al mover el playhead».
 - La caja del preview no se muestra para capas con geometría animada; la posición y la escala se
-  editan con el inspector.
+  editan con el inspector o con las asas del timeline ([docs/38](38-asas-animaciones.md)).
 - El corte rápido sigue bloqueado por elementos/textos/efectos (docs/18).
 
 ## Tests

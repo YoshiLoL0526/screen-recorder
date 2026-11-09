@@ -10,10 +10,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > lienzo configurable, transformación del frame y flujo de edición), **panel de medios/capas con
 > selección directa**, **PiP de video**, **pistas V2/V3**, **subtítulos**, **keyframes**,
 > **envolventes de volumen**, **escala/rotación de elementos**, **envolventes de audio de
-> elementos**, **escala/rotación de textos**, **color/tamaño de textos** y **edición de claves
-> de envolvente en el timeline** (docs/27-37). Quedan las comprobaciones manuales de A y la fase
-> 4+. Los documentos 01-07 son la especificación de diseño; 08-37 recogen lo implementado, con
-> mediciones y bugs.
+> elementos**, **escala/rotación de textos**, **color/tamaño de textos**, **edición de claves
+> de envolvente en el timeline** y **asas de animaciones visuales** (docs/27-38). Quedan las
+> comprobaciones manuales de A y la fase 4+. Los documentos 01-07 son la especificación de
+> diseño; 08-38 recogen lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -56,6 +56,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 35 | [Textos con escala y rotación](35-textos-escala-rotacion.md) | Canales `scale`/`rotation` de textos/subtítulos, rasterizado compartido, bake RGBA y orden de `drawtext`/overlays (modelo v10). |
 | 36 | [Color y tamaño de textos](36-color-tamano-textos.md) | Canal `size` y claves de color de textos/subtítulos, interpolación sRGB, bake RGBA, UI y límites (modelo v12). |
 | 37 | [Claves de envolvente en el timeline](37-editor-claves.md) | Asas sobre la waveform/barra, modo Env para añadir, Supr/menú para borrar, geometría pura, undo por gesto y capa sobre el playhead (modelo v11 sin cambios). |
+| 38 | [Asas de animaciones en el timeline](38-asas-animaciones.md) | Canal elegido en el inspector, polilínea y asas sobre la barra de elementos/textos, geometría de los cuatro rangos, arrastre con undo y límites (modelo v12 sin cambios). |
 
 ## Orden de lectura sugerido
 

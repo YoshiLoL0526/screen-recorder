@@ -27,6 +27,7 @@ import numpy as np
 from aurora import Canvas, box, canvas, column, component, image, menus, row, scroll, text
 
 from .. import state
+from ..core import animation as anim
 from ..core import audio_envelope as env
 from ..core import effects as fx
 from ..core import elements as element_mod
@@ -72,6 +73,12 @@ MARKER_COLOR = "#F5B851"
 ENVELOPE_COLOR = "#FFD166"  # línea de la envolvente de volumen (docs/32)
 ENVELOPE_HANDLE_W = 11.0  # asa de una clave sobre la waveform (docs/37)
 ENVELOPE_ELEMENT_W = 9.0  # asa de una clave sobre la barra de un elemento
+ANIMATION_COLOR = "#FF6EC7"  # polilínea y asas de animación visual (docs/38)
+ANIMATION_HANDLE_W = 9.0  # asa de una clave sobre la barra de un elemento/texto
+KEYFRAME_LABELS = {
+    "x": "X", "y": "Y", "opacity": "opacidad", "scale": "escala",
+    "rotation": "rotación", "size": "tamaño",
+}
 MARKER_W = 12  # caja clicable de cada marcador en la regla
 RANGE_FILL = "#7C5CFF40"  # banda del rango In/Out en la regla
 
@@ -344,6 +351,69 @@ def envelope_time(start: float, duration: float, x: float, zoom: float) -> float
     return max(0.0, min(float(duration), float(x) / zoom - float(start)))
 
 
+def keyframe_x(start: float, duration: float, t: float, zoom: float) -> float:
+    """`x` del contenido de un tiempo local de un elemento/texto (docs/38)."""
+    return envelope_x(start, duration, t, zoom)
+
+
+def keyframe_time(start: float, duration: float, x: float, zoom: float) -> float:
+    """Tiempo local (0…`duration`) de una `x` del contenido (inversa de `keyframe_x`)."""
+    return envelope_time(start, duration, x, zoom)
+
+
+def keyframe_value_y(top: float, height: float, channel: str, value: float) -> float:
+    """`y` del contenido para un valor del canal de animación dentro de una fila.
+
+    El mapeo es el mismo para elementos y textos: 2 px de margen arriba/abajo y el resto
+    reparte el rango del canal (`animation.CHANNEL_RANGES`). Arriba = valor máximo.
+    """
+    low, high = anim.channel_range(channel)
+    inner_top = top + 2.0
+    inner_h = max(1.0, height - 4.0)
+    value = max(low, min(high, float(value)))
+    span = high - low
+    if span <= 0:
+        return inner_top + inner_h / 2.0
+    return inner_top + inner_h * (1.0 - (value - low) / span)
+
+
+def keyframe_value_at_y(top: float, height: float, channel: str, y: float) -> float:
+    """Valor del canal que corresponde a la `y` de una fila (inversa de `keyframe_value_y`)."""
+    low, high = anim.channel_range(channel)
+    inner_top = top + 2.0
+    inner_h = max(1.0, height - 4.0)
+    value = low + (inner_top + inner_h - float(y)) / inner_h * (high - low)
+    return max(low, min(high, value))
+
+
+def _keyframe_curve(
+    item, channel: str, start: float, zoom: float, top: float, height: float,
+    x0: float, x1: float,
+):
+    """Puntos de la polilínea y asas de un canal de animación, en px del canvas (docs/38)."""
+    animation = anim.find(item.animations, channel)
+    duration = float(item.end - item.start)
+    if animation is None or duration <= 0 or zoom <= 0:
+        return None, []
+    x, w = start * zoom, max(4.0, duration * zoom)
+    if x > x1 or x + w < x0:
+        return None, []
+    points = [(x, keyframe_value_y(top, height, channel, animation.value_at(0.0, 0.0)))]
+    keys: list[tuple[float, float]] = []
+    for point in animation.points:
+        if point.t > duration + 1e-9:
+            break
+        px = keyframe_x(start, duration, point.t, zoom)
+        py = keyframe_value_y(top, height, channel, point.value)
+        points.append((px, py))
+        keys.append((px, py))
+    points.append((
+        x + w,
+        keyframe_value_y(top, height, channel, animation.value_at(duration, 0.0)),
+    ))
+    return points, keys
+
+
 def _envelope_curve(clip, x: float, w: float, top: float, h: float):
     """Puntos de la polilínea de la envolvente y de sus claves, en px del canvas."""
     duration = clip.duration
@@ -476,6 +546,56 @@ def _element_envelope_boxes(
     return boxes
 
 
+def _keyframe_boxes(
+    item, scope: str, start: float, row, zoom: float, x0: float, x1: float,
+):
+    """Asas de las claves del canal elegido sobre la barra de un elemento/texto (docs/38)."""
+    channel = state.keyframe_channel()
+    if channel not in anim.CHANNELS:
+        return []
+    animation = anim.find(item.animations, channel)
+    duration = float(item.end - item.start)
+    if animation is None or duration <= 0:
+        return []
+    x, w = start * zoom, max(4.0, duration * zoom)
+    if x > x1 or x + w < x0:
+        return []
+    top, height = row.top + 2, row.height - 4
+    selected = state.keyframe_key()
+    label = KEYFRAME_LABELS.get(channel, channel)
+    boxes = []
+    for index, point in enumerate(animation.points):
+        if point.t > duration + 1e-9:
+            continue
+        px = keyframe_x(start, duration, point.t, zoom)
+        py = keyframe_value_y(top, height, channel, point.value)
+        if px < x0 - ANIMATION_HANDLE_W or px > x1 + ANIMATION_HANDLE_W:
+            continue
+        is_selected = (
+            selected is not None and selected.scope == scope and selected.item == item.id
+            and selected.channel == channel and abs(selected.t - point.t) <= 1e-4
+        )
+        text_label = f"Clave {label} {index + 1}: {point.t:.2f} s · {point.value:g}"
+        boxes.append(
+            box(
+                key=f"anim-key-{scope}-{item.id}-{index}",
+                position="absolute", left=px - ANIMATION_HANDLE_W / 2,
+                top=py - ANIMATION_HANDLE_W / 2,
+                width=ANIMATION_HANDLE_W, height=ANIMATION_HANDLE_W,
+                radius=ANIMATION_HANDLE_W / 2, bg=ANIMATION_COLOR,
+                border_width=2 if is_selected else 1,
+                border_color="#FFFFFF" if is_selected else ANIMATION_COLOR + "CC",
+                cursor="grab",
+                tooltip=text_label + " · arrastra para mover; Supr para borrar",
+                label=text_label,
+                on_click=_keyframe_key_click(scope, item.id, channel, point.t),
+                on_drag=_keyframe_key_drag(scope, item.id, channel, index, row.height),
+                on_context_menu=_keyframe_key_menu(scope, item.id, channel, point.t),
+            )
+        )
+    return boxes
+
+
 def _clip_meta(clip, *, offline: bool) -> str:
     """Segunda línea de un clip (duración + velocidad + efectos); la comparten canvas y overlay."""
     meta = tl.format_time(clip.duration)
@@ -571,6 +691,47 @@ def _element_boxes(
     return boxes
 
 
+def _selected_animation_target(project: Project, selection, lay: Tracks):
+    """Elemento/texto seleccionado, su fila y el alto útil de la barra."""
+    if selection is None:
+        return None
+    if selection[0] == "text":
+        if not project.has_text(selection[1]):
+            return None
+        item, scope, row = project.text(selection[1]), "text", lay.overlay_for("text")
+    elif selection[0] == "element":
+        if not project.has_element(selection[1]):
+            return None
+        item = project.element(selection[1])
+        scope = "element"
+        row = (
+            lay.overlay_for("element") if item.video_track <= 0
+            else lay.video_row(item.video_track)
+        )
+    else:
+        return None
+    if row is None:
+        return None
+    return item, scope, row
+
+
+def _draw_animation_curve(c: Canvas, project: Project, selection, lay: Tracks, zoom: float,
+                          x0: float, x1: float) -> None:
+    """Polilínea del canal elegido sobre la barra del elemento/texto seleccionado (docs/38)."""
+    channel = state.keyframe_channel()
+    if channel not in anim.CHANNELS:
+        return
+    target = _selected_animation_target(project, selection, lay)
+    if target is None:
+        return
+    item, _scope, row = target
+    points, _keys = _keyframe_curve(
+        item, channel, float(item.start), zoom, row.top + 2, row.height - 4, x0, x1,
+    )
+    if points:
+        c.polyline(points, stroke=ANIMATION_COLOR, stroke_width=1.5)
+
+
 def _draw_tracks(c: Canvas) -> None:
     project: Project = state.editor_project()
     zoom = state.tl_zoom()
@@ -579,6 +740,7 @@ def _draw_tracks(c: Canvas) -> None:
     drag = state.tl_drag()
     offline = state.offline_assets()
     state.waveforms()  # dependencia: redibujar cuando llega un waveform
+    state.keyframe_channel()  # dependencia: el canal elegido cambia la polilínea (docs/38)
     lay = tracks()
     video_h, audio_top, audio_h = lay.video_h, lay.audio_top, lay.audio_h
     x0, x1 = _visible_range()
@@ -748,6 +910,10 @@ def _draw_tracks(c: Canvas) -> None:
         c.polygon([(boundary, y - 6), (boundary + 6, y), (boundary, y + 6), (boundary - 6, y)],
                   fill="$transition" if transition is not None or selected else "$surface_hover",
                   stroke="$primary" if selected else "$clip_edge", stroke_width=1.5 if selected else 1)
+
+    # Polilínea del canal de animación del elemento/texto seleccionado (docs/38). Va en el
+    # canvas, debajo de su barra translúcida, para que siga viéndose sin tapar clics.
+    _draw_animation_curve(c, project, selection, lay, zoom, x0, x1)
 
     # Fantasma del bloque de la selección múltiple (fase 3): cubre todas las pistas.
     if drag is not None and drag.kind == "block" and drag.length > 0:
@@ -999,6 +1165,46 @@ def _envelope_key_click(scope: str, item_id: str, track_index: int, t: float):
             editor.select_envelope_key(scope, item_id, track_index, t)
 
     return handler
+
+
+def _keyframe_key_drag(scope: str, item_id: str, channel: str, index: int, height: float):
+    """Arrastra un asa de animación; el primer movimiento abre la transacción (docs/38)."""
+
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_keyframe_key_drag(scope, item_id, channel, index, height)
+        elif e.phase == "move":
+            editor.drag_keyframe_key(e.dx, e.dy)
+        else:
+            editor.drag_keyframe_key(e.dx, e.dy)
+            editor.end_keyframe_key_drag()
+
+    return handler
+
+
+def _keyframe_key_click(scope: str, item_id: str, channel: str, t: float):
+    def handler() -> None:
+        editor = _editor()
+        if editor is not None:
+            editor.select_keyframe_key(scope, item_id, channel, t)
+
+    return handler
+
+
+def _keyframe_key_menu(scope: str, item_id: str, channel: str, t: float):
+    def items() -> list:  # noqa: ANN202
+        def remove() -> None:
+            editor = _editor()
+            if editor is not None:
+                editor.delete_keyframe_key_at(scope, item_id, channel, t)
+
+        label = KEYFRAME_LABELS.get(channel, channel)
+        return [menus.item(f"Eliminar clave {label}", remove)]
+
+    return items
 
 
 def _select_audio(track_index: int, clip_index: int) -> None:
@@ -1324,6 +1530,36 @@ def _selected_envelope_boxes(
     return boxes
 
 
+def _selected_keyframe_boxes(
+    project: Project, selection, lay: Tracks, zoom: float, x0: float, x1: float,
+):  # noqa: ANN001
+    """Asas de animación del elemento/texto seleccionado (docs/38).
+
+    Van en su propia capa **encima del playhead**, igual que las de las envolventes: la línea
+    de 2 px del playhead bloquearía el centro de un asa en ese instante.
+    """
+    if selection is None or state.razor_on():
+        return []
+    target = _selected_animation_target(project, selection, lay)
+    if target is None:
+        return []
+    item, scope, row = target
+    return _keyframe_boxes(item, scope, float(item.start), row, zoom, x0, x1)
+
+
+@component
+def animation_handles_layer():
+    state.keyframe_channel()  # dependencias: canal y clave seleccionada repintan las asas
+    state.keyframe_key()
+    project: Project = state.editor_project()
+    selection = state.selection()
+    zoom = state.tl_zoom()
+    x0, x1 = _visible_range()
+    boxes = _selected_keyframe_boxes(project, selection, tracks(), zoom, x0, x1)
+    # Contenedor mínimo: cualquier caja grande encima taparía los clics del timeline.
+    return box(key="anim-layer", position="absolute", left=0, top=0, width=1, height=1)[boxes]
+
+
 @component
 def envelope_handles_layer():
     state.env_edit_on()  # dependencias: el modo y la clave seleccionada repintan las asas
@@ -1467,6 +1703,7 @@ def timeline_view():
                     timeline_layer(),
                     playhead_layer(),
                     envelope_handles_layer(),
+                    animation_handles_layer(),
                 ]
             ]
         ],

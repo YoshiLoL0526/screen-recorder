@@ -56,7 +56,8 @@ TextOverlay(
   para que el bake reserve el lienzo máximo del intervalo.
 - La caja de selección del preview se oculta también cuando el texto tiene claves de escala o
   rotación, igual que con X/Y (`ui/screens/editor.py`): la caja seguiría la animación pero el
-  arrastre editaría el valor base.
+  arrastre editaría el valor base. Las claves se editan en el inspector y con las asas del
+  timeline ([docs/38](38-asas-animaciones.md)).
 
 ## Export: vídeo RGBA intermedio
 

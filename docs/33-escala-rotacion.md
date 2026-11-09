@@ -59,7 +59,7 @@ Element(..., animations=(...))
   de la imagen de un PiP y la reutiliza el bake del export.
 - La caja de selección del preview se **oculta** si el elemento tiene claves de x, y, escala o
   rotación: la caja seguiría la animación pero el arrastre editaría la base. La edición sigue en
-  el inspector y en el timeline (◆).
+  el inspector y en el timeline (◆ y asas del canal elegido, [docs/38](38-asas-animaciones.md)).
 
 ## Export: vídeo RGBA intermedio (opción b)
 

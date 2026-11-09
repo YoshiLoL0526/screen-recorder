@@ -12,8 +12,10 @@
 > **subtítulos** ([30](30-subtitulos.md)), los **keyframes** ([31](31-keyframes.md)), las
 > **envolventes de volumen de audio** ([32](32-audio-envelopes.md)), la **escala/rotación de
 > elementos** ([33](33-escala-rotacion.md)), las **envolventes de audio de elementos**
-> ([34](34-envolventes-elementos.md)), la **escala/rotación de textos** ([35](35-textos-escala-rotacion.md))
-> y la **edición de claves de envolvente en el timeline** ([37](37-editor-claves.md)).
+> ([34](34-envolventes-elementos.md)), la **escala/rotación de textos** ([35](35-textos-escala-rotacion.md)),
+> el **color/tamaño de textos** ([36](36-color-tamano-textos.md)), la **edición de claves de
+> envolvente en el timeline** ([37](37-editor-claves.md)) y las **asas de animaciones visuales**
+> ([38](38-asas-animaciones.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -415,9 +417,28 @@ Resultados y decisiones completas en [37 — Edición de claves](37-editor-clave
 - **Undo**: transacción que empieza en el primer movimiento (`begun=False`), una entrada por gesto
   (`mover`/`añadir`/`eliminar clave de volumen`); `Esc` cancela el gesto.
 - **Límite**: los keyframes visuales (`Animation`) siguen sin asas en el timeline; no hay
-  copiar/pegar claves ni grabación automática.
+  copiar/pegar claves ni grabación automática (las asas visuales llegaron en B25).
 - Tests nuevos en `test_envelope_handles`; **496 tests** en verde.
 - Tras integrar ambas ramas: **505 tests** en verde.
+
+### B25 - Asas de animaciones visuales en el timeline (✅ · M)
+
+Resultados y decisiones completas en [38 — Asas de animaciones](38-asas-animaciones.md).
+
+- **Sin cambios de modelo** (`SCHEMA_VERSION=12`): se reutilizan `Element.animations`,
+  `TextOverlay.animations`, `animation.set_keyframe`/`clear_channel` y las expresiones de siempre.
+- **Selector de canal** (`state.keyframe_channel`, no persistido): X/Y/Escala/Rotación en
+  elementos y X/Y/Opacidad/Escala/Rotación/Tamaño en textos; `color` queda fuera.
+- **Asas**: polilínea y una caja arrastrable por clave sobre la barra del elemento/texto
+  seleccionado. `dx` mueve el tiempo local y `dy` el valor del canal, con los rangos `0…1`,
+  `0.05…4`, `-360…360` y `8…200`; geometría pura compartida
+  (`keyframe_value_y`/`keyframe_time`).
+- **Undo**: transacción que empieza en el primer movimiento (`begun=False`), una entrada por
+  gesto (`mover clave …`); `Esc` cancela. Clic sin mover solo selecciona; `Supr`/menú contextual
+  borran la clave y **Quitar** del inspector sigue borrando el canal entero.
+- **Límite**: no hay modo para añadir claves desde el timeline ni copiar/pegar; las asas solo
+  aparecen con la capa seleccionada y el canal con claves.
+- Tests nuevos en `test_animation_handles`; **513 tests** en verde (505 + 8).
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

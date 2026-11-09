@@ -154,6 +154,7 @@ class EditorController:
         self._text_drag: dict | None = None  # mover/escalar un texto sobre el preview
         self._overlay_drag: dict | None = None  # mover/recortar una capa en el timeline
         self._envelope_drag: dict | None = None  # mover/añadir una clave de volumen (docs/37)
+        self._keyframe_drag: dict | None = None  # mover una clave de animación (docs/38)
         self._closing = threading.Event()
         self._io_lock = threading.Lock()  # abrir/guardar/importar: de uno en uno
         self._wave_lock = threading.Lock()
@@ -186,7 +187,7 @@ class EditorController:
         def live(fn):  # noqa: ANN001, ANN202
             return lambda value: None if self._closing.is_set() else fn(value)
 
-        state.selection.subscribe(live(lambda _v: self._sync_inspector()))
+        state.selection.subscribe(live(self._on_selection))
         state.insp_speed.subscribe(live(self._on_insp_speed))
         state.insp_transition.subscribe(live(self._on_insp_transition))
         state.insp_transition_dur.subscribe(live(self._on_insp_transition_dur))
@@ -294,6 +295,16 @@ class EditorController:
         state.redo_label.set(store.redo_label or "")
         state.project_read_only.set(store.read_only)
 
+    def _on_selection(self, _value) -> None:  # noqa: ANN001
+        """Al cambiar de capa, la clave de animación seleccionada deja de ser válida."""
+        key = state.keyframe_key()
+        selection = state.selection()
+        if key is not None and (
+            selection is None or selection[0] != key.scope or selection[1] != key.item
+        ):
+            state.keyframe_key.set(None)
+        self._sync_inspector()
+
     def _sync_inspector(self) -> None:
         """Lleva el modelo a los campos/selects del inspector (sus escuchas ignoran lo igual)."""
         project = self.store.project
@@ -390,6 +401,21 @@ class EditorController:
             state.insp_el_fit.set(element.fit)
         else:
             self._last_element_id = None
+        self._sync_keyframe_channel()
+
+    def _sync_keyframe_channel(self) -> None:
+        """El selector de canal solo admite los canales válidos de la capa seleccionada."""
+        selection = state.selection()
+        if selection is None:
+            return
+        if selection[0] == "element":
+            allowed = anim.ELEMENT_CHANNELS
+        elif selection[0] == "text":
+            allowed = anim.TEXT_CHANNELS
+        else:
+            return
+        if state.keyframe_channel() not in allowed:
+            state.keyframe_channel.set(allowed[0])
 
     def _canvas_key(self, width: int, height: int) -> str:
         for key, (w, h) in CANVAS_SIZES.items():
@@ -878,6 +904,9 @@ class EditorController:
         if state.envelope_key() is not None:  # Supr con una clave de envolvente seleccionada
             self.delete_envelope_key()
             return
+        if state.keyframe_key() is not None:  # Supr con una clave de animación seleccionada
+            self.delete_keyframe_key()
+            return
         multi = state.multi_selection()
         if multi:
             count = len(multi & {c.id for t in (self.project.video, *self.project.audio) for c in t.clips})
@@ -939,6 +968,7 @@ class EditorController:
     def undo(self) -> None:
         self.cancel_drag()
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         label = self.store.undo()
         if label is None:
             state.toast("info", "Nada que deshacer")
@@ -949,6 +979,7 @@ class EditorController:
     def redo(self) -> None:
         self.cancel_drag()
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         label = self.store.redo()
         if label is None:
             state.toast("info", "Nada que rehacer")
@@ -959,11 +990,13 @@ class EditorController:
     def select_clip(self, clip_id: str | None) -> None:
         state.multi_selection.set(frozenset())
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         state.selection.set(("clip", clip_id) if clip_id else None)
 
     def select_transition(self, index: int) -> None:
         state.multi_selection.set(frozenset())
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         state.selection.set(("transition", index))
 
     def select_music(self, index: int = 0, clip_index: int = 0) -> None:
@@ -973,16 +1006,19 @@ class EditorController:
     def select_audio(self, track_index: int, clip_index: int) -> None:
         state.multi_selection.set(frozenset())
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         state.selection.set(("audio", int(track_index), int(clip_index)))
 
     def select_text(self, text_id: str) -> None:
         state.multi_selection.set(frozenset())
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         state.selection.set(("text", text_id))
 
     def select_element(self, element_id: str) -> None:
         state.multi_selection.set(frozenset())
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         state.selection.set(("element", element_id))
 
     def focus_text(self, text_id: str) -> None:
@@ -1013,6 +1049,7 @@ class EditorController:
     def clear_selection(self) -> None:
         state.multi_selection.set(frozenset())
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         state.selection.set(None)
 
     def toggle_marquee(self) -> None:
@@ -2169,6 +2206,7 @@ class EditorController:
         ref = self._envelope_ref(scope, item_id, track_index)
         if ref is None or self._envelope_locked(scope, ref):
             return
+        state.keyframe_key.set(None)
         item, start, _track, _ti, _ci = ref
         points = item.envelope
         if not 0 <= int(index) < len(points):
@@ -2300,6 +2338,7 @@ class EditorController:
         point = min(points, key=lambda p: abs(p.t - float(t)))
         if abs(point.t - float(t)) > 1e-3:
             return
+        state.keyframe_key.set(None)
         state.envelope_key.set(state.EnvelopeKey(scope, item_id, point.t, int(track_index)))
 
     def delete_envelope_key_at(
@@ -2336,6 +2375,186 @@ class EditorController:
         if key is None:
             return False
         return self.delete_envelope_key_at(key.scope, key.item, key.track, key.t)
+
+    # -- asas de animaciones visuales en el timeline (docs/38) ----------------------
+
+    def _keyframe_ref(self, scope: str, item_id: str, channel: str):
+        """`(item, inicio, duración, animación)` de una clave de `Animation`."""
+        project = self.project
+        if scope == "element":
+            if not project.has_element(item_id):
+                return None
+            item = project.element(item_id)
+            if channel not in anim.ELEMENT_CHANNELS:
+                return None
+        elif scope == "text":
+            if not project.has_text(item_id):
+                return None
+            item = project.text(item_id)
+            if channel not in anim.TEXT_CHANNELS:
+                return None
+        else:
+            return None
+        return (
+            item, float(item.start), float(item.end - item.start),
+            anim.find(item.animations, channel),
+        )
+
+    @staticmethod
+    def _animations_with_points(animations, channel: str, points):  # noqa: ANN001, ANN205
+        """Sustituye (o quita, si queda vacío) las claves de `channel` en una tupla."""
+        if not points:
+            return anim.clear_channel(animations, channel)
+        updated = anim.Animation(channel, tuple(points))
+        return tuple(updated if animation.channel == channel else animation
+                     for animation in animations)
+
+    def _project_with_animations(
+        self, project: Project, scope: str, item_id: str, animations,
+    ) -> Project | None:  # noqa: ANN001
+        """Copia `project` con las animaciones de `item_id` reemplazadas (sin tocar el store)."""
+        try:
+            if scope == "element":
+                return element_mod.update_element(project, item_id, animations=animations)
+            if scope == "text":
+                return tl.update_text(project, item_id, animations=animations)
+        except (ProjectError, IndexError):
+            return None
+        return None
+
+    def begin_keyframe_key_drag(
+        self, scope: str, item_id: str, channel: str, index: int = 0,
+        row_height: float = 0.0,
+    ) -> None:
+        """Empieza a arrastrar una clave de animación; la transacción se abre al moverse."""
+        if not self._guard_editable() or self.player.playing:
+            return
+        self.cancel_drag()
+        ref = self._keyframe_ref(scope, item_id, channel)
+        if ref is None:
+            return
+        state.envelope_key.set(None)
+        item, start, duration, animation = ref
+        if animation is None or not 0 <= int(index) < len(animation.points):
+            return
+        point = animation.points[int(index)]
+        low, high = anim.channel_range(channel)
+        self._keyframe_drag = {
+            "scope": scope, "id": item_id, "channel": channel, "index": int(index),
+            "project": self.project, "points": animation.points, "start": start,
+            "duration": duration, "t": point.t, "value": point.value,
+            "current_t": point.t, "current_value": point.value,
+            "animations": item.animations,
+            "inner_h": max(1.0, float(row_height) - 4.0),
+            "low": low, "high": high,
+            "dx": 0.0, "dy": 0.0, "begun": False,
+        }
+
+    def drag_keyframe_key(self, dx: float, dy: float) -> None:
+        drag = self._keyframe_drag
+        if drag is None:
+            return
+        drag["dx"], drag["dy"] = float(dx), float(dy)
+        if abs(dx) < _CLICK_SLOP_PX and abs(dy) < _CLICK_SLOP_PX:
+            return
+        if not drag.get("begun"):
+            self.store.begin(f"mover clave {self._key_label(drag['channel'])}")
+            drag["begun"] = True
+        points = drag["points"]
+        index = int(drag["index"])
+        duration = float(drag["duration"])
+        zoom = max(1.0, state.tl_zoom())
+        t = max(0.0, min(duration, float(drag["t"]) + float(dx) / zoom))
+        # No cruzar la clave vecina: el modelo exige tiempos estrictamente crecientes.
+        low = points[index - 1].t + 2e-4 if index > 0 else 0.0
+        high = points[index + 1].t - 2e-4 if index + 1 < len(points) else duration
+        t = max(low, min(high, t)) if low <= high else float(drag["t"])
+        span = float(drag["high"]) - float(drag["low"])
+        value = float(drag["value"]) - float(dy) / drag["inner_h"] * span
+        value = max(float(drag["low"]), min(float(drag["high"]), value))
+        point = anim.Keyframe(round(t, 4), round(value, 4))
+        updated = (*points[:index], point, *points[index + 1:])
+        animations = self._animations_with_points(
+            drag["animations"], drag["channel"], updated,
+        )
+        project = self._project_with_animations(
+            drag["project"], drag["scope"], drag["id"], animations,
+        )
+        if project is None:
+            return
+        drag["current_t"] = point.t
+        drag["current_value"] = point.value
+        self.store.update(project)
+
+    def end_keyframe_key_drag(self) -> None:
+        drag, self._keyframe_drag = self._keyframe_drag, None
+        if drag is None:
+            return
+        scope, item_id, channel = drag["scope"], drag["id"], drag["channel"]
+        if not drag.get("begun"):
+            state.keyframe_key.set(state.KeyframeKey(scope, item_id, channel, drag["t"]))
+            return
+        self.store.commit()
+        state.keyframe_key.set(state.KeyframeKey(
+            scope, item_id, channel, float(drag.get("current_t", drag["t"])),
+        ))
+        self._sync_inspector()
+        self._sync_meta()
+
+    def _cancel_keyframe_drag(self) -> bool:
+        if self._keyframe_drag is None:
+            return False
+        drag, self._keyframe_drag = self._keyframe_drag, None
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
+        return True
+
+    def select_keyframe_key(
+        self, scope: str, item_id: str, channel: str, t: float,
+    ) -> None:
+        """Selecciona una clave (clic sin arrastre en su asa) para poder borrarla con Supr."""
+        ref = self._keyframe_ref(scope, item_id, channel)
+        if ref is None or ref[3] is None:
+            return
+        points = ref[3].points
+        point = min(points, key=lambda p: abs(p.t - float(t)))
+        if abs(point.t - float(t)) > 1e-3:
+            return
+        state.envelope_key.set(None)
+        state.keyframe_key.set(state.KeyframeKey(scope, item_id, channel, point.t))
+
+    def delete_keyframe_key_at(
+        self, scope: str, item_id: str, channel: str, t: float,
+    ) -> bool:
+        """Borra la clave más cercana a `t` (menú contextual del asa y Supr)."""
+        if not self._guard_editable():
+            return False
+        ref = self._keyframe_ref(scope, item_id, channel)
+        if ref is None or ref[3] is None:
+            return False
+        item = ref[0]
+        points = ref[3].points
+        index = min(range(len(points)), key=lambda i: abs(points[i].t - float(t)))
+        if abs(points[index].t - float(t)) > 1e-3:
+            return False
+        updated = (*points[:index], *points[index + 1:])
+        animations = self._animations_with_points(item.animations, channel, updated)
+        project = self._project_with_animations(self.project, scope, item_id, animations)
+        if project is None:
+            return False
+        if not self._apply(f"eliminar clave {self._key_label(channel)}", project):
+            return False
+        state.keyframe_key.set(None)
+        self._sync_inspector()
+        return True
+
+    def delete_keyframe_key(self) -> bool:
+        """Supr con una clave de animación seleccionada en el timeline."""
+        key = state.keyframe_key()
+        if key is None:
+            return False
+        return self.delete_keyframe_key_at(key.scope, key.item, key.channel, key.t)
 
     def import_images(self, paths: list[Path]) -> None:
         """Añade imágenes al proyecto como assets y las coloca como elementos (sin clip)."""
@@ -3644,6 +3863,8 @@ class EditorController:
             return True
         if self._cancel_envelope_drag():
             return True
+        if self._cancel_keyframe_drag():
+            return True
         drag, self._drag = self._drag, None
         if drag is None:
             return False
@@ -3716,6 +3937,9 @@ class EditorController:
                 return True
             if state.envelope_key() is not None:
                 state.envelope_key.set(None)
+                return True
+            if state.keyframe_key() is not None:
+                state.keyframe_key.set(None)
                 return True
             if state.import_open():
                 state.import_open.set(False)
@@ -4002,6 +4226,7 @@ class EditorController:
         state.marquee.set(None)
         state.env_edit_on.set(False)
         state.envelope_key.set(None)
+        state.keyframe_key.set(None)
         state.project_path.set(str(path) if path else "")
         state.project_open.set(True)
         self._sync_meta()
@@ -4332,6 +4557,7 @@ class EditorController:
                 state.marquee.set(None)
                 state.env_edit_on.set(False)
                 state.envelope_key.set(None)
+                state.keyframe_key.set(None)
                 state.posters.set({})
                 state.preview_frame.set(b"")
                 state.playhead.set(0.0)

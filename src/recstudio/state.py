@@ -143,6 +143,20 @@ class EnvelopeKey:
 
 
 @dataclass(frozen=True)
+class KeyframeKey:
+    """Clave de animación seleccionada en el timeline (docs/38).
+
+    `scope` es `"element"` o `"text"`, `item` el id de la capa, `channel` el canal de
+    `Animation` (`x`, `y`, `opacity`, `scale`, `rotation` o `size`) y `t` el tiempo local.
+    """
+
+    scope: str
+    item: str
+    channel: str
+    t: float
+
+
+@dataclass(frozen=True)
 class PreviewArea:
     """Hueco útil del preview medido con `on_resize` (píxeles lógicos).
 
@@ -186,6 +200,8 @@ marquee_on = Signal(False)  # herramienta de selección activa (B3); excluyente 
 razor_on = Signal(False)  # herramienta razor (C): un clic corta donde se pulsa (fase 3)
 env_edit_on = Signal(False)  # modo envolvente (E): clic en la waveform añade claves (docs/37)
 envelope_key = Signal(None)  # state.EnvelopeKey | None: clave seleccionada en el timeline
+keyframe_channel = Signal("x")  # canal de Animation con asas en el timeline (docs/38)
+keyframe_key = Signal(None)  # state.KeyframeKey | None: clave de animación seleccionada
 loop_on = Signal(False)  # loop de reproducción del rango In/Out (o de todo el timeline)
 play_rate = Signal(1.0)  # velocidad de reproducción (J/K/L): 2, 4, 8 o negativa hacia atrás
 clipboard_count = Signal(0)  # elementos en el portapapeles del editor (0 = vacío)

@@ -40,7 +40,8 @@ rotación de elementos** (`core/animation.py`, `core/elements.py`,
 (`TextOverlay.animations`, `services/text_animation.py`; `docs/35`), el **color y tamaño
 animados de textos** (`TextOverlay.color_keys`, `core/text_color.py`; modelo **v12**, `docs/36`)
 y la **edición de claves de envolvente en el timeline** (asas sobre la waveform/barra, modo Env
-y undo por gesto; `docs/37`).
+y undo por gesto; `docs/37`) y las **asas de animaciones visuales** (selector de canal en el
+inspector, polilínea y asas sobre la barra de elementos/textos; `docs/38`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -49,7 +50,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 505 tests; la integración usa FFmpeg real
+uv run pytest                                   # 513 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -239,6 +240,13 @@ depender de monitor, GPU ni audio reales del runner.
   y `Supr`/menú para borrar; la transacción empieza en el primer movimiento (`begun=False`). En
   las barras de elemento se dibujan solo asas (sin polilínea). El audio de un elemento con gain 0
   sigue en silencio aunque tenga curva.
+- Asas de animaciones visuales (docs/38): `state.keyframe_channel` elige el canal (no se
+  persiste) y `state.keyframe_key` la clave seleccionada; el controlador corrige el canal al
+  cambiar entre elemento y texto. La polilínea se pinta en el canvas (`_draw_animation_curve`) y
+  las asas en `animation_handles_layer`, otra capa **encima del playhead**. La geometría es
+  `keyframe_value_y`/`keyframe_value_at_y` (rango de `animation.CHANNEL_RANGES`) y
+  `keyframe_x`/`keyframe_time`; `dy` se pasa como alto de fila y el controlador descuenta los 4 px
+  de margen, no le pases ya el alto interno.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -304,8 +312,8 @@ depender de monitor, GPU ni audio reales del runner.
   `docs/31` los subtítulos y keyframes (modelo v9), `docs/32` las envolventes de volumen de audio
   (modelo v10), `docs/33` la animación de escala/rotación de elementos, `docs/34` las envolventes
   de audio de elementos (modelo v11), `docs/35` la escala/rotación de textos, `docs/36` el color y
-  tamaño animados de textos (modelo v12) y `docs/37` la edición de claves de envolvente en el
-  timeline.
+  tamaño animados de textos (modelo v12), `docs/37` la edición de claves de envolvente en el
+  timeline y `docs/38` las asas de animaciones visuales.
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.
