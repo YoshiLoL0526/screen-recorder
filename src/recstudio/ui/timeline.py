@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from aurora import Canvas, box, canvas, column, component, image, row, scroll, text
+from aurora import Canvas, box, canvas, column, component, image, menus, row, scroll, text
 
 from .. import state
 from ..core import audio_envelope as env
@@ -70,6 +70,8 @@ _CHAR_W = 0.56  # ancho medio de carácter / tamaño de fuente (elipsis manual e
 _TICKS = (0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800)
 MARKER_COLOR = "#F5B851"
 ENVELOPE_COLOR = "#FFD166"  # línea de la envolvente de volumen (docs/32)
+ENVELOPE_HANDLE_W = 11.0  # asa de una clave sobre la waveform (docs/37)
+ENVELOPE_ELEMENT_W = 9.0  # asa de una clave sobre la barra de un elemento
 MARKER_W = 12  # caja clicable de cada marcador en la regla
 RANGE_FILL = "#7C5CFF40"  # banda del rango In/Out en la regla
 
@@ -309,27 +311,54 @@ def _waveform_points(peaks: np.ndarray, x: float, w: float, top: float, h: float
     return pts.astype(np.float32)
 
 
+def envelope_gain_y(top: float, height: float, gain: float) -> float:
+    """`y` (del contenido) de una ganancia 0…4 dentro de una fila de `height` px.
+
+    El mapeo es el mismo para la waveform de un clip y para la barra de un elemento:
+    2 px de margen arriba/abajo y el resto reparte `GAIN_MAX`.
+    """
+    inner_top = top + 2.0
+    inner_h = max(1.0, height - 4.0)
+    gain = max(0.0, min(env.GAIN_MAX, float(gain)))
+    return inner_top + inner_h * (1.0 - gain / env.GAIN_MAX)
+
+
+def envelope_gain_at_y(top: float, height: float, y: float) -> float:
+    """Ganancia 0…4 que corresponde a la `y` de una fila (inversa de `envelope_gain_y`)."""
+    inner_top = top + 2.0
+    inner_h = max(1.0, height - 4.0)
+    value = (inner_top + inner_h - float(y)) / inner_h * env.GAIN_MAX
+    return max(0.0, min(env.GAIN_MAX, value))
+
+
+def envelope_x(start: float, duration: float, t: float, zoom: float) -> float:
+    """`x` (del contenido) de un tiempo local `t` de un clip/elemento que empieza en `start`."""
+    t = max(0.0, min(float(duration), float(t)))
+    return (float(start) + t) * zoom
+
+
+def envelope_time(start: float, duration: float, x: float, zoom: float) -> float:
+    """Tiempo local (0…`duration`) de una `x` del contenido (inversa de `envelope_x`)."""
+    if zoom <= 0:
+        return 0.0
+    return max(0.0, min(float(duration), float(x) / zoom - float(start)))
+
+
 def _envelope_curve(clip, x: float, w: float, top: float, h: float):
     """Puntos de la polilínea de la envolvente y de sus claves, en px del canvas."""
     duration = clip.duration
     if not clip.envelope or duration <= 0 or w <= 1:
         return None, []
-    inner_top = top + 2
-    inner_h = max(1.0, h - 4)
-
-    def y(gain: float) -> float:
-        gain = max(0.0, min(env.GAIN_MAX, float(gain)))
-        return inner_top + inner_h * (1.0 - gain / env.GAIN_MAX)
-
-    points = [(x, y(env.value_at(clip.envelope, 0.0)))]
+    points = [(x, envelope_gain_y(top, h, env.value_at(clip.envelope, 0.0)))]
     keys = []
     for point in clip.envelope:
         if point.t > duration + 1e-9:
             break
         px = x + point.t / duration * w
-        points.append((px, y(point.gain)))
-        keys.append((px, y(point.gain)))
-    points.append((x + w, y(env.value_at(clip.envelope, duration))))
+        py = envelope_gain_y(top, h, point.gain)
+        points.append((px, py))
+        keys.append((px, py))
+    points.append((x + w, envelope_gain_y(top, h, env.value_at(clip.envelope, duration))))
     return points, keys
 
 
@@ -341,6 +370,110 @@ def _draw_envelope(c: Canvas, clip, x: float, w: float, top: float, h: float) ->
     if state.tl_zoom() >= 40:
         for px, py in keys:
             c.circle(px, py, 2.2, fill=ENVELOPE_COLOR)
+
+
+def _envelope_key_boxes(
+    scope: str, item, start: float, track_index: int, top: float, height: float,
+    zoom: float, x0: float, x1: float, *, size: float,
+):
+    """Asas absolutas de las claves de una envolvente (docs/37).
+
+    Se colocan **encima** de la waveform/barra y usan el mismo mapeo que la polilínea
+    (`envelope_gain_y`). Un clic sin movimiento selecciona la clave; `Supr` la borra.
+    """
+    duration = float(item.duration) if scope != "element" else float(item.end - item.start)
+    points = item.envelope
+    selected = state.envelope_key()
+    boxes = []
+    for index, point in enumerate(points):
+        if point.t > duration + 1e-9:
+            continue
+        px = envelope_x(start, duration, point.t, zoom)
+        py = envelope_gain_y(top, height, point.gain)
+        if px < x0 - size or px > x1 + size:
+            continue
+        key = (
+            f"env-key-{scope}-{item.id}-{index}" if scope != "audio"
+            else f"env-key-audio-{track_index}-{item.id}-{index}"
+        )
+        is_selected = (
+            selected is not None and selected.scope == scope and selected.item == item.id
+            and selected.track == track_index and abs(selected.t - point.t) <= 1e-4
+        )
+        label = (
+            f"Clave de volumen {index + 1}: {point.t:.2f} s · {point.gain:.2f}×"
+        )
+        boxes.append(
+            box(
+                key=key, position="absolute", left=px - size / 2, top=py - size / 2,
+                width=size, height=size, radius=size / 2,
+                bg=ENVELOPE_COLOR, border_width=2 if is_selected else 1,
+                border_color="#FFFFFF" if is_selected else ENVELOPE_COLOR + "CC",
+                cursor="grab", tooltip=label + " · arrastra para mover; Supr para borrar",
+                label=label,
+                on_click=_envelope_key_click(scope, item.id, track_index, point.t),
+                on_drag=_envelope_key_drag(scope, item.id, track_index, index, height),
+                on_context_menu=_envelope_key_menu(scope, item.id, track_index, point.t),
+            )
+        )
+    return boxes
+
+
+def _clip_envelope_boxes(
+    clip, start: float, track_index: int, top: float, height: float,
+    zoom: float, x0: float, x1: float, *, scope: str,
+):
+    """Modo envolvente + asas de un clip de V1 o de una pista de audio."""
+    boxes = []
+    if state.env_edit_on():
+        key = f"env-add-video-{clip.id}" if scope == "video" else f"env-add-audio-{track_index}-{clip.id}"
+        boxes.append(
+            box(
+                key=key, position="absolute", left=start * zoom, top=top,
+                width=max(4.0, clip.duration * zoom), height=height, radius=4,
+                bg="#FFD1660D", border_width=1, border_color="#FFD16655",
+                cursor="crosshair",
+                tooltip="Modo envolvente: clic para añadir una clave · arrastra un punto para moverlo",
+                label="Añadir clave de volumen en este punto",
+                on_drag=_envelope_add_drag(scope, clip.id, track_index, height),
+            )
+        )
+    if clip.envelope:
+        boxes.extend(_envelope_key_boxes(
+            scope, clip, start, track_index, top, height, zoom, x0, x1,
+            size=ENVELOPE_HANDLE_W,
+        ))
+    return boxes
+
+
+def _element_envelope_boxes(
+    item, row, zoom: float, x0: float, x1: float,
+):
+    """Modo envolvente + asas sobre la barra de un elemento de video (sin waveform)."""
+    if item.kind != "video" or item.end <= item.start:
+        return []
+    x, w = item.start * zoom, max(4.0, (item.end - item.start) * zoom)
+    if x > x1 or x + w < x0:
+        return []
+    top, height = row.top + 2, row.height - 4
+    boxes = []
+    if state.env_edit_on():
+        boxes.append(
+            box(
+                key=f"env-add-element-{item.id}", position="absolute", left=x, top=top,
+                width=w, height=height, radius=4, bg="#FFD1660D", border_width=1,
+                border_color="#FFD16655", cursor="crosshair",
+                tooltip="Modo envolvente: clic para añadir una clave al audio del elemento",
+                label="Añadir clave de volumen del elemento",
+                on_drag=_envelope_add_drag("element", item.id, -1, height),
+            )
+        )
+    if item.envelope:
+        boxes.extend(_envelope_key_boxes(
+            "element", item, item.start, -1, top, height, zoom, x0, x1,
+            size=ENVELOPE_ELEMENT_W,
+        ))
+    return boxes
 
 
 def _clip_meta(clip, *, offline: bool) -> str:
@@ -522,7 +655,7 @@ def _draw_tracks(c: Canvas) -> None:
                         c.polygon(pts, fill="$wave")
         elif asset is not None and not asset.has_audio:
             c.text(x + 8, audio_top + 13, _ellipsis("sin audio", w - 12, 10), size=10, color="$muted")
-        if clip.envelope and clip.audio_enabled and asset is not None and asset.has_audio:
+        if clip.envelope:
             _draw_envelope(c, clip, x, w, audio_top, audio_h)
 
     # Pistas de audio extra (fase 1): todas visibles, en secuencia o con posición absoluta.
@@ -562,7 +695,7 @@ def _draw_tracks(c: Canvas) -> None:
                                                t0, t1, track.gain)
                         if pts is not None:
                             c.polygon(pts, fill="$wave")
-            if clip.envelope and asset.has_audio and audible:
+            if clip.envelope:
                 _draw_envelope(c, clip, x, w, row.top, row.height)
             label_x = _clip_label_x(w, x)
             label = asset.name
@@ -811,6 +944,63 @@ def _overlay_drag(kind: str, item_id: str, mode: str):
     return handler
 
 
+def _envelope_key_drag(scope: str, item_id: str, track_index: int, index: int, height: float):
+    """Arrastra un asa de la envolvente; el primer movimiento abre la transacción (docs/37)."""
+
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_envelope_key_drag(scope, item_id, track_index, index, height)
+        elif e.phase == "move":
+            editor.drag_envelope_key(e.dx, e.dy)
+        else:
+            editor.drag_envelope_key(e.dx, e.dy)
+            editor.end_envelope_key_drag()
+
+    return handler
+
+
+def _envelope_add_drag(scope: str, item_id: str, track_index: int, height: float):
+    """Clic/arrastre sobre la waveform en modo envolvente: crea y mueve la clave."""
+
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_envelope_add(scope, item_id, track_index, e.x, height)
+        elif e.phase == "move":
+            editor.drag_envelope_key(e.dx, e.dy)
+        else:
+            editor.drag_envelope_key(e.dx, e.dy)
+            editor.end_envelope_key_drag()
+
+    return handler
+
+
+def _envelope_key_menu(scope: str, item_id: str, track_index: int, t: float):
+    def items() -> list:  # noqa: ANN202
+        def remove() -> None:
+            editor = _editor()
+            if editor is not None:
+                editor.delete_envelope_key_at(scope, item_id, track_index, t)
+
+        return [menus.item("Eliminar clave de volumen", remove)]
+
+    return items
+
+
+def _envelope_key_click(scope: str, item_id: str, track_index: int, t: float):
+    def handler() -> None:
+        editor = _editor()
+        if editor is not None:
+            editor.select_envelope_key(scope, item_id, track_index, t)
+
+    return handler
+
+
 def _select_audio(track_index: int, clip_index: int) -> None:
     editor = _editor()
     if editor is not None:
@@ -950,15 +1140,17 @@ def timeline_layer():
                     ]
                 )
         else:
+            generic = [e for e in project.elements if e.video_track <= 0]
             boxes.extend(_element_boxes(
-                project, row, [e for e in project.elements if e.video_track <= 0],
+                project, row, generic,
                 zoom=zoom, x0=x0, x1=x1, selection=selection, multi=state.multi_selection(),
                 color="#7C5CFF",
             ))
     for row in lay.video_rows:
         color = "#4EA1FF" if row.track == 1 else "#38D6B0"
+        items = [e for e in project.elements if e.video_track == row.track]
         boxes.extend(_element_boxes(
-            project, row, [e for e in project.elements if e.video_track == row.track],
+            project, row, items,
             zoom=zoom, x0=x0, x1=x1, selection=selection, multi=state.multi_selection(),
             color=color,
         ))
@@ -1079,6 +1271,70 @@ def timeline_layer():
         marquee_box,
         boxes,
     ]
+
+
+def _selected_envelope_boxes(
+    project: Project, selection, lay: Tracks, zoom: float, x0: float, x1: float,
+):  # noqa: ANN001
+    """Asas y zona de añadir del elemento seleccionado (docs/37).
+
+    Van en su propia capa **encima del playhead**: la línea de 2 px del playhead bloquearía el
+    centro de un asa justo en ese instante (lo normal al grabar una clave desde el inspector).
+    """
+    if selection is None or state.razor_on():
+        return []
+    boxes: list = []
+    if selection[0] == "clip":
+        if not project.has_clip(selection[1]) or project.video.locked:
+            return []
+        index = project.video.index_of(selection[1])
+        clip = project.video.clips[index]
+        start = tl.clip_starts(project.video)[index]
+        boxes.extend(_clip_envelope_boxes(
+            clip, start, -1, lay.audio_top, lay.audio_h, zoom, x0, x1, scope="video",
+        ))
+    elif selection[0] == "audio":
+        try:
+            track_index, clip_index = int(selection[1]), int(selection[2])
+        except (IndexError, TypeError, ValueError):
+            return []
+        if not 0 <= track_index < len(project.audio):
+            return []
+        track = project.audio[track_index]
+        if track.locked or not 0 <= clip_index < len(track.clips):
+            return []
+        row = lay.row_for(track_index)
+        if row is None:
+            return []
+        clip = track.clips[clip_index]
+        start = tl.clip_starts(track)[clip_index]
+        boxes.extend(_clip_envelope_boxes(
+            clip, start, track_index, row.top, row.height, zoom, x0, x1, scope="audio",
+        ))
+    elif selection[0] == "element":
+        if not project.has_element(selection[1]):
+            return []
+        item = project.element(selection[1])
+        row = (
+            lay.overlay_for("element") if item.video_track <= 0
+            else lay.video_row(item.video_track)
+        )
+        if row is not None:
+            boxes.extend(_element_envelope_boxes(item, row, zoom, x0, x1))
+    return boxes
+
+
+@component
+def envelope_handles_layer():
+    state.env_edit_on()  # dependencias: el modo y la clave seleccionada repintan las asas
+    state.envelope_key()
+    project: Project = state.editor_project()
+    selection = state.selection()
+    zoom = state.tl_zoom()
+    x0, x1 = _visible_range()
+    boxes = _selected_envelope_boxes(project, selection, tracks(), zoom, x0, x1)
+    # Contenedor mínimo: cualquier caja grande encima taparía los clics del timeline.
+    return box(key="env-layer", position="absolute", left=0, top=0, width=1, height=1)[boxes]
 
 
 @component
@@ -1210,6 +1466,7 @@ def timeline_view():
                 box(key="tl-content", width=width, height=content_h, shrink=0, drop_target=True)[
                     timeline_layer(),
                     playhead_layer(),
+                    envelope_handles_layer(),
                 ]
             ]
         ],

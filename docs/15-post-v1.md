@@ -10,8 +10,10 @@
 > **panel de medios/capas** ([27](27-panel-medios-y-capas.md)), el **PiP de video**
 > ([28](28-pip-video.md)), las **pistas V2/V3** ([29](29-pistas-video.md)), los
 > **subtítulos** ([30](30-subtitulos.md)), los **keyframes** ([31](31-keyframes.md)), las
-> **envolventes de volumen de audio** ([32](32-audio-envelopes.md)) y las **envolventes de audio
-> de elementos** ([34](34-envolventes-elementos.md)).
+> **envolventes de volumen de audio** ([32](32-audio-envelopes.md)), la **escala/rotación de
+> elementos** ([33](33-escala-rotacion.md)), las **envolventes de audio de elementos**
+> ([34](34-envolventes-elementos.md)), la **escala/rotación de textos** ([35](35-textos-escala-rotacion.md))
+> y la **edición de claves de envolvente en el timeline** ([37](37-editor-claves.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -325,8 +327,8 @@ Resultados y decisiones completas en [32 — Envolventes de volumen](32-audio-en
   `skip`. El preview fuerza la mezcla WAV de `build_audio` cuando hay envolvente.
 - **UI**: sección «Envolvente de volumen» en el inspector de video y de audio, «Clave volumen»
   en el playhead y «Quitar»; polilínea sobre la waveform y **◆ env** en la barra.
-- **Límite**: no hay envolvente en el audio de un PiP/V2/V3 (`Element.envelope`) ni asas de
-  arrastre sobre la waveform; el corte rápido se bloquea.
+- **Límite**: no hay envolvente en el audio de un PiP/V2/V3 (`Element.envelope` en B21); las
+  asas de arrastre sobre la waveform y el modo Env llegaron en B24. El corte rápido se bloquea.
 - Tests nuevos en `test_audio_envelope`; **462 tests** en verde.
 
 ### B20 - Animación de escala y rotación de elementos (✅ · M)
@@ -356,8 +358,9 @@ Resultados y decisiones completas en [34 — Envolventes de elementos](34-envolv
   volumen estático y antes de `adelay`; cubre PiP y V2/V3. `build_audio` (preview) usa la misma
   sección de audio.
 - **UI**: sección «Envolvente de volumen» en el inspector de un video con audio, «Clave volumen»
-  en el playhead local y «Quitar»; **◆ env** en la barra del elemento. Sin polilínea.
-- **Límite**: no hay asas sobre la barra del elemento; el volumen estático 0 sigue silenciando.
+  en el playhead local y «Quitar»; **◆ env** en la barra del elemento. Las asas sobre la barra
+  llegaron en B24.
+- **Límite**: el volumen estático 0 sigue silenciando; sin polilínea en la barra (solo asas).
 - Tests nuevos en `test_element_audio_envelope`; **480 tests** en verde.
 
 ### B22 - Escala y rotación animadas de textos (✅ · M)
@@ -396,6 +399,25 @@ Resultados y decisiones completas en [36 — Color y tamaño de textos](36-color
 - **Límite**: sin color animado en elementos/clips; interpolación lineal sin easing; el corte
   rápido sigue bloqueado por `Project.texts`.
 - Tests nuevos en `test_text_color_size`; **498 tests** en verde.
+
+### B24 - Edición de claves de envolvente en el timeline (✅ · M)
+
+Resultados y decisiones completas en [37 — Edición de claves](37-editor-claves.md).
+
+- **Sin cambios de modelo** (`SCHEMA_VERSION=11`): se editan `Clip.envelope` y `Element.envelope`
+  con `audio_envelope.set_point`/`value_at`; preview y export leen el mismo estado.
+- **Asas**: cada clave es una caja arrastrable sobre la waveform (V1 y pistas de audio) o sobre la
+  barra de un video superpuesto. `dx` mueve el tiempo local y `dy` la ganancia 0…4; geometría pura
+  compartida (`envelope_gain_y`/`envelope_time`).
+- **Modo Env** (`E` o botón): clic en la waveform para añadir una clave; clic sin movimiento en un
+  asa la selecciona y `Supr` la borra; menú contextual del asa para eliminar. Las asas viven en una
+  capa encima del playhead para que su línea de 2 px no bloquee el clic.
+- **Undo**: transacción que empieza en el primer movimiento (`begun=False`), una entrada por gesto
+  (`mover`/`añadir`/`eliminar clave de volumen`); `Esc` cancela el gesto.
+- **Límite**: los keyframes visuales (`Animation`) siguen sin asas en el timeline; no hay
+  copiar/pegar claves ni grabación automática.
+- Tests nuevos en `test_envelope_handles`; **496 tests** en verde.
+- Tras integrar ambas ramas: **505 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

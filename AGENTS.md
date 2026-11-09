@@ -37,8 +37,10 @@ preview/export; `docs/28`). Después llegaron las **pistas de video V2/V3** (mod
 rotación de elementos** (`core/animation.py`, `core/elements.py`,
 `services/element_animation.py`; `docs/33`), las **envolventes de audio de elementos** (modelo
 **v11**, `Element.envelope`; `docs/34`) y la **escala y rotación animadas de textos**
-(`TextOverlay.animations`, `services/text_animation.py`; `docs/35`), y el **color y tamaño
-animados de textos** (`TextOverlay.color_keys`, `core/text_color.py`; modelo **v12**, `docs/36`).
+(`TextOverlay.animations`, `services/text_animation.py`; `docs/35`), el **color y tamaño
+animados de textos** (`TextOverlay.color_keys`, `core/text_color.py`; modelo **v12**, `docs/36`)
+y la **edición de claves de envolvente en el timeline** (asas sobre la waveform/barra, modo Env
+y undo por gesto; `docs/37`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -47,7 +49,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 498 tests; la integración usa FFmpeg real
+uv run pytest                                   # 505 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -231,9 +233,12 @@ depender de monitor, GPU ni audio reales del runner.
   `start=-skip` para alinear el tramo audible y en un elemento usa `start=0` (la fuente se lee
   desde su `in_`; el `adelay` va después de la curva). Sin envolvente la cadena no cambia. El
   preview usa `build_audio` si hay audio de elemento o `graph.has_audio_envelope` (WAV cacheado
-  con el proyecto entero). El corte rápido se bloquea. No hay asas sobre la waveform ni
-  polilínea en las barras de elemento (solo **◆ env**); el audio de un elemento con gain 0 sigue
-  en silencio aunque tenga curva.
+  con el proyecto entero). El corte rápido se bloquea. Las claves se editan en el timeline con
+  asas (`docs/37`): capa aparte **encima del playhead** (su línea de 2 px bloquearía el centro de
+  un asa en ese instante), `dx`/`dy` = tiempo/ganancia, modo **Env** (`E`) para añadir con un clic
+  y `Supr`/menú para borrar; la transacción empieza en el primer movimiento (`begun=False`). En
+  las barras de elemento se dibujan solo asas (sin polilínea). El audio de un elemento con gain 0
+  sigue en silencio aunque tenga curva.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -298,8 +303,9 @@ depender de monitor, GPU ni audio reales del runner.
   `docs/28` el PiP de video (modelo v7), `docs/29` las pistas V2/V3 (modelo v8), `docs/30`/
   `docs/31` los subtítulos y keyframes (modelo v9), `docs/32` las envolventes de volumen de audio
   (modelo v10), `docs/33` la animación de escala/rotación de elementos, `docs/34` las envolventes
-  de audio de elementos (modelo v11), `docs/35` la escala/rotación de textos y `docs/36` el color
-  y tamaño animados de textos (modelo v12).
+  de audio de elementos (modelo v11), `docs/35` la escala/rotación de textos, `docs/36` el color y
+  tamaño animados de textos (modelo v12) y `docs/37` la edición de claves de envolvente en el
+  timeline.
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

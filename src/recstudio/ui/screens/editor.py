@@ -620,6 +620,9 @@ def _envelope_controls(clip, *, active: bool = True):
         text("La clave usa el volumen actual del clip en el playhead. La curva multiplica el "
              "volumen del clip y de la pista: 1.0 deja el sonido como está y 0 lo silencia.",
              size=11, color="$muted", line_height=1.35),
+        text("En el timeline: arrastra los puntos para cambiar tiempo y ganancia; activa «Env» (E) "
+             "y haz clic en la waveform para añadir una clave; Supr borra la seleccionada.",
+             size=11, color="$muted", line_height=1.35),
         gap=8,
     )
 
@@ -645,6 +648,9 @@ def _element_envelope_controls(element):
         ],
         text("La clave usa el volumen actual del elemento en el playhead. La curva multiplica "
              "su volumen: 1.0 deja el sonido como está y 0 lo silencia.",
+             size=11, color="$muted", line_height=1.35),
+        text("En el timeline: arrastra los puntos de la barra; activa «Env» (E) y haz clic en la "
+             "barra para añadir una clave; Supr borra la seleccionada.",
              size=11, color="$muted", line_height=1.35),
         gap=8,
     )
@@ -1241,6 +1247,11 @@ def timeline_toolbar():
                     tooltip="Razor (C): clic en un clip para cortarlo ahí; en la regla, todas las pistas",
                     size=30, key="tl-razor",
                     bg="$primary" if state.razor_on() else "$surface_hover"),
+        icon_button(icons.ENVELOPE, _call("toggle_envelope_edit"),
+                    tooltip="Envolvente de volumen (E): clic en la waveform para añadir una clave "
+                            "y arrastra los puntos para moverlos",
+                    size=30, key="tl-envelope",
+                    bg="$primary" if state.env_edit_on() else "$surface_hover"),
         icon_button(icons.MARKER, _call("add_marker"), tooltip="Añadir marcador en el playhead (B)",
                     size=30, key="tl-marker"),
         box(width=6),
@@ -1257,8 +1268,11 @@ def timeline_toolbar():
                                        size=11, color="$primary", family="Consolas", max_lines=1, shrink=0),
         spacer(),
         text("Razor activa: clic para cortar · V o Esc para salir" if state.razor_on() else
+             "Env activa: clic en la waveform para añadir claves · arrastra los puntos · Supr borra"
+             if state.env_edit_on() else
              "Arrastra clips y asas para mover/recortar · M/S/L en las cabeceras · la regla para moverte",
-             size=11, color="$primary" if state.razor_on() else "$muted", max_lines=1),
+             size=11, color="$primary" if state.razor_on() or state.env_edit_on() else "$muted",
+             max_lines=1),
     ]
 
 

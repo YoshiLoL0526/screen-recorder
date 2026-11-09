@@ -12,6 +12,11 @@ detalle de cada fase está en `docs/08`–`docs/16`.
   `ColorKeyframe(t, color)` e interpolación lineal en sRGB. El preview y el export comparten el
   rasterizado de PIL y el bake `.mov` `qtrle`; los textos sin estas animaciones conservan
   `drawtext`. Claves **Color** y **Tamaño** desde el inspector.
+- **Edición de claves de envolvente en el timeline** (docs/37; modelo v11 sin cambios): asas
+  arrastrables sobre la waveform de clips de V1/pistas de audio y sobre la barra de PiP/V2/V3
+  (`dx` = tiempo local, `dy` = ganancia 0…4), modo **Env** (`E`) para añadir claves con un clic,
+  `Supr`/menú contextual para borrarlas y undo/redo por gesto. Las asas viven encima del playhead
+  para que su línea no bloquee el clic.
 - **Animación de escala y rotación de textos** (docs/35; modelo v10 sin cambios): canales `scale`
   (`0.05…4.0`) y `rotation` (`-360…360`) en `TextOverlay.animations`, campos no persistidos y
   claves desde el inspector. El texto transformado se rasteriza con PIL (la misma función del

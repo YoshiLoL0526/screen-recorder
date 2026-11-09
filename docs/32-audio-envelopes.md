@@ -84,6 +84,11 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 - **Timeline**: se dibuja la polilínea de la envolvente sobre la waveform (V1 y pistas de audio)
   y la barra muestra `◆ env`; las claves se marcan con puntos cuando el zoom es suficiente. La
   línea se acota a los extremos con el mismo `value_at` del export.
+- **Asas de edición** ([docs/37](37-editor-claves.md)): con el clip seleccionado, cada clave es un
+  asa arrastrable sobre la waveform. `dx` mueve el tiempo local (0…duración) y `dy` la ganancia
+  0…4; un clic sin movimiento selecciona la clave y `Supr` la borra. El modo **Env** (`E` o el
+  botón de la barra) permite añadir una clave con un clic en la waveform. Todo va por el store:
+  undo/redo por gesto y la misma mezcla para preview y export.
 - La barra secuencial/absoluta no cambia: la curva es local al clip en ambos modos.
 
 ## Límites y pendientes
@@ -91,8 +96,9 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 - El **audio de un video superpuesto** (PiP, V2/V3) usa `Element.envelope`, implementado en
   [docs/34](34-envolventes-elementos.md); este documento cubre solo los clips de V1 y las pistas
   de audio.
-- Sin asas de arrastre sobre la waveform: las claves se graban desde el inspector. Tampoco hay
-  edición de una clave existente más allá de volver a grabarla en el mismo instante.
+- Las claves se pueden **arrastrar, añadir y borrar desde el timeline** ([docs/37](37-editor-claves.md));
+  no hay edición de una clave existente desde el inspector más allá de volver a grabarla en el
+  mismo instante.
 - Interpolación lineal, sin easing ni curvas Bézier. No hay copiar/pegar claves ni modo de
   grabación automática.
 - La curva no cambia el volumen de la pista ni el ducking; solo el del clip.
@@ -115,7 +121,9 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
     transición** que comprueba el desplazamiento `t + skip`, y WAV de `build_audio` con la misma
     atenuación relativa;
   - UI con `pilot`: claves en clip de video y en clip de audio, undo y «Quitar».
-- `uv run pytest -q`: **462 passed**.
+- `tests/test_envelope_handles.py` (7): geometría de las asas y edición directa en el timeline
+  (arrastrar, añadir en modo Env, `Supr` y undo/redo); ver [docs/37](37-editor-claves.md).
+- `uv run pytest -q`: **462 passed** en el momento de esta fase (hoy 496 con docs/33–37).
 - `uv run aurora check main.py`: OK; `uv run aurora tree main.py`: sin avisos de layout.
 
 ## Archivos tocados

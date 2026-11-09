@@ -147,7 +147,7 @@ los textos con `size`, `scale`, `rotation` o `color_keys` se **hornean** igual q
   - texto sin color/tamaño animados: cadenas `drawtext` intactas (incluido `fontcolor`);
   - orden de textos estáticos y horneados, y `ProjectError` si falta el intermedio;
   - claves de color y tamaño desde el inspector con `pilot`, contador, undo y «Quitar».
-- `uv run pytest -q`: **498 passed**.
+- `uv run pytest -q`: **505 passed** (498 en la rama aislada, antes de integrar docs/37).
 - `uv run aurora check main.py`: OK (138 nodos).
 - `uv run aurora tree main.py`: sin avisos de layout.
 - Export real con FFmpeg 7.1 (imageio-ffmpeg) en Windows; la comparación de píxeles usa tolerancia
