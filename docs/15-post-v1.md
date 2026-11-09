@@ -19,8 +19,9 @@
 > ([39](39-easing.md) y [40](40-easing-audio.md)), el **copiar/pegar de claves**
 > ([41](41-copiar-pegar-claves.md)), el **modo para añadir claves desde el timeline**
 > ([42](42-claves-desde-timeline.md)), el **recorte interactivo en el preview**
-> ([43](43-crop-interactivo.md)), el **export personalizado** ([44](44-export-personalizado.md))
-> y el **texto multilínea con ancho máximo** ([45](45-texto-multilinea.md)), más el **fondo del
+> ([43](43-crop-interactivo.md)), el **export personalizado** ([44](44-export-personalizado.md)),
+> el **texto multilínea con ancho máximo** ([45](45-texto-multilinea.md)), los **fundidos de
+> audio con crossfade por corte en el timeline** ([46](46-fundidos-audio.md)) y el **fondo del
 > lienzo** con blur o imagen ([47](47-fondo-lienzo.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
@@ -586,6 +587,24 @@ Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multili
 - Tras integrar texto y export: **565 tests** en verde.
 - Tras integrar las tres ramas: **579 tests** en verde.
 
+### B33 - Fundidos de audio y crossfade por corte en el timeline (✅ · M)
+
+Resultados y decisiones completas en [46 — Fundidos de audio](46-fundidos-audio.md).
+
+- **Modelo**: **sin cambios** (sigue en 16). Se reutilizan `audio_fade_in`/`audio_fade_out` de
+  `Clip.effects` y `Transition(kind="fade")` de `Track.transitions`; no hay campos nuevos.
+- **Asas de fundido**: con un clip de una pista de audio seleccionado, dos asas en la banda
+  superior (entrada a la derecha, salida a la izquierda). El valor se acota con
+  `fx.audio_fade_limit`: `min(2 s, duración/2)` y sin cruzar el otro fundido. Un undo por gesto
+  (`fundido de audio`) abierto en el primer movimiento; clic sin undo y `Esc` revierte.
+- **Crossfade por corte**: asa en cada corte de una pista secuencial; arrastrar a la izquierda
+  crea/alarga el `Transition` y a la derecha lo acorta (por debajo de 0.2 s lo quita).
+  `core.timeline.set_audio_transition` acota con `transition_limit`; el graph usa el
+  `acrossfade` existente. Un undo por gesto (`crossfade de audio`).
+- **Límite**: las pistas absolutas no muestran el asa de crossfade (el modelo prohíbe
+  transiciones) y las bloqueadas/razor ocultan todas; el audio de V1 sigue solo en el inspector.
+- Tests nuevos en `test_audio_fade_handles`; **588 tests** en verde (579 base + 9).
+
 ### B34 - Fondo del lienzo: blur e imagen (✅ · M)
 
 Resultados y decisiones completas en [47 — Fondo del lienzo](47-fondo-lienzo.md).
@@ -609,6 +628,7 @@ Resultados y decisiones completas en [47 — Fondo del lienzo](47-fondo-lienzo.m
 - **Verificación**: `tests/test_background.py` (13) con modelo, migración, preview sintético,
   export real color/blur/imagen, transición con blur sin negros y UI con `pilot`. **592 tests**
   en verde en la rama.
+- Tras integrar fondo y audio: **601 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

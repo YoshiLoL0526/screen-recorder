@@ -35,6 +35,7 @@ EQ_RANGES = {"brightness": (-1.0, 1.0), "contrast": (0.0, 3.0), "saturation": (0
 # romper el resto del código, que ya lo lee como `fx.GAIN_MAX`.
 ZOOM_MAX = 4.0
 MICRO_FADE = 0.03  # anti-click en las fronteras internas del audio (s)
+AUDIO_FADE_HANDLE_MAX = 2.0  # tope del asa de fundido en el timeline (docs/46); el inspector llega a 3 s
 
 
 def find_effect(effects: tuple[Effect, ...], kind: str) -> Effect | None:
@@ -119,6 +120,18 @@ def audio_fades(clip: Clip, duration: float) -> tuple[float, float]:
         scale = duration / (fin + fout)
         fin, fout = fin * scale, fout * scale
     return fin, fout
+
+
+def audio_fade_limit(duration: float, other: float = 0.0) -> float:
+    """Máximo de un asa de fundido de audio en el timeline (docs/46).
+
+    Es `min(AUDIO_FADE_HANDLE_MAX, duración/2)` y además no deja que los dos fundidos se
+    crucen: se descuenta el fundido del otro extremo (`other`). El inspector no usa este
+    límite (sigue ofreciendo hasta 3 s); el graph reparte los dos si no caben.
+    """
+    duration = max(0.0, float(duration))
+    other = max(0.0, float(other))
+    return max(0.0, min(AUDIO_FADE_HANDLE_MAX, duration / 2.0, duration - other))
 
 
 def fade_gain(t: float, duration: float, fin: float, fout: float) -> float:

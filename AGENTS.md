@@ -50,7 +50,10 @@ controlador, menús del asa y `Ctrl+C`/`Ctrl+V`; `docs/41`), el **modo «añadir
 timeline** (`state.key_add_on`, tecla **N**, `keyframe_default`/`keyframe_value_at`; `docs/42`),
 el **recorte interactivo en el preview** (`core/crop_edit.py`, `state.crop_on`, tecla **T**;
 `docs/43`), el **texto multilínea con ancho máximo** (`TextOverlay.wrap_width`,
-`core/text_layout.py`, bake RGBA de los textos envueltos; modelo **v15**, `docs/45`) y el
+`core/text_layout.py`, bake RGBA de los textos envueltos; modelo **v15**, `docs/45`), los
+**fundidos de audio con crossfade por corte en el timeline** (`ui/timeline.py`,
+`ui/editor_controller.py`, `core/timeline.set_audio_transition`; modelo v15 sin cambios,
+`docs/46`) y el
 **export personalizado** con tamaño/fps/bitrate/códec y presets sociales (`core/graph.py`,
 `services/settings.py`, `ui/export_modal.py`; `docs/44`) y el **fondo del lienzo** (color, blur
 de V1 o imagen; `core/background.py`, modelo **v16**, `docs/47`).
@@ -62,7 +65,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 592 tests; la integración usa FFmpeg real
+uv run pytest                                   # 601 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -280,6 +283,16 @@ depender de monitor, GPU ni audio reales del runner.
   sigue en silencio aunque tenga curva. El selector **Easing** (`state.insp_env_easing`, no
   persistido) decide las claves nuevas (también las del modo Env) y regrabar el mismo instante
   actualiza el easing; arrastrar un asa lo conserva.
+- Fundidos y crossfades de audio en el timeline (docs/46): las asas de `audio_fade_in/out` son
+  cajas de la capa `audio_handles_layer`, **encima del playhead** y en el hueco superior del clip
+  (no tapan el nombre ni el trim); el límite es `fx.audio_fade_limit` = `min(2 s, duración/2,
+  duración − otro fundido)` y el inspector sigue ofreciendo hasta 3 s. Al editar con el asa se
+  quita el `fade_in/out` legado del mismo lado para que volver a 0 no lo herede (solo en pistas
+  de audio). El crossfade por corte usa `core.timeline.set_audio_transition` sobre
+  `Track.transitions` (solo `mode="sequence"`, acotado por `transition_limit`); arrastrar el asa
+  a la izquierda alarga y el asa sigue al puntero porque está en el inicio del clip entrante.
+  Fundido y crossfade abren `fundido de audio`/`crossfade de audio` con `begun=False`; `Esc`
+  revierte y un clic no deja `_tx`. Las pistas absolutas no muestran asa de crossfade.
 - Asas de animaciones visuales (docs/38): `state.keyframe_channel` elige el canal (no se
   persiste) y `state.keyframe_key` la clave seleccionada; el controlador corrige el canal al
   cambiar entre elemento y texto. La polilínea se pinta en el canvas (`_draw_animation_curve`) y
@@ -381,8 +394,9 @@ depender de monitor, GPU ni audio reales del runner.
   animación (modelo v13), `docs/40` el easing de las envolventes de volumen (modelo v14),
   `docs/41` el copiar/pegar de claves, `docs/42` el modo para añadir claves desde el timeline,
   `docs/43` el recorte interactivo en el preview, `docs/44` el export personalizado (tamaño, fps,
-  bitrate, códec y presets sociales) y `docs/45` el texto multilínea con ancho máximo (modelo v15)
-  y `docs/47` el fondo del lienzo con blur o imagen (modelo v16).
+  bitrate, códec y presets sociales), `docs/45` el texto multilínea con ancho máximo (modelo v15),
+  `docs/46` los fundidos de audio con crossfade por corte (modelo v15 sin cambios) y `docs/47` el
+  fondo del lienzo con blur o imagen (modelo v16).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

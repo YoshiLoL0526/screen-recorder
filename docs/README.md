@@ -14,10 +14,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > de envolvente en el timeline**, **asas de animaciones visuales**, **easing de las claves** y
 > **easing de las envolventes de volumen**, **copiar/pegar de claves**, **añadir claves desde
 > el timeline**, el **recorte interactivo en el preview**, el **export personalizado** con presets
-> sociales, el **texto multilínea con ancho máximo** (docs/27-45) y el **fondo del lienzo** con
-> blur o imagen (docs/47). Quedan las comprobaciones
-> manuales de A y la fase 4+. Los documentos 01-07 son la especificación de diseño; 08-47 recogen
-> lo implementado, con mediciones y bugs.
+> sociales, el **texto multilínea con ancho máximo**, los **fundidos de audio con crossfade por
+> corte en el timeline** y el **fondo del lienzo** con blur o imagen (docs/27-47). Quedan las
+> comprobaciones manuales de A y la fase 4+. Los documentos 01-07 son la especificación de diseño;
+> 08-47 recogen lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -68,6 +68,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 43 | [Recorte interactivo en el preview](43-crop-interactivo.md) | Modo `T`, preview sin recortar, velo y 8 asas, geometría con rotación/flip, mínimo del 5 %, undo por gesto y límites (modelo v15 sin cambios). |
 | 44 | [Export personalizado](44-export-personalizado.md) | Tamaño, fps, bitrate y códec H.264/GPU en el modal; presets sociales 9:16/1:1/4:5/16:9, validación, persistencia en `Settings` y export real (modelo v15 sin cambios). |
 | 45 | [Texto multilínea con ancho máximo](45-texto-multilinea.md) | `TextOverlay.wrap_width`, helper puro de wrap, preview con líneas, caja del bloque, bake RGBA para export, UI, migración v14 → v15 y límites. |
+| 46 | [Fundidos de audio y crossfade por corte](46-fundidos-audio.md) | Asas de `audio_fade_in/out` sobre la waveform, geometría y límites, crossfade por corte con `Track.transitions`, undo por gesto, preview/export y límites (modelo v16 sin cambios). |
 | 47 | [Fondo del lienzo](47-fondo-lienzo.md) | `background_mode`/`background_blur`/`background_asset`, blur de V1 e imagen, orden de composición, graph, preview, UI, migración v15 → v16 y límites. |
 
 ## Orden de lectura sugerido

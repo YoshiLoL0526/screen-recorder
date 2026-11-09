@@ -32,7 +32,13 @@ from ..core import audio_envelope as env
 from ..core import effects as fx
 from ..core import elements as element_mod
 from ..core import timeline as tl
-from ..core.project import VIDEO_TRACKS_MAX, Project, audio_track_audible, video_audio_gain
+from ..core.project import (
+    TRANSITION_MIN,
+    VIDEO_TRACKS_MAX,
+    Project,
+    audio_track_audible,
+    video_audio_gain,
+)
 from ..services import media
 
 NAV_W = 196  # ancho de la barra lateral (shell.nav)
@@ -73,6 +79,11 @@ MARKER_COLOR = "#F5B851"
 ENVELOPE_COLOR = "#FFD166"  # línea de la envolvente de volumen (docs/32)
 ENVELOPE_HANDLE_W = 11.0  # asa de una clave sobre la waveform (docs/37)
 ENVELOPE_ELEMENT_W = 9.0  # asa de una clave sobre la barra de un elemento
+AUDIO_FADE_COLOR = "#4CC9F0"  # fundidos y crossfades de audio en el timeline (docs/46)
+AUDIO_FADE_HANDLE_W = 9.0  # asa de fundido sobre la waveform/barra de un clip de audio
+AUDIO_FADE_HANDLE_H = 8.0  # vive en el hueco superior para no tapar el nombre del clip
+AUDIO_CROSS_HANDLE_W = 14.0  # asa/zona del crossfade en un corte de pista secuencial
+AUDIO_CROSS_HANDLE_H = 10.0
 ANIMATION_COLOR = "#FF6EC7"  # polilínea y asas de animación visual (docs/38)
 ANIMATION_HANDLE_W = 9.0  # asa de una clave sobre la barra de un elemento/texto
 KEYFRAME_LABELS = {
@@ -351,6 +362,31 @@ def envelope_time(start: float, duration: float, x: float, zoom: float) -> float
     return max(0.0, min(float(duration), float(x) / zoom - float(start)))
 
 
+def audio_fade_x(start: float, duration: float, fade: float, zoom: float, *, side: str) -> float:
+    """`x` del asa de un fundido de audio: extremo de la rampa (inicio o fin del clip).
+
+    `side="in"` coloca el asa al final del fundido de entrada; `side="out"`, al principio del
+    de salida. La inversa es `audio_fade_at_x`.
+    """
+    duration = max(0.0, float(duration))
+    fade = max(0.0, min(duration, float(fade)))
+    if side == "in":
+        return (float(start) + fade) * zoom
+    return (float(start) + duration - fade) * zoom
+
+
+def audio_fade_at_x(start: float, duration: float, x: float, zoom: float, *, side: str) -> float:
+    """Segundos de fundido que corresponden a la `x` del asa (inversa de `audio_fade_x`)."""
+    if zoom <= 0:
+        return 0.0
+    duration = max(0.0, float(duration))
+    if side == "in":
+        value = float(x) / zoom - float(start)
+    else:
+        value = float(start) + duration - float(x) / zoom
+    return max(0.0, min(duration, value))
+
+
 def keyframe_x(start: float, duration: float, t: float, zoom: float) -> float:
     """`x` del contenido de un tiempo local de un elemento/texto (docs/38)."""
     return envelope_x(start, duration, t, zoom)
@@ -461,6 +497,22 @@ def _draw_envelope(c: Canvas, clip, x: float, w: float, top: float, h: float) ->
             c.circle(px, py, 2.2, fill=ENVELOPE_COLOR)
 
 
+def _draw_audio_fades(c: Canvas, clip, x: float, w: float, top: float, h: float) -> None:
+    """Rampas de los fundidos de audio del clip sobre su waveform/barra (docs/46)."""
+    duration = clip.duration
+    if duration <= 0 or w <= 1:
+        return
+    fin, fout = fx.audio_fades(clip, duration)
+    if fin > 0:
+        x1 = x + min(w, fin / duration * w)
+        c.polygon([(x, top + h), (x1, top), (x1, top + h)], fill=AUDIO_FADE_COLOR + "22")
+        c.line(x, top + h, x1, top, stroke=AUDIO_FADE_COLOR, stroke_width=1.2)
+    if fout > 0:
+        x0 = x + w - min(w, fout / duration * w)
+        c.polygon([(x0, top), (x + w, top + h), (x0, top + h)], fill=AUDIO_FADE_COLOR + "22")
+        c.line(x0, top, x + w, top + h, stroke=AUDIO_FADE_COLOR, stroke_width=1.2)
+
+
 def _envelope_key_boxes(
     scope: str, item, start: float, track_index: int, top: float, height: float,
     zoom: float, x0: float, x1: float, *, size: float,
@@ -562,6 +614,97 @@ def _element_envelope_boxes(
             "element", item, item.start, -1, top, height, zoom, x0, x1,
             size=ENVELOPE_ELEMENT_W,
         ))
+    return boxes
+
+
+def _audio_fade_boxes(
+    clip, start: float, track_index: int, row, zoom: float, x0: float, x1: float,
+):
+    """Asas de los fundidos de entrada/salida de un clip de una pista de audio (docs/46).
+
+    Son cajas de `AUDIO_FADE_HANDLE_W` en la banda superior del clip, separadas de las asas de
+    recorte laterales. El fundido de entrada se arrastra hacia la derecha y el de salida hacia la
+    izquierda; el valor se acota con `fx.audio_fade_limit` (2 s y sin cruzar el otro fundido).
+    """
+    duration = float(clip.duration)
+    if duration <= 0:
+        return []
+    x, w = float(start) * zoom, max(4.0, duration * zoom)
+    if x > x1 + AUDIO_FADE_HANDLE_W or x + w < x0 - AUDIO_FADE_HANDLE_W:
+        return []
+    fin, fout = fx.audio_fades(clip, duration)
+    width, height = AUDIO_FADE_HANDLE_W, AUDIO_FADE_HANDLE_H
+    boxes = []
+    for side, value in (("in", fin), ("out", fout)):
+        px = audio_fade_x(start, duration, value, zoom, side=side)
+        if side == "in":
+            left = max(x + HANDLE_W, px - width / 2)
+            left = min(left, x + w - width)
+            direction = "a la derecha"
+        else:
+            left = min(x + w - HANDLE_W - width, px - width / 2)
+            left = max(x, left)
+            direction = "a la izquierda"
+        limit = fx.audio_fade_limit(duration, fout if side == "in" else fin)
+        label = (
+            f"Fundido de {'entrada' if side == 'in' else 'salida'}: {value:.2f} s "
+            f"(máx. {limit:.2f} s) · arrastra {direction}"
+        )
+        boxes.append(
+            box(
+                key=f"audio-fade-{side}-{track_index}-{clip.id}",
+                position="absolute", left=left, top=row.top - height + 2,
+                width=width, height=height, radius=height / 2,
+                bg=AUDIO_FADE_COLOR, border_width=1, border_color="#FFFFFFCC",
+                cursor="col-resize", tooltip=label, label=label,
+                on_drag=_audio_fade_drag(track_index, clip.id, side),
+            )
+        )
+    return boxes
+
+
+def _audio_crossfade_boxes(
+    project: Project, lay: Tracks, zoom: float, x0: float, x1: float,
+):
+    """Asas/zona de crossfade en cada corte de una pista de audio secuencial (docs/46).
+
+    El asa vive justo encima de la fila (en el hueco entre pistas) para no tapar las asas de
+    recorte, que ocupan el alto completo del clip. Arrastrarla hacia la izquierda alarga el
+    crossfade: el asa sigue al puntero porque está en el inicio del clip entrante.
+    """
+    if state.razor_on():
+        return []
+    boxes = []
+    for row in lay.rows:
+        track = project.audio[row.index]
+        if track.mode != "sequence" or track.locked or len(track.clips) < 2:
+            continue
+        starts = tl.clip_starts(track)
+        for index in range(len(track.transitions)):
+            limit = tl.transition_limit(track, index)
+            if limit < TRANSITION_MIN - 1e-9:
+                continue
+            boundary = starts[index + 1] * zoom
+            if boundary < x0 - AUDIO_CROSS_HANDLE_W or boundary > x1 + AUDIO_CROSS_HANDLE_W:
+                continue
+            transition = track.transitions[index]
+            label = (
+                f"Crossfade {index + 1}: {transition.duration:.2f} s"
+                if transition is not None else f"Crear crossfade en el corte {index + 1}"
+            )
+            label += " · arrastra a la izquierda para alargar"
+            boxes.append(
+                box(
+                    key=f"audio-cross-{row.index}-{index}",
+                    position="absolute", left=boundary - AUDIO_CROSS_HANDLE_W / 2,
+                    top=row.top - AUDIO_CROSS_HANDLE_H + 2,
+                    width=AUDIO_CROSS_HANDLE_W, height=AUDIO_CROSS_HANDLE_H,
+                    radius=3, bg="#4CC9F033", bg_hover="#4CC9F066",
+                    border_width=1, border_color=AUDIO_FADE_COLOR + "CC",
+                    cursor="col-resize", tooltip=label, label=label,
+                    on_drag=_audio_crossfade_drag(row.index, index),
+                )
+            )
     return boxes
 
 
@@ -904,6 +1047,7 @@ def _draw_tracks(c: Canvas) -> None:
                                                t0, t1, track.gain)
                         if pts is not None:
                             c.polygon(pts, fill="$wave")
+            _draw_audio_fades(c, clip, x, w, row.top, row.height)
             if clip.envelope:
                 _draw_envelope(c, clip, x, w, row.top, row.height)
             label_x = _clip_label_x(w, x)
@@ -929,6 +1073,39 @@ def _draw_tracks(c: Canvas) -> None:
                 gx = drag.ghost * zoom
                 c.rect(gx + 1, row.top - 2, w - 2, row.height + 4, radius=5,
                        fill="#7C5CFF33", stroke="$primary", stroke_width=1.5, dash=(5, 3))
+
+    # Crossfades de audio (docs/46): zona de solape sobre la waveform y rombo en el corte.
+    for row in lay.rows:
+        track = project.audio[row.index]
+        if track.mode != "sequence" or len(track.clips) < 2:
+            continue
+        starts = tl.clip_starts(track)
+        for index, transition in enumerate(track.transitions):
+            boundary_px = starts[index + 1] * zoom
+            if boundary_px < x0 - 8 or boundary_px > x1 + 8:
+                continue
+            selected = (
+                selection is not None and selection[0] == "audio"
+                and int(selection[1]) == row.index
+                and int(selection[2]) in (index, index + 1)
+            )
+            if transition is not None:
+                end_px = (starts[index] + track.clips[index].duration) * zoom
+                c.rect(boundary_px, row.top + 2, max(2.0, end_px - boundary_px),
+                       row.height - 4, fill="#4CC9F033", stroke=AUDIO_FADE_COLOR + "99",
+                       stroke_width=1)
+                if zoom >= 40:
+                    c.text((boundary_px + end_px) / 2, row.top + row.height - 12,
+                           f"fade {transition.duration:g}s", size=9.5,
+                           color=AUDIO_FADE_COLOR, align="center")
+            y = row.top + 2
+            c.polygon(
+                [(boundary_px, y - 4), (boundary_px + 5, y + 1), (boundary_px, y + 6),
+                 (boundary_px - 5, y + 1)],
+                fill=AUDIO_FADE_COLOR if transition is not None or selected else "$surface_hover",
+                stroke="$primary" if selected else AUDIO_FADE_COLOR + "AA",
+                stroke_width=1.5 if selected else 1,
+            )
 
     # Transiciones: zona de solape + rombo en la frontera.
     for index, transition in enumerate(project.video.transitions):
@@ -1189,6 +1366,42 @@ def _envelope_add_drag(scope: str, item_id: str, track_index: int, height: float
         else:
             editor.drag_envelope_key(e.dx, e.dy)
             editor.end_envelope_key_drag()
+
+    return handler
+
+
+def _audio_fade_drag(track_index: int, clip_id: str, side: str):
+    """Arrastra el asa de un fundido de audio; el primer movimiento abre la transacción."""
+
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_audio_fade_drag(track_index, clip_id, side)
+        elif e.phase == "move":
+            editor.drag_audio_fade(e.dx)
+        else:
+            editor.drag_audio_fade(e.dx)
+            editor.end_audio_fade_drag()
+
+    return handler
+
+
+def _audio_crossfade_drag(track_index: int, index: int):
+    """Arrastra el asa de un crossfade de audio (corte de una pista secuencial)."""
+
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_audio_crossfade_drag(track_index, index)
+        elif e.phase == "move":
+            editor.drag_audio_crossfade(e.dx)
+        else:
+            editor.drag_audio_crossfade(e.dx)
+            editor.end_audio_crossfade_drag()
 
     return handler
 
@@ -1651,6 +1864,41 @@ def _selected_keyframe_boxes(
     return boxes
 
 
+def _selected_audio_handles(
+    project: Project, selection, lay: Tracks, zoom: float, x0: float, x1: float,
+):  # noqa: ANN001
+    """Asas de fundido del clip de audio seleccionado + crossfades de las pistas (docs/46)."""
+    boxes = []
+    if selection is not None and selection[0] == "audio" and not state.razor_on():
+        try:
+            track_index, clip_index = int(selection[1]), int(selection[2])
+        except (IndexError, TypeError, ValueError):
+            track_index = clip_index = -1
+        if 0 <= track_index < len(project.audio):
+            track = project.audio[track_index]
+            if not track.locked and 0 <= clip_index < len(track.clips):
+                row = lay.row_for(track_index)
+                if row is not None:
+                    clip = track.clips[clip_index]
+                    start = tl.clip_starts(track)[clip_index]
+                    boxes.extend(
+                        _audio_fade_boxes(clip, start, track_index, row, zoom, x0, x1)
+                    )
+    boxes.extend(_audio_crossfade_boxes(project, lay, zoom, x0, x1))
+    return boxes
+
+
+@component
+def audio_handles_layer():
+    project: Project = state.editor_project()
+    selection = state.selection()
+    zoom = state.tl_zoom()
+    x0, x1 = _visible_range()
+    boxes = _selected_audio_handles(project, selection, tracks(), zoom, x0, x1)
+    # Contenedor mínimo: cualquier caja grande encima taparía los clics del timeline.
+    return box(key="audio-handles-layer", position="absolute", left=0, top=0, width=1, height=1)[boxes]
+
+
 @component
 def animation_handles_layer():
     state.keyframe_channel()  # dependencias: canal y clave seleccionada repintan las asas
@@ -1807,6 +2055,7 @@ def timeline_view():
                 box(key="tl-content", width=width, height=content_h, shrink=0, drop_target=True)[
                     timeline_layer(),
                     playhead_layer(),
+                    audio_handles_layer(),
                     envelope_handles_layer(),
                     animation_handles_layer(),
                 ]

@@ -182,7 +182,10 @@ Se añadieron los efectos `audio_fade_in` y `audio_fade_out` (`seconds`). La cad
 `fx.audio_fades`; si el clip no tiene el efecto nuevo, hereda el `fade_in`/`fade_out` histórico
 para no cambiar los proyectos existentes. El video sigue usando `fx.fades` para la imagen, así
 que ahora se puede fundir solo el audio sin tocar el video. El inspector permite ajustarlos en
-cualquier clip (video o audio).
+cualquier clip (video o audio). Desde [46](46-fundidos-audio.md) los clips de las pistas de audio
+también tienen **asas de fundido** en el timeline (entrada arriba-izquierda, salida arriba-derecha)
+y un **crossfade por corte** entre clips consecutivos de una pista secuencial; el modelo sigue
+siendo el mismo (`Effect` y `Track.transitions`).
 
 ## Persistencia
 
@@ -216,8 +219,10 @@ atómico y el `.bak` no cambia.
   autoriza docs/18: el panel crece con las pistas y la UI limita a **6 pistas de audio** las
   nuevas. Proyectos antiguos con más pistas se siguen dibujando, pero el panel puede crecer de
   más en ventanas pequeñas.
-- No hay asas de fundido sobre la waveform (B5), envolventes/keyframes de audio (B6),
-  normalización/compresor/EQ/pan (B7), medidores (B12) ni export solo audio (B13).
+- Las asas de fundido sobre la waveform y el crossfade por corte llegaron en
+  [46](46-fundidos-audio.md); las envolventes/keyframes de audio, en [32](32-audio-envelopes.md) y
+  [37](37-editor-claves.md). Siguen pendientes normalización/compresor/EQ/pan (B7), medidores (B12)
+  y export solo audio (B13).
 - La velocidad de un clip de audio no se edita desde la UI; `detach_audio` copia la del video.
   El graph soporta `atempo` para esos clips.
 - `split_audio` conserva el enlace en ambos trozos; `attach_audio` los borra todos. Si se borra

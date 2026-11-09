@@ -374,6 +374,47 @@ def set_transition(p: Project, index: int, kind: str | None, duration: float = 0
     return replace(p, video=replace(track, transitions=tuple(transitions))), clamped
 
 
+def set_audio_transition(
+    p: Project, track_index: int, index: int, duration: float,
+) -> tuple[Project, bool]:
+    """Pone o quita el crossfade `transitions[index]` de una pista de audio secuencial (docs/46).
+
+    Reutiliza `Transition(kind="fade")` y el `acrossfade` del graph; no toca `SCHEMA_VERSION`.
+    `duration < TRANSITION_MIN` deja un corte limpio (`None`). La duración se acota con
+    `transition_limit` (mitad del clip más corto, tope de 2 s) y se devuelve `(proyecto,
+    acotada)`. Si el resultado es igual al actual, devuelve el mismo proyecto.
+    """
+    if not 0 <= track_index < len(p.audio):
+        raise ProjectError(f"no existe la pista de audio {track_index}")
+    track = p.audio[track_index]
+    _ensure_unlocked(track)
+    if track.mode != "sequence":
+        raise ProjectError("las pistas absolutas no admiten crossfades")
+    if not 0 <= index < len(track.transitions):
+        raise ProjectError(f"no hay corte {index} en la pista de audio")
+    current = track.transitions[index]
+    clamped = False
+    if duration < TRANSITION_MIN:
+        updated: Transition | None = None
+    else:
+        limit = transition_limit(track, index)
+        if limit < TRANSITION_MIN:
+            raise ProjectError(
+                "los clips son demasiado cortos para un crossfade (mínimo 0.4 s cada uno)"
+            )
+        wanted = max(TRANSITION_MIN, float(duration))
+        if wanted > limit:
+            wanted, clamped = limit, True
+        updated = Transition("fade", round(wanted, 3))
+    if updated == current:
+        return p, False
+    transitions = list(track.transitions)
+    transitions[index] = updated
+    tracks = list(p.audio)
+    tracks[track_index] = replace(track, transitions=tuple(transitions))
+    return replace(p, audio=tuple(tracks)), clamped
+
+
 # -- edición -----------------------------------------------------------------------
 
 

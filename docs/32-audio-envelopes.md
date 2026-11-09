@@ -19,7 +19,7 @@
 - El timeline dibuja la polilínea sobre la waveform y marca con **◆ env** la barra del clip.
 - Fuera del clip seleccionado o con el playhead fuera de su intervalo, la UI avisa y no graba.
 
-## Modelo (`SCHEMA_VERSION = 10` esta fase; hoy 14 con easing, [docs/40](40-easing-audio.md))
+## Modelo (`SCHEMA_VERSION = 10` esta fase; hoy 15 con easing y texto multilínea, [docs/40](40-easing-audio.md) y [docs/45](45-texto-multilinea.md))
 
 ```python
 VolumePoint(t=0.0, gain=1.0, easing="linear")   # t local al clip (s), gain 0…4
@@ -95,6 +95,10 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
   0…4; un clic sin movimiento selecciona la clave y `Supr` la borra. El modo **Env** (`E` o el
   botón de la barra) permite añadir una clave con un clic en la waveform. Todo va por el store:
   undo/redo por gesto y la misma mezcla para preview y export.
+- **Fundidos de entrada/salida** ([docs/46](46-fundidos-audio.md)): los clips de las pistas de
+  audio muestran dos asas azules en la banda superior (entrada a la izquierda, salida a la
+  derecha) que editan `audio_fade_in`/`audio_fade_out` con undo por gesto. Las claves de la
+  envolvente van por encima de esas asas en la capa de interacción.
 - La barra secuencial/absoluta no cambia: la curva es local al clip en ambos modos.
 
 ## Límites y pendientes
@@ -111,6 +115,8 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 - La curva no cambia el volumen de la pista ni el ducking; solo el del clip.
 - Cambiar la velocidad de un clip no reescala las claves: sus tiempos son locales al timeline
   del clip, así que las que caen más allá de la nueva duración dejan de sonar (y no se dibujan).
+- Los fundidos de audio y el crossfade por corte se editan con asas propias desde
+  [docs/46](46-fundidos-audio.md); no son claves de la envolvente y no se copian con `Ctrl+C`.
 - El corte rápido sigue bloqueado con audio separado, pistas extra o cualquier envolvente.
 
 ## Tests

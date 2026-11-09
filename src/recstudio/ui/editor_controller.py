@@ -36,6 +36,7 @@ from ..core import timeline as tl
 from ..core.errors import ProjectError, RecStudioError
 from ..core.project import (
     FPS_CHOICES,
+    TRANSITION_MIN,
     VIDEO_TRACKS_MAX,
     Clip,
     Element,
@@ -166,6 +167,8 @@ class EditorController:
         self._overlay_drag: dict | None = None  # mover/recortar una capa en el timeline
         self._envelope_drag: dict | None = None  # mover/añadir una clave de volumen (docs/37)
         self._keyframe_drag: dict | None = None  # mover una clave de animación (docs/38)
+        self._audio_fade_drag: dict | None = None  # fundido de audio en el timeline (docs/46)
+        self._audio_cross_drag: dict | None = None  # crossfade de un corte de audio (docs/46)
         self._closing = threading.Event()
         self._io_lock = threading.Lock()  # abrir/guardar/importar: de uno en uno
         self._wave_lock = threading.Lock()
@@ -2719,6 +2722,159 @@ class EditorController:
             return False
         return self.delete_envelope_key_at(key.scope, key.item, key.track, key.t)
 
+    # -- fundidos y crossfades de audio en el timeline (docs/46) -------------------
+
+    @staticmethod
+    def _project_with_audio_fade(
+        base: Project, track_index: int, clip_id: str, side: str, seconds: float,
+    ) -> Project | None:
+        """Copia `base` con el fundido `side` de un clip de una pista de audio.
+
+        Al editar el asa se quita el `fade_in`/`fade_out` legado del mismo lado (lo hereda
+        `detach_audio`): si el efecto propio vuelve a 0 y se elimina por neutro, no debe
+        reaparecer el valor histórico. Solo se usa en pistas de audio (ahí `fade_*` no afecta a
+        ninguna imagen).
+        """
+        try:
+            track = base.audio[int(track_index)]
+            index = track.index_of(clip_id)
+            clip = track.clips[index]
+            own = "audio_fade_in" if side == "in" else "audio_fade_out"
+            legacy = "fade_in" if side == "in" else "fade_out"
+            effects = tuple(e for e in clip.effects if e.kind != legacy)
+            updated = fx.with_effect(replace(clip, effects=effects), own, seconds=float(seconds))
+            clips = list(track.clips)
+            clips[index] = updated
+            tracks = list(base.audio)
+            tracks[int(track_index)] = replace(track, clips=tuple(clips))
+            return replace(base, audio=tuple(tracks))
+        except (ProjectError, IndexError):
+            return None
+
+    def begin_audio_fade_drag(self, track_index: int, clip_id: str, side: str) -> None:
+        """Empieza a arrastrar un asa de fundido; la transacción se abre al primer movimiento."""
+        if not self._guard_editable() or self.player.playing or side not in ("in", "out"):
+            return
+        self.cancel_drag()
+        if not 0 <= int(track_index) < len(self.project.audio):
+            return
+        track = self.project.audio[int(track_index)]
+        if track.locked:
+            state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        try:
+            clip = track.clips[track.index_of(clip_id)]
+        except (ProjectError, IndexError):
+            return
+        fin, fout = fx.audio_fades(clip, clip.duration)
+        self._audio_fade_drag = {
+            "track": int(track_index), "id": clip_id, "side": side,
+            "project": self.project, "duration": float(clip.duration),
+            "fade_in": fin, "fade_out": fout, "begun": False,
+        }
+
+    def drag_audio_fade(self, dx: float) -> None:
+        drag = self._audio_fade_drag
+        if drag is None or abs(dx) < _CLICK_SLOP_PX:
+            return
+        if not drag.get("begun"):
+            self.store.begin("fundido de audio")
+            drag["begun"] = True
+        zoom = max(1.0, state.tl_zoom())
+        duration = float(drag["duration"])
+        if drag["side"] == "in":
+            limit = fx.audio_fade_limit(duration, drag["fade_out"])
+            value = max(0.0, min(limit, float(drag["fade_in"]) + float(dx) / zoom))
+        else:
+            limit = fx.audio_fade_limit(duration, drag["fade_in"])
+            value = max(0.0, min(limit, float(drag["fade_out"]) - float(dx) / zoom))
+        project = self._project_with_audio_fade(
+            drag["project"], drag["track"], drag["id"], drag["side"], round(value, 4),
+        )
+        if project is not None:
+            self.store.update(project)
+
+    def end_audio_fade_drag(self) -> None:
+        drag, self._audio_fade_drag = self._audio_fade_drag, None
+        if drag is None or not drag.get("begun"):
+            return
+        self.store.commit()
+        self._sync_inspector()
+        self._sync_meta()
+
+    def _cancel_audio_fade_drag(self) -> bool:
+        drag, self._audio_fade_drag = self._audio_fade_drag, None
+        if drag is None:
+            return False
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
+        return True
+
+    def begin_audio_crossfade_drag(self, track_index: int, index: int) -> None:
+        """Empieza a arrastrar el asa de un crossfade de corte (pista de audio secuencial)."""
+        if not self._guard_editable() or self.player.playing:
+            return
+        self.cancel_drag()
+        if not 0 <= int(track_index) < len(self.project.audio):
+            return
+        track = self.project.audio[int(track_index)]
+        if track.locked:
+            state.toast("warning", f"La pista «{track.name or 'audio'}» está bloqueada")
+            return
+        if track.mode != "sequence":
+            state.toast("info", "Las pistas absolutas no admiten crossfades")
+            return
+        if not 0 <= int(index) < len(track.transitions):
+            return
+        limit = tl.transition_limit(track, int(index))
+        if limit < TRANSITION_MIN:
+            state.toast("warning", "El corte es demasiado corto para un crossfade (mín. 0.4 s por clip)")
+            return
+        current = track.transitions[int(index)]
+        self._audio_cross_drag = {
+            "track": int(track_index), "index": int(index), "project": self.project,
+            "duration": current.duration if current is not None else 0.0,
+            "limit": limit, "begun": False,
+        }
+
+    def drag_audio_crossfade(self, dx: float) -> None:
+        drag = self._audio_cross_drag
+        if drag is None or abs(dx) < _CLICK_SLOP_PX:
+            return
+        if not drag.get("begun"):
+            self.store.begin("crossfade de audio")
+            drag["begun"] = True
+        zoom = max(1.0, state.tl_zoom())
+        # El asa está en el inicio del clip entrante y sigue al puntero: hacia la izquierda
+        # alarga el crossfade y hacia la derecha lo acorta (por debajo de 0.2 s lo quita).
+        duration = max(0.0, min(float(drag["limit"]), float(drag["duration"]) - float(dx) / zoom))
+        try:
+            project, _clamped = tl.set_audio_transition(
+                drag["project"], drag["track"], drag["index"], round(duration, 4),
+            )
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        self.store.update(project)
+
+    def end_audio_crossfade_drag(self) -> None:
+        drag, self._audio_cross_drag = self._audio_cross_drag, None
+        if drag is None or not drag.get("begun"):
+            return
+        self.store.commit()
+        self._sync_inspector()
+        self._sync_meta()
+
+    def _cancel_audio_crossfade_drag(self) -> bool:
+        drag, self._audio_cross_drag = self._audio_cross_drag, None
+        if drag is None:
+            return False
+        if drag.get("begun"):
+            self.store.cancel()
+            self._sync_meta()
+        return True
+
     # -- asas de animaciones visuales en el timeline (docs/38) ----------------------
 
     def _keyframe_ref(self, scope: str, item_id: str, channel: str):
@@ -4467,6 +4623,10 @@ class EditorController:
         if self._cancel_text_drag():
             return True
         if self._cancel_overlay_drag():
+            return True
+        if self._cancel_audio_fade_drag():
+            return True
+        if self._cancel_audio_crossfade_drag():
             return True
         if self._cancel_envelope_drag():
             return True
