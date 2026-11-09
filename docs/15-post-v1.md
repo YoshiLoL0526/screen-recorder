@@ -14,8 +14,9 @@
 > elementos** ([33](33-escala-rotacion.md)), las **envolventes de audio de elementos**
 > ([34](34-envolventes-elementos.md)), la **escala/rotación de textos** ([35](35-textos-escala-rotacion.md)),
 > el **color/tamaño de textos** ([36](36-color-tamano-textos.md)), la **edición de claves de
-> envolvente en el timeline** ([37](37-editor-claves.md)) y las **asas de animaciones visuales**
-> ([38](38-asas-animaciones.md)).
+> envolvente en el timeline** ([37](37-editor-claves.md)), las **asas de animaciones visuales**
+> ([38](38-asas-animaciones.md)), el **easing de las claves** ([39](39-easing.md)) y el **modo
+> para añadir claves desde el timeline** ([42](42-claves-desde-timeline.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -439,7 +440,8 @@ Resultados y decisiones completas en [38 — Asas de animaciones](38-asas-animac
   gesto (`mover clave …`); `Esc` cancela. Clic sin mover solo selecciona; `Supr`/menú contextual
   borran la clave y **Quitar** del inspector sigue borrando el canal entero.
 - **Límite**: no hay modo para añadir claves desde el timeline ni copiar/pegar; las asas solo
-  aparecen con la capa seleccionada y el canal con claves.
+  aparecen con la capa seleccionada y el canal con claves. El modo para añadir llegó en B29
+  ([docs/42](42-claves-desde-timeline.md)).
 - Tests nuevos en `test_animation_handles`; **513 tests** en verde (505 + 8).
 
 ### B26 - Easing de las claves de animación (✅ · S)
@@ -459,6 +461,25 @@ Resultados y decisiones completas en [39 — Easing](39-easing.md).
   textos siguen lineales. No hay editor de curvas Bézier.
 - Tests nuevos en `test_easing`; **512 tests** en verde.
 - Tras integrar ambas ramas: **520 tests** en verde.
+
+### B29 - Añadir claves de animación desde el timeline (✅ · S)
+
+Resultados y decisiones completas en [42 — Claves desde el timeline](42-claves-desde-timeline.md).
+
+- **Sin cambios de modelo** (`SCHEMA_VERSION=13`): se reutilizan `Element.animations`,
+  `TextOverlay.animations`, `animation.set_keyframe` y `Animation.value_at`.
+- **Modo «Añadir clave con clic»** (`state.key_add_on`, no persistido): switch en la sección
+  Animación del inspector y tecla **N** (libre). Excluyente con razor, marquesina y Env; `Esc`
+  cancela el gesto y, sin gesto, sale del modo.
+- **Clic sobre la barra** del elemento/texto seleccionado: tiempo local con
+  `keyframe_time`, valor interpolado o base (`keyframe_default`/`keyframe_value_at`) y easing
+  de `state.insp_easing`. Si ya hay clave en ese instante, la actualiza; la clave queda
+  seleccionada y una sola entrada de undo (`añadir clave X`). El clic no mueve la capa.
+- **Indicador**: barra rosa con cursor de cruz, zona translúcida `anim-add-*`, texto en la barra
+  del timeline y en el inspector.
+- **Límite**: solo canales de `Animation` de elementos/textos; el color de textos y las
+  envolventes de audio siguen por sus caminos; no hay grabación automática ni copiar/pegar.
+- Tests nuevos en `test_key_add_mode`; **526 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

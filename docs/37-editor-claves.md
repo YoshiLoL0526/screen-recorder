@@ -77,8 +77,9 @@ explícito** y un menú nativo:
 ## Límites
 
 - Las claves de `Animation` (x/y/opacity/scale/rotation/size) tienen sus propias asas desde
-  [docs/38](38-asas-animaciones.md), con un selector de canal en el inspector; este documento
-  cubre solo `Clip.envelope` y `Element.envelope`.
+  [docs/38](38-asas-animaciones.md), con un selector de canal en el inspector y un modo para
+  crearlas con un clic desde [docs/42](42-claves-desde-timeline.md); este documento cubre solo
+  `Clip.envelope` y `Element.envelope`.
 - No hay copiar/pegar claves ni «grabar automáticamente» al mover el playhead.
 - La interpolación de las envolventes de audio sigue siendo **lineal** y la ganancia se acota a
   0…4; el easing de [docs/39](39-easing.md) es solo de `Animation`.

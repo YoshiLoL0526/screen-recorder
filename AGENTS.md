@@ -43,7 +43,9 @@ y la **edición de claves de envolvente en el timeline** (asas sobre la waveform
 y undo por gesto; `docs/37`), las **asas de animaciones visuales** (selector de canal en el
 inspector, polilínea y asas sobre la barra de elementos/textos; `docs/38`) y el **easing de las
 claves de animación** (`Keyframe.easing`, curvas cúbicas en preview/export y selector del
-inspector; modelo **v13**, `docs/39`).
+inspector; modelo **v13**, `docs/39`). Después se añadió el **modo «añadir clave» desde el
+timeline** (`state.key_add_on`, tecla **N**, `keyframe_default`/`keyframe_value_at`;
+`docs/42`), sin cambios de modelo.
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -52,7 +54,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 520 tests; la integración usa FFmpeg real
+uv run pytest                                   # 526 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -252,6 +254,14 @@ depender de monitor, GPU ni audio reales del runner.
   `keyframe_value_y`/`keyframe_value_at_y` (rango de `animation.CHANNEL_RANGES`) y
   `keyframe_x`/`keyframe_time`; `dy` se pasa como alto de fila y el controlador descuenta los 4 px
   de margen, no le pases ya el alto interno.
+- Añadir claves desde el timeline (docs/42): `state.key_add_on` es UI no persistida y se
+  alterna con **N** o el `switch` del inspector; es **excluyente** con razor, marquesina y Env
+  (el controlador escucha el Signal y apaga los otros). La zona `anim-add-*` va en
+  `animation_handles_layer`, **antes** que las asas y encima del playhead; `begin_keyframe_add`
+  solo actúa sobre la capa seleccionada, convierte x con `keyframe_time` y toma el valor de
+  `keyframe_value_at` (interpolado o base: `scale` 1.0 y `rotation` la base de la capa, 0.0 en
+  textos). El clic abre una transacción `añadir clave X` con `begun=True` y no mueve la capa; al
+  arrastrar una clave se conserva su `easing` (`drag["easing"]`), no lo resetees a lineal.
 - Aurora 0.10: una fila `grow=1` cuyo hijo puede ser más alto que el hueco (inspector) necesita
   `height=0`; en una columna con `align` distinto de `"stretch"`, un contenedor sin ancho ya mide
   como mucho el de la columna (fit-content) y parte el texto, así que no hace falta forzar anchos.
@@ -318,8 +328,8 @@ depender de monitor, GPU ni audio reales del runner.
   (modelo v10), `docs/33` la animación de escala/rotación de elementos, `docs/34` las envolventes
   de audio de elementos (modelo v11), `docs/35` la escala/rotación de textos, `docs/36` el color y
   tamaño animados de textos (modelo v12), `docs/37` la edición de claves de envolvente en el
-  timeline, `docs/38` las asas de animaciones visuales y `docs/39` el easing de las claves de
-  animación (modelo v13).
+  timeline, `docs/38` las asas de animaciones visuales, `docs/39` el easing de las claves de
+  animación (modelo v13) y `docs/42` el modo para añadir claves desde el timeline.
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

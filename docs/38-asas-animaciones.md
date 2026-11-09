@@ -21,7 +21,8 @@
 - **Clic sin mover** en un asa solo la selecciona (no crea undo).
 - **Supr** borra la clave seleccionada; el **menú contextual** del asa ofrece la misma acción.
 - Las claves nuevas y el borrado de todo el canal siguen en el inspector (**Clave …** y
-  **Quitar**), como hasta ahora.
+  **Quitar**), como hasta ahora. También se pueden crear con un clic sobre la barra usando el
+  modo de [docs/42](42-claves-desde-timeline.md) (**N**).
 - `Esc` cancela el arrastre en curso y devuelve el proyecto al estado anterior al gesto.
 
 ## Canales y geometría (`ui/timeline.py`)
@@ -79,10 +80,11 @@ keyframe_time(start, duration, x, zoom)           # inversa, acotada a 0…durac
 
 ## Límites
 
-- Solo se editan **claves existentes** desde el timeline; añadir una clave nueva se hace desde
-  el inspector (no hay modo «Añadir clave» como el modo Env de las envolventes).
-- No hay copiar/pegar claves, easing ni grabación automática al mover el playhead; la
-  interpolación sigue siendo **lineal**.
+- Las claves existentes se editan desde el timeline; para **crear** una clave nueva está el
+  modo «Añadir clave» de [docs/42](42-claves-desde-timeline.md) (**N**): un clic sobre la barra
+  del elemento/texto crea la clave del canal elegido con el easing del inspector.
+- El easing de cada clave se elige en el inspector ([docs/39](39-easing.md)); no hay
+  copiar/pegar claves ni grabación automática al mover el playhead.
 - El canal `color` de textos no tiene asas: es un modelo aparte (`color_keys`) sin rango
   numérico. Los canales de transformación de un clip de V1 tampoco son `Animation`.
 - Con la razor activa se ocultan las asas para no mezclar gestos, igual que las de las

@@ -7,6 +7,12 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Añadir claves de animación desde el timeline** (docs/42; modelo v13 sin cambios): modo
+  **Añadir clave con clic** (`N` o switch de la sección Animación), excluyente con razor,
+  marquesina y Env. Un clic sobre la barra del elemento/texto seleccionado crea la clave del
+  canal activo en ese instante con el valor interpolado o su base y el easing del inspector; si
+  ya existe, la actualiza, y queda seleccionada para arrastrarla. Una entrada de undo por clic
+  (`añadir clave X`), sin mover la capa; `Esc` cancela el gesto y sale del modo.
 - **Easing de las claves de animación** (docs/39; modelo v13 con migración v12 → v13):
   `Keyframe.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) con curvas cúbicas
   compartidas por `value_at` y las expresiones de FFmpeg, selector **Easing** en la sección
