@@ -15,7 +15,8 @@
   [docs/36](36-color-tamano-textos.md)); el color animado va en un modelo aparte
   (`TextOverlay.color_keys`, [docs/36](36-color-tamano-textos.md)).
 - La clave se graba en el **playhead actual** con el valor que tenga el campo en ese momento.
-- Repetir en otro instante para crear la curva; el preview y el export interpolan linealmente.
+- Repetir en otro instante para crear la curva; el preview y el export usan el easing de la clave
+  izquierda (por defecto lineal; [docs/39](39-easing.md)).
 - **Quitar** una animación de un canal con un clic.
 - El timeline marca con **◆** las capas con animación; en el preview, la caja de manipulación se
   oculta cuando X/Y (o, desde [docs/33](33-escala-rotacion.md), escala/rotación) están animados.
@@ -35,7 +36,8 @@ TextOverlay(..., animations=(...))
 - `points` se ordenan por `t`; no puede haber dos claves en el mismo instante.
 - Todos los valores van de **0 a 1** (x/y son fracciones del lienzo; opacity es 0…1).
 - Antes de la primera clave vale la primera; después de la última, la última. Entre claves,
-  interpolación **lineal**.
+  interpolación con el **easing** de la clave izquierda ([docs/39](39-easing.md)); el valor por
+  defecto es `linear`.
 - `core/animation.py` es puro: `value_at`, `expr`, `set_keyframe`, `clear_channel` y `validate`.
 - Los elementos admiten `x`/`y`/`scale`/`rotation` (los dos últimos llegaron en
   [docs/33](33-escala-rotacion.md)); los textos admiten `x`/`y`/`opacity` y, desde
@@ -86,7 +88,8 @@ TextOverlay(..., animations=(...))
   textos añadieron color y tamaño en [docs/36](36-color-tamano-textos.md); los elementos
   ampliaron los canales con **escala y rotación** en [docs/33](33-escala-rotacion.md) y los
   textos en [docs/35](35-textos-escala-rotacion.md).
-- Interpolación **lineal**; no hay curvas Bézier/easing ni copiar/pegar claves.
+- Hay cuatro easings fijos por clave ([docs/39](39-easing.md)); no hay curvas Bézier libres ni
+  copiar/pegar claves.
 - Las claves son **explícitas**: no hay modo «grabar automáticamente al mover el playhead».
 - La caja del preview no se muestra para capas con geometría animada; la posición y la escala se
   editan con el inspector.

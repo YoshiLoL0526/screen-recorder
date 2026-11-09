@@ -69,6 +69,13 @@ _ELEMENT_FITS_UI = [("fit", "Encajar"), ("fill", "Rellenar"), ("stretch", "Estir
 _VIDEO_TRACKS_UI = [(0, "Elementos")] + [
     (i, f"V{i + 1}") for i in range(1, element_mod.VIDEO_TRACKS_MAX + 1)
 ]
+# Easing de las nuevas claves de animación (docs/39); el tramo usa el de la clave izquierda.
+_EASINGS = [
+    ("linear", "Lineal"),
+    ("ease_in", "Suave al entrar"),
+    ("ease_out", "Suave al salir"),
+    ("ease_in_out", "Suave entrada/salida"),
+]
 
 
 def _options(options, current):
@@ -730,13 +737,15 @@ def _animation_controls(kind: str, item, channels, *, color_keys=None) -> object
         ])
     note = (
         "La clave usa el valor actual del campo en el playhead; mover el playhead no cambia "
-        "el campo. La interpolación es lineal."
+        "el campo. El easing elegido decide la curva de las nuevas claves y de los tramos que "
+        "salen de ellas."
     )
     if kind in ("element", "text"):
         note += " Escala 1.0 = tamaño base; rotación en grados horarios."
     return section(
         "Animación",
         *rows,
+        _row("Easing", select(state.insp_easing, _EASINGS, key="insp-easing")),
         text(note, size=11, color="$muted", line_height=1.35),
         gap=8,
     )

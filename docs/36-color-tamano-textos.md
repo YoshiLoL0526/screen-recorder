@@ -129,8 +129,9 @@ los textos con `size`, `scale`, `rotation` o `color_keys` se **hornean** igual q
 - El tamaño animado es el tamaño base: el rango efectivo sigue acotado por `TEXT_SIZE_MIN/MAX`
   (8…200) y luego se multiplica por la escala (0.05…4.0), así que el tamaño de fuente final
   puede superar 200 px.
-- La interpolación de color es lineal en sRGB, sin corrección gamma ni easing. Las claves son
-  explícitas: no se graban al mover el playhead.
+- La interpolación de color es lineal en sRGB, sin corrección gamma ni easing. El canal `size` sí
+  usa el easing de [docs/39](39-easing.md). Las claves son explícitas: no se graban al mover el
+  playhead.
 - Un subtítulo con color/tamaño animado se hornea entero; el `.mov` sin pérdidas puede ser grande
   y la preparación es CPU (PIL), aunque se borra con el temporal del export.
 - El corte rápido sigue bloqueado por `Project.texts`, como cualquier superposición.

@@ -40,7 +40,8 @@ rotación de elementos** (`core/animation.py`, `core/elements.py`,
 (`TextOverlay.animations`, `services/text_animation.py`; `docs/35`), el **color y tamaño
 animados de textos** (`TextOverlay.color_keys`, `core/text_color.py`; modelo **v12**, `docs/36`)
 y la **edición de claves de envolvente en el timeline** (asas sobre la waveform/barra, modo Env
-y undo por gesto; `docs/37`).
+y undo por gesto; `docs/37`) y el **easing de las claves de animación** (`Keyframe.easing`, curvas
+cúbicas en preview/export y selector del inspector; modelo **v13**, `docs/39`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -49,7 +50,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 505 tests; la integración usa FFmpeg real
+uv run pytest                                   # 512 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -208,11 +209,14 @@ depender de monitor, GPU ni audio reales del runner.
   video superpuesto. Un solo de audio silencia también V2/V3. `element_assets.materialize` debe
   omitir los videos. El recorte izquierdo de la barra (controller `drag_overlay`) avanza `in_`;
   mover no lo cambia. No hay razor ni transiciones en V2/V3: son elementos, no una `Track`.
-- Subtítulos y keyframes (docs/30, docs/31, docs/33, docs/35 y docs/36): `TextOverlay.subtitle`
-  marca los cues importados (SRT/VTT) y `opacity` es la base; `Animation`/`Keyframe` viven en
-  `Element.animations` y `TextOverlay.animations`. Los tiempos de las claves son **locales** al
-  elemento/texto. El preview y el export comparten `core.animation.value_at`/`expr`; si tocas
-  una expresión, cita con `'…'` los valores de `overlay`/`drawtext` que lleven comas. Los
+- Subtítulos y keyframes (docs/30, docs/31, docs/33, docs/35, docs/36 y docs/39):
+  `TextOverlay.subtitle` marca los cues importados (SRT/VTT) y `opacity` es la base;
+  `Animation`/`Keyframe` viven en `Element.animations` y `TextOverlay.animations`. Los tiempos de
+  las claves son **locales** al elemento/texto. El preview y el export comparten
+  `core.animation.value_at`/`expr`; si tocas una expresión, cita con `'…'` los valores de
+  `overlay`/`drawtext` que lleven comas. Cada `Keyframe` lleva `easing` (el de la clave izquierda
+  aplica al tramo) y `linear` debe conservar la cadena histórica byte a byte; las curvas se
+  escriben con multiplicaciones y `SCHEMA_VERSION` es **13**. Los
   elementos animan x/y/scale/rotation; los textos, x/y/opacity/scale/rotation/size. El **color**
   de texto no es un `Animation` (float): vive en `TextOverlay.color_keys`
   (`core/text_color.py`) y se interpola en sRGB. La escala/rotación/tamaño se hornea a un `.mov`
@@ -304,8 +308,8 @@ depender de monitor, GPU ni audio reales del runner.
   `docs/31` los subtítulos y keyframes (modelo v9), `docs/32` las envolventes de volumen de audio
   (modelo v10), `docs/33` la animación de escala/rotación de elementos, `docs/34` las envolventes
   de audio de elementos (modelo v11), `docs/35` la escala/rotación de textos, `docs/36` el color y
-  tamaño animados de textos (modelo v12) y `docs/37` la edición de claves de envolvente en el
-  timeline.
+  tamaño animados de textos (modelo v12), `docs/37` la edición de claves de envolvente en el
+  timeline y `docs/39` el easing de las claves de animación (modelo v13).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

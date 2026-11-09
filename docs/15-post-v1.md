@@ -312,7 +312,8 @@ Resultados y decisiones completas en [31 — Keyframes](31-keyframes.md).
   `drawtext` (`alpha` incluido); sin animación, las cadenas del graph son las de siempre.
 - **UI**: sección Animación con «Clave X/Y/Opacidad» y «Quitar»; ◆ en el timeline; la caja del
   preview se oculta si X/Y están animados.
-- **Límite**: sin escala/rotación/color/tamaño animados, sin easing ni claves automáticas.
+- **Límite**: sin escala/rotación/color/tamaño animados en esa entrega; el easing llegó en B26 y
+  las claves siguen siendo explícitas (sin grabación automática).
 - Tests nuevos en `test_animation`, `test_animation_export` y `test_project_panel`;
   **446 tests** en verde.
 
@@ -396,8 +397,9 @@ Resultados y decisiones completas en [36 — Color y tamaño de textos](36-color
   mantiene mezclando `drawtext` y overlays.
 - **UI**: claves **Color** y **Tamaño** en el inspector (contador, «Quitar»), con el valor actual
   de los campos en el playhead local.
-- **Límite**: sin color animado en elementos/clips; interpolación lineal sin easing; el corte
-  rápido sigue bloqueado por `Project.texts`.
+- **Límite**: sin color animado en elementos/clips; el easing de los canales de `Animation`
+  llegó en B26 y el color sigue interpolándose linealmente; el corte rápido sigue bloqueado por
+  `Project.texts`.
 - Tests nuevos en `test_text_color_size`; **498 tests** en verde.
 
 ### B24 - Edición de claves de envolvente en el timeline (✅ · M)
@@ -418,6 +420,23 @@ Resultados y decisiones completas en [37 — Edición de claves](37-editor-clave
   copiar/pegar claves ni grabación automática.
 - Tests nuevos en `test_envelope_handles`; **496 tests** en verde.
 - Tras integrar ambas ramas: **505 tests** en verde.
+
+### B26 - Easing de las claves de animación (✅ · S)
+
+Resultados y decisiones completas en [39 — Easing](39-easing.md).
+
+- **Modelo v13**: `Keyframe.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) con
+  migración v12 → v13 sin cambios visibles; el easing de cada tramo es el de su clave izquierda.
+- **Curvas**: cúbicas puras (`k³`, `1-(1-k)³` y la in-out por tramos) en `core.animation.ease`;
+  `value_at` y `expr` comparten la fórmula. La rama `linear` mantiene las cadenas históricas.
+- **Preview/export**: los canales horneados (escala/rotación/tamaño) también aplican la curva
+  porque leen `value_at`; X/Y/opacidad usan la expresión de FFmpeg por frame.
+- **UI**: selector **Easing** en la sección Animación del inspector (no persistido); decide el
+  easing de las nuevas claves y volver a grabar en el mismo instante lo actualiza. El desplegable
+  no rompe las keys existentes.
+- **Límite**: solo `Animation`; las envolventes de audio (`VolumePoint`) y el color animado de
+  textos siguen lineales. No hay editor de curvas Bézier ni asas de animación en el timeline.
+- Tests nuevos en `test_easing`; **512 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

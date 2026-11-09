@@ -27,7 +27,7 @@ from . import audio_envelope as env
 from . import text_color as tc
 from .errors import ProjectError
 
-SCHEMA_VERSION = 12  # v12: color animado de textos (docs/36)
+SCHEMA_VERSION = 13  # v13: easing de las claves de animación (docs/39)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -601,7 +601,10 @@ def to_dict(project: Project) -> dict[str, Any]:
     def animation_dict(a: anim.Animation) -> dict[str, Any]:
         return {
             "channel": a.channel,
-            "points": [{"t": point.t, "value": point.value} for point in a.points],
+            "points": [
+                {"t": point.t, "value": point.value, "easing": point.easing}
+                for point in a.points
+            ],
         }
 
     def track_dict(t: Track) -> dict[str, Any]:
@@ -698,7 +701,11 @@ def from_dict(data: dict[str, Any]) -> Project:
             return anim.Animation(
                 channel=str(a["channel"]),
                 points=tuple(
-                    anim.Keyframe(t=float(p["t"]), value=float(p["value"]))
+                    anim.Keyframe(
+                        t=float(p["t"]),
+                        value=float(p["value"]),
+                        easing=str(p.get("easing", "linear")),  # type: ignore[arg-type]
+                    )
                     for p in a.get("points", ())
                 ),
             )

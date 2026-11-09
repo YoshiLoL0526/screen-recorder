@@ -125,7 +125,7 @@ def test_color_keys_round_trip_y_migracion_v11_a_v12(tmp_path: Path) -> None:
         video=Track("video", (Clip("c1", "a", 0.0, 4.0),)),
         texts=(overlay,), width=WIDTH, height=HEIGHT, fps=30,
     ).validate()
-    assert SCHEMA_VERSION == 12
+    assert SCHEMA_VERSION == 13
     data = json.loads(json.dumps(to_dict(project)))
     assert data["texts"][0]["color_keys"] == [
         {"t": 0.0, "color": RED},
@@ -138,7 +138,7 @@ def test_color_keys_round_trip_y_migracion_v11_a_v12(tmp_path: Path) -> None:
     old["schema_version"] = 11
     old["texts"][0].pop("color_keys")
     migrated, read_only = store.migrate(old)
-    assert read_only is False and migrated["schema_version"] == 12
+    assert read_only is False and migrated["schema_version"] == SCHEMA_VERSION
     restored = from_dict(migrated)
     assert restored.texts[0].color_keys == ()
     assert restored.texts[0].color == "#123456"

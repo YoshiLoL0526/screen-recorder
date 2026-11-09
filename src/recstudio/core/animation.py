@@ -17,14 +17,25 @@ un multiplicador de 0.05 a 4.0, `rotation` son grados horarios absolutos de -360
 es el tamaño de fuente base del texto, de 8 a 200 (el mismo rango que `TEXT_SIZE_MIN/MAX`; se
 repite aquí para que el core no dependa de `project`). Las curvas se acotan en los extremos
 (antes del primer punto vale el primero; después del último, el último), igual que `value_at`.
+
+Cada clave tiene un **easing** (`linear`, `ease_in`, `ease_out` o `ease_in_out`) que se aplica al
+tramo que **sale** de ella (docs/39). La última clave no tiene tramo saliente, así que su easing no
+afecta a la curva; se conserva para que volver a grabar el mismo instante no pierda el ajuste.
+`value_at` y `expr` comparten `ease`: la curva del preview y la expresión de FFmpeg son la misma
+función, y `linear` mantiene la expresión histórica byte a byte.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Literal
 
 from .errors import ProjectError
+
+Easing = Literal["linear", "ease_in", "ease_out", "ease_in_out"]
+#: Curvas disponibles; el valor se valida en `Keyframe` y en `ease`.
+EASING_KINDS: tuple[Easing, ...] = ("linear", "ease_in", "ease_out", "ease_in_out")
 
 #: Rango válido de cada canal. `scale` es un multiplicador sobre la caja del elemento o el tamaño
 #: del texto (1 = base); `rotation` son grados horarios absolutos (en el texto no hay base: 0° es
@@ -68,16 +79,67 @@ def _num(value: float) -> str:
     return "0" if text in ("-0", "") else text
 
 
+def validate_easing(kind: str) -> None:
+    """`ProjectError` si `kind` no es una curva de `EASING_KINDS`."""
+    if kind not in EASING_KINDS:
+        raise ProjectError(f"easing desconocido ({kind!r})")
+
+
+def ease(k: float, kind: Easing = "linear") -> float:
+    """Curva de interpolación normalizada (`k` 0…1), compartida por preview y export.
+
+    - `linear`: `k`.
+    - `ease_in`: cúbica de entrada, `k³` (arranca despacio y acelera).
+    - `ease_out`: cúbica de salida, `1-(1-k)³` (arranca rápido y frena).
+    - `ease_in_out`: cúbica clásica por tramos; `4k³` hasta 0.5 y `1-(2-2k)³/2` después
+      (despacio → rápido → despacio). En el punto medio vale 0.5, igual que la lineal.
+
+    `k` se acota a 0…1; fuera de ese rango no se extrapola. La misma fórmula se escribe como
+    multiplicaciones en `Animation.expr` para que FFmpeg evalúe exactamente la misma curva.
+    """
+    validate_easing(kind)
+    k = min(1.0, max(0.0, float(k)))
+    if kind == "linear":
+        return k
+    if kind == "ease_in":
+        return k * k * k
+    if kind == "ease_out":
+        inverse = 1.0 - k
+        return 1.0 - inverse * inverse * inverse
+    if k < 0.5:
+        return 4.0 * k * k * k
+    inverse = 2.0 - 2.0 * k
+    return 1.0 - inverse * inverse * inverse / 2.0
+
+
+def _curve_expr(k: str, kind: Easing) -> str:
+    """`ease(k, kind)` como expresión FFmpeg; `k` ya viene entre paréntesis."""
+    if kind == "linear":
+        return k
+    if kind == "ease_in":
+        return f"{k}*{k}*{k}"
+    if kind == "ease_out":
+        inverse = f"(1-{k})"
+        return f"(1-{inverse}*{inverse}*{inverse})"
+    inverse = f"(2-2*{k})"
+    return (
+        f"if(lt({k},0.5),(4*{k}*{k}*{k}),"
+        f"(1-{inverse}*{inverse}*{inverse}/2))"
+    )
+
+
 @dataclass(frozen=True)
 class Keyframe:
     t: float  # segundos locales (0 = inicio del elemento/texto)
     value: float
+    easing: Easing = "linear"  # curva del tramo que sale de esta clave (docs/39)
 
     def __post_init__(self) -> None:
         if not math.isfinite(float(self.t)) or self.t < 0:
             raise ProjectError(f"clave de animación: tiempo inválido ({self.t})")
         if not math.isfinite(float(self.value)):
             raise ProjectError(f"clave de animación: valor inválido ({self.value})")
+        validate_easing(self.easing)
 
 
 @dataclass(frozen=True)
@@ -109,12 +171,17 @@ class Animation:
                 span = b.t - a.t
                 if span <= 1e-9:
                     return b.value
-                k = (t - a.t) / span
+                k = ease((t - a.t) / span, a.easing)
                 return a.value + (b.value - a.value) * k
         return default
 
     def expr(self, start: float, default: float) -> str:
-        """Expresión FFmpeg en `t` global (la clave local 0 equivale a `start`)."""
+        """Expresión FFmpeg en `t` global (la clave local 0 equivale a `start`).
+
+        Cada tramo usa el easing de su clave izquierda. La rama lineal es exactamente la
+        expresión histórica (`a+(b-a)*(t-X)/S`); las curvas se escriben con multiplicaciones para
+        no depender de `pow` y para que FFmpeg evalúe la misma fórmula que `ease`.
+        """
         points = self.points
         if len(points) == 1:
             return _num(points[0].value)
@@ -123,10 +190,16 @@ class Animation:
             span = b.t - a.t
             if span <= 1e-9:
                 continue
-            segment = (
-                f"({_num(a.value)}+({_num(b.value)}-{_num(a.value)})"
-                f"*(t-{_num(start + a.t)})/{_num(span)})"
-            )
+            k = f"(t-{_num(start + a.t)})/{_num(span)}"
+            if a.easing == "linear":
+                segment = (
+                    f"({_num(a.value)}+({_num(b.value)}-{_num(a.value)})*{k})"
+                )
+            else:
+                curve = _curve_expr(f"({k})", a.easing)
+                segment = (
+                    f"({_num(a.value)}+({_num(b.value)}-{_num(a.value)})*{curve})"
+                )
             expression = f"if(lt(t,{_num(start + b.t)}),{segment},{expression})"
         return f"if(lt(t,{_num(start + points[0].t)}),{_num(points[0].value)},{expression})"
 
@@ -157,11 +230,17 @@ def is_animated(animations: tuple[Animation, ...], channel: str | None = None) -
 
 def set_keyframe(
     animations: tuple[Animation, ...], channel: str, t: float, value: float,
+    easing: Easing = "linear",
 ) -> tuple[Animation, ...]:
-    """Añade/actualiza una clave en `t` (local) y devuelve la tupla ordenada por canal."""
+    """Añade/actualiza una clave en `t` (local) y devuelve la tupla ordenada por canal.
+
+    Volver a grabar en el mismo instante **sustituye** la clave, incluido su `easing` (el
+    inspector pasa el valor elegido en el selector).
+    """
     if channel not in CHANNELS:
         raise ProjectError(f"canal de animación desconocido ({channel!r})")
-    point = Keyframe(round(float(t), 4), round(float(value), 4))
+    validate_easing(easing)
+    point = Keyframe(round(float(t), 4), round(float(value), 4), easing)
     current = find(animations, channel)
     points = list(current.points) if current is not None else []
     points = [old for old in points if abs(old.t - point.t) > 1e-9]
@@ -193,18 +272,22 @@ __all__ = [
     "Animation",
     "CHANNELS",
     "CHANNEL_RANGES",
+    "EASING_KINDS",
     "ELEMENT_CHANNELS",
+    "Easing",
     "Keyframe",
     "TEXT_BAKE_CHANNELS",
     "TEXT_CHANNELS",
     "TRANSFORM_CHANNELS",
     "channel_range",
     "clear_channel",
+    "ease",
     "expr",
     "find",
     "is_animated",
     "set_keyframe",
     "validate",
+    "validate_easing",
     "validate_value",
     "value_at",
 ]

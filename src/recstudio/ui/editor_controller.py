@@ -1895,7 +1895,9 @@ class EditorController:
             value = float(state.insp_el_rotation())
         else:
             value = float(getattr(element, channel))
-        animations = anim.set_keyframe(element.animations, channel, local, value)
+        animations = anim.set_keyframe(
+            element.animations, channel, local, value, easing=state.insp_easing(),
+        )
         try:
             project = element_mod.update_element(self.project, element.id, animations=animations)
         except ProjectError as exc:
@@ -1936,7 +1938,9 @@ class EditorController:
             value = float(state.insp_text_size())
         else:
             value = float(getattr(overlay, channel))
-        animations = anim.set_keyframe(overlay.animations, channel, local, value)
+        animations = anim.set_keyframe(
+            overlay.animations, channel, local, value, easing=state.insp_easing(),
+        )
         try:
             project = tl.update_text(self.project, overlay.id, animations=animations)
         except ProjectError as exc:

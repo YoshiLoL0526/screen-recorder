@@ -18,7 +18,8 @@
 - Grabar una clave en el playhead con el valor de los campos **Escala** o **Rotación** del
   inspector, y borrar el canal con **Quitar**.
 - El preview y el export usan el **mismo rasterizado** (PIL) para el texto transformado; la
-  interpolación es lineal y se acota a la primera/última clave.
+  interpolación usa el easing de la clave izquierda (por defecto lineal, [docs/39](39-easing.md))
+  y se acota a la primera/última clave.
 
 ## Modelo (`SCHEMA_VERSION = 10`)
 
@@ -113,8 +114,8 @@ Consecuencias:
   animados se añadieron en [docs/36](36-color-tamano-textos.md).
 - El tamaño de fuente efectivo se acota a 8 px, como el texto estático (`_font`), así que una
   clave de escala `0.05` sobre un texto pequeño puede no reducirse más.
-- Interpolación lineal, sin easing; las claves son explícitas y no se graban al mover el
-  playhead.
+- Interpolación con easing por clave ([docs/39](39-easing.md)); las claves son explícitas y no se
+  graban al mover el playhead.
 - El bake es CPU (PIL) y se hace una vez por texto y export; un subtítulo largo con muchas
   claves tarda más en la fase de preparación. El `.mov` sin pérdidas puede ser grande, pero se
   borra con el temporal.
