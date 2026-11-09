@@ -89,7 +89,7 @@ def test_wrap_width_serializa_y_migra_v14_a_v15() -> None:
         "t1", "Hola mundo", 0.5, 3.0, size=44, wrap_width=0.45,
     )
     project = _project_with_text(overlay)
-    assert SCHEMA_VERSION == 15
+    assert SCHEMA_VERSION == 16
     data = json.loads(json.dumps(to_dict(project)))
     assert data["texts"][0]["wrap_width"] == 0.45
     assert from_dict(data) == project
@@ -99,7 +99,7 @@ def test_wrap_width_serializa_y_migra_v14_a_v15() -> None:
     old["schema_version"] = 14
     old["texts"][0].pop("wrap_width")
     migrated, read_only = store.migrate(old)
-    assert read_only is False and migrated["schema_version"] == 15
+    assert read_only is False and migrated["schema_version"] == 16
     assert from_dict(migrated).texts[0].wrap_width == 0.0
 
 

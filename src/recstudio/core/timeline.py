@@ -18,6 +18,7 @@ from dataclasses import dataclass, replace
 
 from . import animation as anim
 from . import audio_envelope as env
+from . import background
 from . import text_color as tc
 from .errors import ProjectError
 from .project import (
@@ -154,6 +155,38 @@ def set_project_background(p: Project, color: str) -> Project:
         text = "#" + text
     hex_to_rgb(text)
     return p if p.background == text else replace(p, background=text)
+
+
+def set_project_background_mode(p: Project, mode: str) -> Project:
+    """Modo del fondo (`color`/`blur`/`image`); no toca el color ni la imagen elegidos."""
+    text = background.validate_mode(mode)
+    return p if p.background_mode == text else replace(p, background_mode=text)
+
+
+def set_project_background_blur(p: Project, value: int | float) -> Project:
+    """Intensidad del blur (0…100, en píxeles del proyecto)."""
+    number = background.validate_blur(value)
+    return p if p.background_blur == number else replace(p, background_blur=number)
+
+
+def set_project_background_image(p: Project, asset_id: str | None) -> Project:
+    """Imagen del fondo; exige un asset de imagen del proyecto (o `None` para quitarla)."""
+    if asset_id is None:
+        if p.background_asset is None:
+            return p
+        return replace(p, background_asset=None)
+    asset = p.asset(str(asset_id))
+    if asset.kind != "image":
+        raise ProjectError("el fondo solo admite un asset de imagen")
+    text = str(asset_id)
+    return p if p.background_asset == text else replace(p, background_asset=text)
+
+
+def clear_project_background_image(p: Project) -> Project:
+    """Quita la imagen del fondo y vuelve al modo color (un solo undo)."""
+    if p.background_asset is None and p.background_mode == "color":
+        return p
+    return replace(p, background_asset=None, background_mode="color")
 
 
 def set_transform(p: Project, clip_id: str, **changes) -> Project:  # noqa: ANN003
@@ -1201,6 +1234,7 @@ def remove_asset(p: Project, asset_id: str) -> Project:
     p.asset(asset_id)  # valida que existe
     used = any(clip.asset_id == asset_id for track in (p.video, *p.audio) for clip in track.clips)
     used = used or any(element.asset_id == asset_id for element in p.elements)
+    used = used or p.background_asset == asset_id
     if used:
         raise ProjectError("el medio todavía se usa en el proyecto")
     return replace(p, assets=tuple(asset for asset in p.assets if asset.id != asset_id))

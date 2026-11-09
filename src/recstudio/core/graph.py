@@ -28,6 +28,7 @@ from pathlib import Path
 
 from . import animation as anim
 from . import audio_envelope as env
+from . import background
 from . import effects as fx
 from . import elements as el
 from . import global_effects
@@ -406,51 +407,22 @@ def resolve_encoder(preset: ExportPreset, available: dict[str, bool]) -> str:
 # -- cadenas por clip ----------------------------------------------------------------
 
 
-def _video_chain(project: Project, clip: Clip, frames: int, size: tuple[int, int]) -> list[str]:
+def _setpts(clip: Clip) -> str:
+    return f"setpts=(PTS-STARTPTS)/{num(clip.speed)}" if clip.speed != 1.0 else "setpts=PTS-STARTPTS"
+
+
+def _eq_step(clip: Clip) -> str | None:
+    eq = fx.eq(clip)
+    if eq is None:
+        return None
+    return (f"eq=brightness={num(eq['brightness'])}:contrast={num(eq['contrast'])}"
+            f":saturation={num(eq['saturation'])}")
+
+
+def _clip_finish(project: Project, clip: Clip, frames: int) -> list[str]:
+    """Cola común: fps, duración entera de frames, fundidos y formato de salida."""
     fps = project.fps
-    w, h = size
-    steps = [f"setpts=(PTS-STARTPTS)/{num(clip.speed)}" if clip.speed != 1.0 else "setpts=PTS-STARTPTS"]
-    custom = tx.needs_custom_render(project, clip)
-    if custom:
-        lay = tx.layout(project, clip, size)
-        # La auto-rotación del asset la aplica FFmpeg al abrir la entrada (display matrix); PyAV
-        # no la aplica y el preview la hace explícita. No se añade `transpose` por asset: si se
-        # desactiva la auto-rotación, FFmpeg copia la display matrix al MP4 y el reproductor
-        # volvería a girarlo (doble rotación). Ver docs/20.
-        steps += tx.rotation_filters(lay.rotation, clockwise=True)
-        if lay.flip_h:
-            steps.append("hflip")
-        if lay.flip_v:
-            steps.append("vflip")
-        if lay.crop != tx.FULL_CROP:
-            steps.append(
-                f"crop=w={lay.crop_width}:h={lay.crop_height}:x={lay.crop_x}:y={lay.crop_y}"
-            )
-        factor, cx, cy = fx.zoom(clip)
-        if factor > 1.0 + 1e-6:
-            steps.append(
-                f"crop=w=iw/{num(factor)}:h=ih/{num(factor)}:x=(iw-ow)*{num(cx)}:y=(ih-oh)*{num(cy)}"
-            )
-        steps.append(f"scale={lay.out_width}:{lay.out_height}")
-        steps += tx.compose_filters(lay)
-        eq = fx.eq(clip)  # después de la composición (el fondo no se recorta)
-        if eq is not None:
-            steps.append(f"eq=brightness={num(eq['brightness'])}:contrast={num(eq['contrast'])}"
-                         f":saturation={num(eq['saturation'])}")
-    else:
-        # Cadena histórica de F4: se conserva byte a byte para los golden y el corte rápido.
-        factor, cx, cy = fx.zoom(clip)
-        if factor > 1.0 + 1e-6:
-            steps.append(f"crop=w=iw/{num(factor)}:h=ih/{num(factor)}:x=(iw-ow)*{num(cx)}:y=(ih-oh)*{num(cy)}")
-        eq = fx.eq(clip)
-        if eq is not None:
-            steps.append(f"eq=brightness={num(eq['brightness'])}:contrast={num(eq['contrast'])}"
-                         f":saturation={num(eq['saturation'])}")
-        steps += [
-            f"scale={w}:{h}:force_original_aspect_ratio=decrease",
-            f"pad={w}:{h}:-1:-1:color=black",
-        ]
-    steps += [
+    steps = [
         f"fps={fps}",
         f"tpad=stop_mode=clone:stop={int(fps * _PAD_FRAMES_S)}",
         f"trim=end_frame={frames}",
@@ -463,6 +435,129 @@ def _video_chain(project: Project, clip: Clip, frames: int, size: tuple[int, int
         steps.append(f"fade=t=out:st={num(duration - fout)}:d={num(fout)}")
     steps += ["format=yuv420p", "setsar=1"]
     return steps
+
+
+def _custom_steps(project: Project, clip: Clip, size: tuple[int, int]) -> tuple[list[str], tx.Layout]:
+    """Pasos de la cadena nueva desde el `setpts` hasta el `scale` del clip (sin componer)."""
+    steps = [_setpts(clip)]
+    lay = tx.layout(project, clip, size)
+    # La auto-rotación del asset la aplica FFmpeg al abrir la entrada (display matrix); PyAV
+    # no la aplica y el preview la hace explícita. No se añade `transpose` por asset: si se
+    # desactiva la auto-rotación, FFmpeg copia la display matrix al MP4 y el reproductor
+    # volvería a girarlo (doble rotación). Ver docs/20.
+    steps += tx.rotation_filters(lay.rotation, clockwise=True)
+    if lay.flip_h:
+        steps.append("hflip")
+    if lay.flip_v:
+        steps.append("vflip")
+    if lay.crop != tx.FULL_CROP:
+        steps.append(f"crop=w={lay.crop_width}:h={lay.crop_height}:x={lay.crop_x}:y={lay.crop_y}")
+    factor, cx, cy = fx.zoom(clip)
+    if factor > 1.0 + 1e-6:
+        steps.append(
+            f"crop=w=iw/{num(factor)}:h=ih/{num(factor)}:x=(iw-ow)*{num(cx)}:y=(ih-oh)*{num(cy)}"
+        )
+    steps.append(f"scale={lay.out_width}:{lay.out_height}")
+    return steps, lay
+
+
+def _video_chain(project: Project, clip: Clip, frames: int, size: tuple[int, int]) -> list[str]:
+    w, h = size
+    custom = tx.needs_custom_render(project, clip)
+    if custom:
+        steps, lay = _custom_steps(project, clip, size)
+        steps += tx.compose_filters(lay)
+        eq = _eq_step(clip)  # después de la composición (el fondo no se recorta)
+        if eq is not None:
+            steps.append(eq)
+        steps += _clip_finish(project, clip, frames)
+        return steps
+    # Cadena histórica de F4: se conserva byte a byte para los golden y el corte rápido.
+    steps = [_setpts(clip)]
+    factor, cx, cy = fx.zoom(clip)
+    if factor > 1.0 + 1e-6:
+        steps.append(f"crop=w=iw/{num(factor)}:h=ih/{num(factor)}:x=(iw-ow)*{num(cx)}:y=(ih-oh)*{num(cy)}")
+    eq = _eq_step(clip)
+    if eq is not None:
+        steps.append(eq)
+    steps += [
+        f"scale={w}:{h}:force_original_aspect_ratio=decrease",
+        f"pad={w}:{h}:-1:-1:color=black",
+        *_clip_finish(project, clip, frames),
+    ]
+    return steps
+
+
+def _blur_background(project: Project, source: str, out: str, size: tuple[int, int]) -> str:
+    """Copia de V1 escalada a cover, recortada al lienzo y desenfocada (fondo blur)."""
+    w, h = size
+    radius = int(round(background.blur_radius(project, h)))
+    step = ""
+    if radius >= 1:
+        radius = min(radius, max(1, min(w, h) // 2 - 1))
+        step = f",boxblur=luma_radius={radius}:luma_power=2"
+    return (
+        f"[{source}]scale={w}:{h}:force_original_aspect_ratio=increase,"
+        f"crop={w}:{h}{step}[{out}]"
+    )
+
+
+def _background_clip_chains(
+    project: Project,
+    clip: Clip,
+    frames: int,
+    size: tuple[int, int],
+    source: int,
+    out_label: str,
+    *,
+    image_label: str | None,
+) -> list[str]:
+    """Cadenas de un clip con el fondo blur/imagen y el clip normal encima.
+
+    Blur: `split` del clip, copia a cover + `boxblur` de fondo y `overlay` del clip encima.
+    Imagen: la imagen ya preparada (`image_label`) de fondo y el clip encima. El `overlay`
+    sustituye al `pad`/`crop` histórico; el resto de la cola (eq, fps, frames, fundidos y
+    formato) es la misma.
+    """
+    steps, lay = _custom_steps(project, clip, size)
+    tail = _clip_finish(project, clip, frames)
+    eq = _eq_step(clip)  # después de componer el fondo y el clip
+    if eq is not None:
+        tail.insert(0, eq)
+    if image_label is None:
+        background_label = f"bg{source}"
+        foreground = f"fg{source}"
+        chains = [
+            f"[{source}:v]{','.join(steps)},split=2[bs{source}][{foreground}]",
+            _blur_background(project, f"bs{source}", background_label, size),
+        ]
+    else:
+        background_label = image_label
+        foreground = f"fg{source}"
+        chains = [f"[{source}:v]{','.join(steps)}[{foreground}]"]
+    chains.append(
+        f"[{background_label}][{foreground}]overlay=x={lay.x}:y={lay.y}:format=auto"
+        f":shortest=1,{','.join(tail)}[{out_label}]"
+    )
+    return chains
+
+
+def _image_background_chains(
+    project: Project, size: tuple[int, int], count: int, input_index: int
+) -> list[str]:
+    """Prepara la imagen de fondo una vez y la reparte a los `count` clips (`split`)."""
+    w, h = size
+    steps = [
+        f"scale={w}:{h}:force_original_aspect_ratio=increase",
+        f"crop={w}:{h}",
+        "setsar=1",
+        f"fps={project.fps}",
+        "setpts=PTS-STARTPTS",
+    ]
+    if count == 1:
+        return [f"[{input_index}:v]{','.join(steps)}[bg0]"]
+    labels = "".join(f"[bg{index}]" for index in range(count))
+    return [f"[{input_index}:v]{','.join(steps)},split={count}{labels}"]
 
 
 def _audio_steps(clip: Clip, *, skip: float, duration: float, gain: float,
@@ -993,10 +1088,35 @@ def build(
     n = len(track.clips)
 
     # -- video: una entrada por clip ------------------------------------------------
-    for k, clip in enumerate(track.clips):
+    for clip in track.clips:
         asset = by_id[clip.asset_id]
         inputs += ["-ss", num(clip.in_), "-t", num(clip.source_duration + _INPUT_SLACK), "-i", asset.path]
-        chains.append(f"[{k}:v]{','.join(_video_chain(project, clip, frames[k], size))}[v{k}]")
+
+    # -- fondo del lienzo (v16, docs/47): antes de la composición de V1 ------------------
+    background_mode = background.effective_mode(project)
+    background_asset = background.image_asset(project) if background_mode == "image" else None
+    background_input: int | None = None
+    if background_asset is not None:
+        # Una sola entrada de imagen, repetida con `-loop 1` durante todo el timeline y
+        # repartida por `split` entre los clips (cada uno la usa como fondo). Va después de
+        # los clips para no cambiar sus índices de entrada.
+        background_input = n  # los clips ocupan las entradas 0…n−1
+        inputs += [
+            "-loop", "1", "-framerate", str(fps),
+            "-t", num(total_frames / fps + _PAD_FRAMES_S),
+            "-i", background_asset.path,
+        ]
+        chains += _image_background_chains(project, size, n, background_input)
+
+    for k, clip in enumerate(track.clips):
+        if background_mode == "blur":
+            chains += _background_clip_chains(project, clip, frames[k], size, k, f"v{k}",
+                                              image_label=None)
+        elif background_mode == "image":
+            chains += _background_clip_chains(project, clip, frames[k], size, k, f"v{k}",
+                                              image_label=f"bg{k}")
+        else:
+            chains.append(f"[{k}:v]{','.join(_video_chain(project, clip, frames[k], size))}[v{k}]")
 
     # composición: cortes consecutivos → un `concat`; transiciones → `xfade` por parejas
     pending: list[str] = ["v0"]  # bloque en curso (se une con `concat`)

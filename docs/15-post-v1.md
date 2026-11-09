@@ -20,7 +20,8 @@
 > ([41](41-copiar-pegar-claves.md)), el **modo para añadir claves desde el timeline**
 > ([42](42-claves-desde-timeline.md)), el **recorte interactivo en el preview**
 > ([43](43-crop-interactivo.md)), el **export personalizado** ([44](44-export-personalizado.md))
-> y el **texto multilínea con ancho máximo** ([45](45-texto-multilinea.md)).
+> y el **texto multilínea con ancho máximo** ([45](45-texto-multilinea.md)), más el **fondo del
+> lienzo** con blur o imagen ([47](47-fondo-lienzo.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -584,6 +585,30 @@ Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multili
 - Tests nuevos en `test_text_multiline`; **555 tests** en verde en su rama.
 - Tras integrar texto y export: **565 tests** en verde.
 - Tras integrar las tres ramas: **579 tests** en verde.
+
+### B34 - Fondo del lienzo: blur e imagen (✅ · M)
+
+Resultados y decisiones completas en [47 — Fondo del lienzo](47-fondo-lienzo.md).
+
+- **Modelo v16**: `Project.background_mode` (`color`/`blur`/`image`), `background_blur`
+  (entero 0…100, px del proyecto) y `background_asset` (id de una imagen del proyecto).
+  Serialización, `from_dict` con defaults y migración v15 → v16 no-op. Un asset ausente o que no
+  sea imagen cae a color sin romper la carga.
+- **Preview**: el fondo de color se mantiene; el blur rellena las barras con una copia del frame
+  de V1 escalada a cover y desenfocada con PIL (`GaussianBlur`); la imagen se endereza con EXIF,
+  se escala a cover y se cachea. El clip normal se dibuja encima con su fit/transform.
+- **Export**: `split` del clip + `scale`/`crop` a cover + `boxblur` + `overlay` para blur; una
+  entrada `-loop 1` de imagen (después de los clips) + `split` + `overlay` para imagen. El fondo
+  va antes de V1; V2/V3, efectos globales, elementos y textos conservan su orden. Sin fondo
+  especial el graph es byte a byte el histórico.
+- **Corte rápido**: bloqueado por `core/transform.needs_custom_render` y
+  `core/keyframes.blockers` cuando el fondo efectivo no es color.
+- **UI**: selector **Fondo**, intensidad de blur y **Elegir imagen…/Quitar** en la sección
+  Proyecto; diálogo nativo desde el hilo de UI, avisos si falta la imagen y un solo undo por
+  cambio.
+- **Verificación**: `tests/test_background.py` (13) con modelo, migración, preview sintético,
+  export real color/blur/imagen, transición con blur sin negros y UI con `pilot`. **592 tests**
+  en verde en la rama.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

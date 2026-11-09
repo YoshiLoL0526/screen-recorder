@@ -20,6 +20,7 @@ from pathlib import Path
 from .. import state
 from ..core import animation as anim
 from ..core import audio_envelope as env
+from ..core import background as background_ops
 from ..core import canvas_edit as ce
 from ..core import crop_edit
 from ..core import effects as fx
@@ -208,6 +209,8 @@ class EditorController:
         state.proj_canvas.subscribe(live(self._on_proj_canvas))
         state.proj_fit.subscribe(live(self._on_proj_fit))
         state.proj_background.subscribe(live(self._on_proj_background))
+        state.proj_bg_mode.subscribe(live(self._on_proj_bg_mode))
+        state.proj_bg_blur.subscribe(live(self._on_proj_bg_blur))
         for signal, field, _label in TRANSFORM_FIELDS:
             signal.subscribe(live(lambda value, f=field: self._on_insp_transform(f, value)))
         for signal, kind, name, _neutral, label in EFFECT_FIELDS:
@@ -369,6 +372,8 @@ class EditorController:
         state.proj_fit.set(project.default_fit)
         state.proj_background.set(project.background)
         state.proj_bg_hex.set(project.background)
+        state.proj_bg_mode.set(project.background_mode)
+        state.proj_bg_blur.set(project.background_blur)
         eq = global_effects.color_eq(project) or fx.EQ_DEFAULTS
         state.glob_brightness.set(eq["brightness"])
         state.glob_contrast.set(eq["contrast"])
@@ -488,6 +493,21 @@ class EditorController:
     def _on_proj_background(self, color: str) -> None:
         if state.project_open() and str(color) != self.project.background:
             self.set_project_background(str(color))
+
+    def _on_proj_bg_mode(self, mode: str) -> None:
+        if state.project_open() and str(mode) != self.project.background_mode:
+            self.set_project_background_mode(str(mode))
+
+    def _on_proj_bg_blur(self, value) -> None:  # noqa: ANN001
+        if not state.project_open():
+            return
+        try:
+            number = background_ops.validate_blur(value)
+        except ProjectError:
+            self._sync_inspector()  # un valor fuera de rango: el control vuelve al real
+            return
+        if number != self.project.background_blur:
+            self.set_project_background_blur(number)
 
     def _on_insp_transform(self, field: str, value) -> None:  # noqa: ANN001
         clip = self.selected_clip()
@@ -1267,6 +1287,80 @@ class EditorController:
             self._sync_inspector()
             return
         self.set_project_background(value)
+
+    def set_project_background_mode(self, mode: str) -> None:
+        try:
+            project = tl.set_project_background_mode(self.project, mode)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        if project == self.project:
+            self._sync_inspector()
+            return
+        self._apply("fondo del lienzo", project)
+        if mode == "image" and background_ops.image_asset(self.project) is None:
+            state.toast("info", "Elige una imagen para el fondo del lienzo")
+
+    def set_project_background_blur(self, value: int | float) -> None:
+        try:
+            project = tl.set_project_background_blur(self.project, value)
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            self._sync_inspector()
+            return
+        if project == self.project:
+            self._sync_inspector()
+            return
+        self._apply("desenfoque del fondo", project)
+
+    def browse_background_image(self) -> None:
+        """Diálogo nativo de imagen para el fondo (se llama desde el hilo de UI)."""
+        from . import file_dialogs
+
+        try:
+            chosen = file_dialogs.open_images(
+                state.recordings_dir(), title="Elegir imagen de fondo",
+            )
+        except Exception as exc:  # diálogo nativo: cualquier fallo acaba en un toast
+            state.toast("danger", f"No se pudo abrir el diálogo: {exc}")
+            return
+        if chosen:
+            self.import_background_image(chosen[0])
+
+    def import_background_image(self, path: Path) -> None:
+        """Sonda la imagen en un hilo, la añade a los assets y la pone de fondo."""
+        if not self._guard_editable():
+            return
+
+        def worker() -> None:
+            with self._io_lock:
+                try:
+                    probe = media.probe_image(Path(path))
+                except RecStudioError as exc:
+                    state.toast("danger", exc.message)
+                    return
+                project = self.project
+                project, asset = tl.add_asset(project, probe)
+                if asset.kind != "image":
+                    state.toast("warning", "El fondo solo admite una imagen")
+                    return
+                try:
+                    project = tl.set_project_background_image(project, asset.id)
+                    project = tl.set_project_background_mode(project, "image")
+                except ProjectError as exc:
+                    state.toast("warning", exc.message)
+                    return
+                if self._apply("imagen de fondo", project):
+                    state.toast("success", f"Fondo del lienzo: {asset.name}")
+
+        threading.Thread(target=worker, daemon=True, name="background-image").start()
+
+    def clear_background_image(self) -> None:
+        project = tl.clear_project_background_image(self.project)
+        if project == self.project:
+            return
+        self._apply("quitar imagen de fondo", project)
 
     def set_transform(self, **changes) -> None:  # noqa: ANN003
         clip = self.selected_clip()

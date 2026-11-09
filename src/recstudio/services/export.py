@@ -107,6 +107,9 @@ def offline_assets(project: Project) -> list[str]:
     used = {c.asset_id for t in (project.video, *project.audio) for c in t.clips}
     # v6 (docs/25): una imagen de un elemento también es un archivo necesario del proyecto.
     used |= {e.asset_id for e in project.elements if e.asset_id}
+    # v16 (docs/47): la imagen del fondo del lienzo también se abre al exportar.
+    if project.background_asset:
+        used.add(project.background_asset)
     return [a.name for a in project.assets if a.id in used and media.is_offline(a)]
 
 

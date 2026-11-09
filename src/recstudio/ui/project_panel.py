@@ -46,7 +46,8 @@ def _asset_usage(project, asset_id: str) -> int:
         for track in (project.video, *project.audio)
         for clip in track.clips
     )
-    return clips + sum(element.asset_id == asset_id for element in project.elements)
+    elements = sum(element.asset_id == asset_id for element in project.elements)
+    return clips + elements + (1 if project.background_asset == asset_id else 0)
 
 
 def _asset_meta(asset, usage: int) -> str:

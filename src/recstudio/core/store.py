@@ -255,6 +255,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v13_v14(data)
     if version < 15:
         data = _migrate_v14_v15(data)
+    if version < 16:
+        data = _migrate_v15_v16(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -423,6 +425,16 @@ def _migrate_v14_v15(data: dict[str, Any]) -> dict[str, Any]:
 
     Los textos antiguos no tenían `wrap_width`; `from_dict` lo deja en `0.0` (sin límite), así
     que se dibujan en una línea exactamente como antes. No hay nada que reescribir.
+    """
+    return {**data}
+
+
+def _migrate_v15_v16(data: dict[str, Any]) -> dict[str, Any]:
+    """v15 → v16: fondo del lienzo con blur o imagen (docs/47).
+
+    Los proyectos antiguos no tenían `background_mode`, `background_blur` ni
+    `background_asset`; `from_dict` los deja en `"color"`, `24` y `None`, respectivamente, y el
+    render sigue usando solo el color. No hay nada que reescribir.
     """
     return {**data}
 
