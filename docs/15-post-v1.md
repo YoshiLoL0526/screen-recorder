@@ -14,8 +14,9 @@
 > elementos** ([33](33-escala-rotacion.md)), las **envolventes de audio de elementos**
 > ([34](34-envolventes-elementos.md)), la **escala/rotación de textos** ([35](35-textos-escala-rotacion.md)),
 > el **color/tamaño de textos** ([36](36-color-tamano-textos.md)), la **edición de claves de
-> envolvente en el timeline** ([37](37-editor-claves.md)) y las **asas de animaciones visuales**
-> ([38](38-asas-animaciones.md)).
+> envolvente en el timeline** ([37](37-editor-claves.md)), las **asas de animaciones visuales**
+> ([38](38-asas-animaciones.md)) y el **easing de las animaciones y de las envolventes de audio**
+> ([39](39-easing.md) y [40](40-easing-audio.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -455,15 +456,35 @@ Resultados y decisiones completas en [39 — Easing](39-easing.md).
 - **UI**: selector **Easing** en la sección Animación del inspector (no persistido); decide el
   easing de las nuevas claves y volver a grabar en el mismo instante lo actualiza. El desplegable
   no rompe las keys existentes.
-- **Límite**: solo `Animation`; las envolventes de audio (`VolumePoint`) y el color animado de
-  textos siguen lineales. No hay editor de curvas Bézier.
+- **Límite**: en esta entrega solo `Animation`; las envolventes de audio (`VolumePoint`) y el
+  color animado de textos siguen lineales. El easing de las envolventes llegó en B27 y el color
+  sigue interpolándose linealmente. No hay editor de curvas Bézier.
 - Tests nuevos en `test_easing`; **512 tests** en verde.
 - Tras integrar ambas ramas: **520 tests** en verde.
+
+### B27 - Easing de las envolventes de volumen (✅ · S)
+
+Resultados y decisiones completas en [40 — Easing de audio](40-easing-audio.md).
+
+- **Modelo v14**: `VolumePoint.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) en
+  `Clip.envelope` y `Element.envelope`, con migración v13 → v14 sin cambios visibles. El easing
+  de cada tramo es el de su clave izquierda; la última clave no tiene tramo saliente.
+- **Curvas**: `value_at` reutiliza `core.animation.ease` y `expr` las mismas multiplicaciones que
+  `Animation.expr`; la rama `linear` conserva la expresión FFmpeg byte a byte.
+- **Preview/export**: `build_audio` y `volume=…:eval=frame` leen la misma curva; hay una prueba con
+  audio real que muestrea la ganancia en 0.25/0.5/0.75 s frente a la lineal.
+- **UI**: selector **Easing** en las dos secciones de envolvente del inspector (clip y elemento),
+  con `state.insp_env_easing` no persistido. Decide las claves nuevas (también las del modo Env) y
+  volver a grabar en el mismo instante actualiza el easing. Arrastrar un asa lo conserva.
+- **Límite**: no hay control para cambiar el easing de una clave seleccionada sin regrabarla ni
+  copiar/pegar claves. Cortar dentro de un tramo curvo reancla los extremos con `ease`, así que
+  la subcurva no es exactamente la original (sí lo es en cortes lineales o en claves).
+- Tests nuevos en `test_audio_envelope_easing`; **528 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es
 > completar composición/export; subtítulos, keyframes, pistas V2/V3 y las envolventes de audio
-> de clips y elementos ya están hechos.
+> de clips y elementos ya están hechos (con easing desde B27).
 
 ---
 

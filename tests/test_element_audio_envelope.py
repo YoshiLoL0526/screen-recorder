@@ -67,7 +67,8 @@ def test_element_serializa_la_envolvente_y_migra_v10_a_v11() -> None:
     data = to_dict(project)
     assert data["schema_version"] == SCHEMA_VERSION
     assert data["elements"][0]["envelope"] == [
-        {"t": 0.0, "gain": 1.0}, {"t": 0.75, "gain": 0.25},
+        {"t": 0.0, "gain": 1.0, "easing": "linear"},
+        {"t": 0.75, "gain": 0.25, "easing": "linear"},
     ]
     restored = from_dict(data)
     assert restored.elements[0].envelope == points

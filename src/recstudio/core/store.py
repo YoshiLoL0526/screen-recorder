@@ -251,6 +251,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v11_v12(data)
     if version < 13:
         data = _migrate_v12_v13(data)
+    if version < 14:
+        data = _migrate_v13_v14(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -401,6 +403,15 @@ def _migrate_v12_v13(data: dict[str, Any]) -> dict[str, Any]:
 
     Los puntos antiguos no tenían `easing`; `from_dict` los deja en `"linear"`, así que las
     curvas se ven exactamente igual que antes y no hay nada que reescribir.
+    """
+    return {**data}
+
+
+def _migrate_v13_v14(data: dict[str, Any]) -> dict[str, Any]:
+    """v13 → v14: easing de las claves de volumen (docs/40).
+
+    Los puntos de `Clip.envelope` y `Element.envelope` no tenían `easing`; `from_dict` los deja
+    en `"linear"`, así que la curva y el sonido son exactamente los de antes.
     """
     return {**data}
 

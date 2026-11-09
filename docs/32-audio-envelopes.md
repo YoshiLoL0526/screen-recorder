@@ -3,7 +3,8 @@
 > Implementado el **2026-11-05** sobre el editor v9 (docs/27–31). Añade una curva de volumen por
 > clip de audio y por el audio propio de un clip de video, con el preview y el export usando
 > **la misma mezcla** de FFmpeg. Es independiente de los keyframes de posición/opacidad de
-> `core/animation.py`: no comparte modelo ni canales.
+> `core/animation.py`: no comparte modelo ni canales (solo reutiliza `animation.ease` para el
+> easing, [docs/40](40-easing-audio.md)).
 
 ## Qué se puede hacer
 
@@ -12,28 +13,30 @@
   su propia envolvente en `Element.envelope` ([docs/34](34-envolventes-elementos.md)).
 - La clave se graba en el **playhead** con el volumen estático actual del clip; el tiempo es
   **local al clip** (`0` = inicio del clip en el timeline).
-- Repetir en otro instante para crear la curva; preview y export interpolan **linealmente** (el
-  easing de [docs/39](39-easing.md) es solo para animaciones visuales).
+- Repetir en otro instante para crear la curva; preview y export interpolan con la curva elegida
+  en **Easing** ([docs/40](40-easing-audio.md)); sin easing, lineal.
 - **Quitar** la envolvente completa con un clic.
 - El timeline dibuja la polilínea sobre la waveform y marca con **◆ env** la barra del clip.
 - Fuera del clip seleccionado o con el playhead fuera de su intervalo, la UI avisa y no graba.
 
-## Modelo (`SCHEMA_VERSION = 10`)
+## Modelo (`SCHEMA_VERSION = 10` esta fase; hoy 14 con easing, [docs/40](40-easing-audio.md))
 
 ```python
-VolumePoint(t=0.0, gain=1.0)   # t local al clip (s), gain 0…4
+VolumePoint(t=0.0, gain=1.0, easing="linear")   # t local al clip (s), gain 0…4
 Clip(..., envelope=(VolumePoint(0.0, 1.0), VolumePoint(1.0, 0.25)))
 ```
 
 - `points` se ordenan por `t`; no puede haber dos claves en el mismo instante.
 - `gain` va de **0 a `GAIN_MAX` (4.0)**, el mismo límite que `Effect("volume")`. El modelo vive
   en `core/audio_envelope.py` y es puro (sin UI, sin FFmpeg, sin disco).
-- Antes de la primera clave vale la primera; después de la última, la última. Entre claves,
-  interpolación **lineal**.
+- Antes de la primera clave vale la primera; después de la última, la última. Entre claves se
+  usa el easing de la clave **izquierda** (`linear`, `ease_in`, `ease_out` o `ease_in_out`);
+  sin easing especificado, interpolación **lineal** ([docs/40](40-easing-audio.md)).
 - La envolvente **multiplica** el volumen estático del clip (`fx.gain`) y el de su pista; no los
   sustituye. `1.0` deja el sonido como está y `0` lo silencia.
 - Los proyectos v9 se migran a v10 sin cambios (`envelope=()`), así que suenan exactamente
-  igual. `to_dict` escribe `"envelope": [{"t": …, "gain": …}]` y `from_dict` acepta su ausencia.
+  igual. `to_dict` escribe `"envelope": [{"t": …, "gain": …, "easing": …}]` y `from_dict`
+  acepta su ausencia (default `"linear"`). La migración v13 → v14 también es un no-op.
 
 Helpers puros: `value_at`, `expr`, `set_point`, `clear`, `validate` y `slice_envelope` (recorta y
 reancla la curva al dividir, recortar o separar el audio).
@@ -48,7 +51,8 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 ```
 
 - La expresión es la misma que genera `core.audio_envelope.expr`: `if(lt(t,…))` anidados, con
-  ganancias 0…4 y tiempos locales. `volume` la evalúa **por frame** (`eval=frame`).
+  ganancias 0…4 y tiempos locales. `volume` la evalúa **por frame** (`eval=frame`). Cada tramo
+  usa el easing de su clave izquierda; la rama lineal conserva la cadena histórica.
 - El volumen estático (`fx.gain(clip) * track.gain`) se aplica antes, con el `volume=GAIN` de
   siempre; la curva es un multiplicador adicional.
 - **Transiciones de V1**: el tramo audible de un clip entrante empieza tras el solape, así que
@@ -75,6 +79,7 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 ## UI
 
 - **Inspector de clip de video** y **de clip de audio** → sección **Envolvente de volumen**:
+  - selector **Easing** (`insp-env-easing`, no persistido): decide la curva de las claves nuevas;
   - número de claves y **Clave volumen** (`insp-env-key`);
   - **Quitar** (`insp-env-clear`) cuando hay al menos una.
 - El tiempo se calcula con `playhead - inicio del clip` (`tl.clip_starts` para V1 y para la
@@ -99,9 +104,10 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
   de audio.
 - Las claves se pueden **arrastrar, añadir y borrar desde el timeline** ([docs/37](37-editor-claves.md));
   no hay edición de una clave existente desde el inspector más allá de volver a grabarla en el
-  mismo instante.
-- Interpolación lineal, sin curvas Bézier. El easing de [docs/39](39-easing.md) no se aplica a
-  `VolumePoint` (solo a `Animation`). No hay copiar/pegar claves ni modo de grabación automática.
+  mismo instante (lo que también actualiza su easing).
+- Interpolación con cuatro curvas fijas por clave (`linear`, `ease_in`, `ease_out`,
+  `ease_in_out`, [docs/40](40-easing-audio.md)); no hay Bézier libres. No hay copiar/pegar claves
+  ni modo de grabación automática.
 - La curva no cambia el volumen de la pista ni el ducking; solo el del clip.
 - Cambiar la velocidad de un clip no reescala las claves: sus tiempos son locales al timeline
   del clip, así que las que caen más allá de la nueva duración dejan de sonar (y no se dibujan).
@@ -124,7 +130,9 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
   - UI con `pilot`: claves en clip de video y en clip de audio, undo y «Quitar».
 - `tests/test_envelope_handles.py` (7): geometría de las asas y edición directa en el timeline
   (arrastrar, añadir en modo Env, `Supr` y undo/redo); ver [docs/37](37-editor-claves.md).
-- `uv run pytest -q`: **462 passed** en el momento de esta fase (hoy 496 con docs/33–37).
+- `tests/test_audio_envelope_easing.py` (8): curvas, `value_at`/`expr` con easing, migración
+  v13 → v14, audio real y selector del inspector; ver [docs/40](40-easing-audio.md).
+- `uv run pytest -q`: **462 passed** en el momento de esta fase (hoy 528 con docs/33–40).
 - `uv run aurora check main.py`: OK; `uv run aurora tree main.py`: sin avisos de layout.
 
 ## Archivos tocados
@@ -139,5 +147,5 @@ en su cadena de audio cuando `clip.envelope` no está vacío:
 - `src/recstudio/ui/editor_controller.py` (`add_audio_keyframe`, `clear_audio_envelope`).
 - `src/recstudio/ui/screens/editor.py` y `ui/timeline.py` (inspector, polilínea y ◆).
 - `tests/test_audio_envelope.py` y `tests/test_modelo_v6_base.py` (schema 10).
-- `docs/32-audio-envelopes.md`, `docs/15`, `docs/04`, `docs/README.md`, `CHANGELOG.md` y
-  `AGENTS.md`.
+- `docs/32-audio-envelopes.md`, `docs/15`, `docs/04`, `docs/README.md`, `CHANGELOG.md`,
+  `AGENTS.md` y `docs/40-easing-audio.md`.

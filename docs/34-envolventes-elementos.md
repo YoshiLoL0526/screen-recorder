@@ -11,15 +11,16 @@
 - Añadir claves de volumen al **audio de un video superpuesto** (PiP o clip de V2/V3).
 - La clave se graba en el **playhead** con el volumen estático actual del elemento; el tiempo es
   **local al elemento** (`0` = su `start` en el timeline, independientemente de `in_`).
-- Repetir en otro instante para crear la curva; preview y export interpolan linealmente.
+- Repetir en otro instante para crear la curva; preview y export aplican la curva elegida en
+  **Easing** ([docs/40](40-easing-audio.md)); sin easing, lineal.
 - **Quitar** la envolvente completa con un clic.
 - La barra del elemento en el timeline muestra **◆ env** cuando tiene curva.
 - Fuera del intervalo del elemento, la UI avisa y no graba.
 
-## Modelo (`SCHEMA_VERSION = 11`)
+## Modelo (`SCHEMA_VERSION = 11` esta fase; hoy 14 con easing, [docs/40](40-easing-audio.md))
 
 ```python
-VolumePoint(t=0.0, gain=1.0)   # t local al elemento (s), gain 0…4
+VolumePoint(t=0.0, gain=1.0, easing="linear")   # t local al elemento (s), gain 0…4
 Element(
     kind="video",
     asset_id="a-…",
@@ -34,8 +35,9 @@ Element(
   `expr`, `set_point` y `clear`. No hay modelo nuevo ni campos adicionales.
 - Las claves se ordenan por `t`; no puede haber dos en el mismo instante. `gain` va de **0 a
   `GAIN_MAX` (4.0)**, el mismo límite que `Effect("volume")`.
-- Antes de la primera clave vale la primera; después de la última, la última. Entre claves,
-  interpolación **lineal**.
+- Antes de la primera clave vale la primera; después de la última, la última. Entre claves se
+  usa el easing de la clave **izquierda**; sin easing, interpolación **lineal**
+  ([docs/40](40-easing-audio.md)).
 - La envolvente **multiplica** el volumen estático del elemento (`el.audio_gain`, que sale de
   `Element.effects`) y los microfundidos de 30 ms de sus bordes; no lo sustituye. `1.0` deja el
   sonido como está y `0` lo silencia.
@@ -43,7 +45,8 @@ Element(
   lanza `ProjectError`. Un video con `audio_gain=0` sigue siendo silencio (no hay audio que
   mezclar), tenga o no curva.
 - Los proyectos **v10 se migran a v11 sin cambios** (`envelope=()`), así que suenan exactamente
-  igual. `to_dict` escribe `"envelope": [{"t": …, "gain": …}]` y `from_dict` acepta su ausencia.
+  igual. `to_dict` escribe `"envelope": [{"t": …, "gain": …, "easing": …}]` y `from_dict` acepta
+  su ausencia (default `"linear"`). La migración v13 → v14 también es un no-op.
 - `elements.update_element` acepta `"envelope"` y valida el resultado.
 
 ## Export (`core/graph.py`)
@@ -91,6 +94,7 @@ un filtro adicional **después** del volumen estático y **antes** de los microf
 
 - **Inspector del elemento de video con audio** (`asset.has_audio`) → sección **Envolvente de
   volumen**:
+  - selector **Easing** (`insp-el-env-easing`, no persistido): decide la curva de las claves nuevas;
   - número de claves y **Clave volumen** (`insp-el-env-key`);
   - **Quitar** (`insp-el-env-clear`) cuando hay al menos una.
 - El tiempo local es `playhead - element.start`; si el playhead queda fuera del intervalo, se
@@ -136,9 +140,11 @@ un filtro adicional **después** del volumen estático y **antes** de los microf
     barra y «Quitar».
 - `tests/test_envelope_handles.py` (7): asas sobre la barra del elemento (tiempo y ganancia),
   selección con clic, `Supr` y undo/redo; ver [docs/37](37-editor-claves.md).
+- `tests/test_audio_envelope_easing.py` (8): el mismo easing de [docs/40](40-easing-audio.md)
+  aplicado a `Element.envelope`, con UI y audio real.
 - `tests/test_pip_video.py`, `tests/test_video_tracks.py`, `tests/test_audio_envelope.py` y
-  `tests/test_modelo_v6_base.py` siguen en verde con el esquema 11.
-- `uv run pytest -q`: **480 passed** en el momento de esta fase (hoy 496 con docs/33–37).
+  `tests/test_modelo_v6_base.py` siguen en verde con el esquema 14.
+- `uv run pytest -q`: **480 passed** en el momento de esta fase (hoy 528 con docs/33–40).
 - `uv run aurora check main.py`: OK; `uv run aurora tree main.py`: sin avisos de layout.
 
 ## Archivos tocados
@@ -153,5 +159,5 @@ un filtro adicional **después** del volumen estático y **antes** de los microf
 - `src/recstudio/ui/timeline.py` (**◆ env** y tooltip).
 - `tests/test_element_audio_envelope.py`, `tests/test_audio_envelope.py` y
   `tests/test_modelo_v6_base.py`.
-- `docs/34-envolventes-elementos.md`, `docs/15`, `docs/04`, `docs/README.md`, `CHANGELOG.md` y
-  `AGENTS.md`.
+- `docs/34-envolventes-elementos.md`, `docs/15`, `docs/04`, `docs/README.md`, `CHANGELOG.md`,
+  `AGENTS.md` y `docs/40-easing-audio.md`.

@@ -2079,7 +2079,7 @@ class EditorController:
             state.toast("warning", "El playhead está fuera del clip; colócalo dentro")
             return
         local = round(max(0.0, min(clip.duration, local)), 4)
-        points = env.set_point(clip.envelope, local, fx.gain(clip))
+        points = env.set_point(clip.envelope, local, fx.gain(clip), state.insp_env_easing())
         if points == clip.envelope:
             return
         if self._replace_envelope(target, points, "añadir clave de volumen"):
@@ -2101,7 +2101,7 @@ class EditorController:
         if local is None:
             return
         gain = max(0.0, min(element_mod.AUDIO_GAIN_MAX, float(state.insp_el_gain())))
-        points = env.set_point(element.envelope, local, gain)
+        points = env.set_point(element.envelope, local, gain, state.insp_env_easing())
         if points == element.envelope:
             return
         try:
@@ -2249,7 +2249,7 @@ class EditorController:
             element_mod.audio_gain(item) if scope == "element" else fx.gain(item)
         )
         gain = env.value_at(points, local, default=default) if points else default
-        updated = env.set_point(points, local, gain)
+        updated = env.set_point(points, local, gain, state.insp_env_easing())
         if updated == points:  # ya había una clave en ese instante: se selecciona y se arrastra
             found = min(range(len(points)), key=lambda i: abs(points[i].t - round(local, 4)))
             self.begin_envelope_key_drag(scope, item_id, track_index, found, row_height)
@@ -2294,7 +2294,7 @@ class EditorController:
         gain = max(
             0.0, min(env.GAIN_MAX, float(drag["gain"]) - float(dy) / drag["inner_h"] * env.GAIN_MAX)
         )
-        point = env.VolumePoint(round(t, 4), round(gain, 4))
+        point = env.VolumePoint(round(t, 4), round(gain, 4), points[index].easing)
         updated = (*points[:index], point, *points[index + 1:])
         project = self._project_with_envelope(
             drag["project"], drag["scope"], drag["id"], drag["track"], updated

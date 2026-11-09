@@ -27,7 +27,7 @@ from . import audio_envelope as env
 from . import text_color as tc
 from .errors import ProjectError
 
-SCHEMA_VERSION = 13  # v13: easing de las claves de animación (docs/39)
+SCHEMA_VERSION = 14  # v14: easing de las claves de volumen (docs/40)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -595,7 +595,10 @@ def to_dict(project: Project) -> dict[str, Any]:
                 "flip_v": c.transform.flip_v,
                 "crop": list(c.transform.crop),
             },
-            "envelope": [{"t": point.t, "gain": point.gain} for point in c.envelope],
+            "envelope": [
+                {"t": point.t, "gain": point.gain, "easing": point.easing}
+                for point in c.envelope
+            ],
         }
 
     def animation_dict(a: anim.Animation) -> dict[str, Any]:
@@ -661,7 +664,10 @@ def to_dict(project: Project) -> dict[str, Any]:
                 "video_track": e.video_track,
                 "animations": [animation_dict(a) for a in e.animations],
                 "effects": [{"kind": fx.kind, "params": [list(p) for p in fx.params]} for fx in e.effects],
-                "envelope": [{"t": point.t, "gain": point.gain} for point in e.envelope],
+                "envelope": [
+                    {"t": point.t, "gain": point.gain, "easing": point.easing}
+                    for point in e.envelope
+                ],
             }
             for e in project.elements
         ],
@@ -724,7 +730,10 @@ def from_dict(data: dict[str, Any]) -> Project:
                 link_id=None if d.get("link_id") is None else str(d["link_id"]),
                 transform=transform_of(d.get("transform")),
                 envelope=tuple(
-                    env.VolumePoint(t=float(p["t"]), gain=float(p["gain"]))
+                    env.VolumePoint(
+                        t=float(p["t"]), gain=float(p["gain"]),
+                        easing=str(p.get("easing", "linear")),  # type: ignore[arg-type]
+                    )
                     for p in d.get("envelope", ())
                 ),
             )
@@ -798,7 +807,10 @@ def from_dict(data: dict[str, Any]) -> Project:
                     animations=tuple(animation_of(a) for a in e.get("animations", ())),
                     effects=tuple(effect_of(fx) for fx in e.get("effects", ())),
                     envelope=tuple(
-                        env.VolumePoint(t=float(p["t"]), gain=float(p["gain"]))
+                        env.VolumePoint(
+                            t=float(p["t"]), gain=float(p["gain"]),
+                            easing=str(p.get("easing", "linear")),  # type: ignore[arg-type]
+                        )
                         for p in e.get("envelope", ())
                     ),
                 )

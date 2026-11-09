@@ -116,8 +116,8 @@ Animation("x", (
 ## Límites
 
 - **Solo animaciones visuales** (`Element.animations` y `TextOverlay.animations`). Las envolventes
-  de audio (`Clip.envelope`, `Element.envelope`, [docs/32](32-audio-envelopes.md) y
-  [docs/34](34-envolventes-elementos.md)) siguen siendo **lineales**: no se amplió `VolumePoint`.
+  de audio (`Clip.envelope`, `Element.envelope`) tienen su propio easing desde
+  [docs/40](40-easing-audio.md): comparten `ease`, pero `VolumePoint` es un modelo aparte.
 - El **color animado** de textos (`TextOverlay.color_keys`, [docs/36](36-color-tamano-textos.md))
   sigue interpolándose linealmente en sRGB; no es un `Animation`.
 - No hay editor gráfico de curvas ni Bézier libres: son cuatro curvas fijas por clave.
@@ -154,4 +154,4 @@ Animation("x", (
 - `tests/test_easing.py`, `tests/test_modelo_v6_base.py` y `tests/test_text_color_size.py`
   (esquema 13).
 - `docs/39-easing.md`, `docs/15`, `docs/31`, `docs/32`, `docs/33`, `docs/35`, `docs/36`, `docs/37`,
-  `docs/README.md`, `CHANGELOG.md` y `AGENTS.md`.
+  `docs/40-easing-audio.md`, `docs/README.md`, `CHANGELOG.md` y `AGENTS.md`.

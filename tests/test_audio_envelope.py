@@ -106,7 +106,8 @@ def test_clip_serializa_la_envolvente_y_migra_v9_al_esquema_actual() -> None:
     data = to_dict(project)
     assert data["schema_version"] == SCHEMA_VERSION
     assert data["video"]["clips"][0]["envelope"] == [
-        {"t": 0.0, "gain": 1.0}, {"t": 1.5, "gain": 0.25},
+        {"t": 0.0, "gain": 1.0, "easing": "linear"},
+        {"t": 1.5, "gain": 0.25, "easing": "linear"},
     ]
     assert from_dict(data).video.clips[0].envelope == points
 
