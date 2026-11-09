@@ -129,7 +129,9 @@ consola; CI en verde (unit + golden + smoke UI); RNF-06/07 medidos.
    preview (B2, [docs/17](17-bloque-b-editor.md)).
 4b. ✅ **Selección múltiple, snap por waveform, proxy 540p y reubicar carpetas** (B3–B6,
    [docs/17](17-bloque-b-editor.md)).
-5. Webcam PiP (segunda captura) + grabación de cara separada.
+5. ✅ **Webcam PiP (segunda captura) + grabación de cara separada** — hecho: `platform/camera.py`,
+   sidecar con `camera.file`/`offset_s`, `<nombre>-camara.mp4` y PiP automático
+   ([docs/49](49-webcam-pip.md)).
 6. Export GIF/WebM optimizado para compartir en un clic.
 7. Port a macOS/Linux con los mismos contratos de `platform/`.
 8. Integración con Aurora: proponer `canvas.image()`, `on_hover` y multi-ventana si el proyecto lo justifica.

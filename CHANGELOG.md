@@ -7,6 +7,16 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Webcam junto a la pantalla y PiP automático** (docs/49; modelo v16 sin cambios): `CameraConfig`
+  (dispositivo DirectShow, 1280×720, 30 fps) persistida en `Settings` y sección **Cámara** en
+  Grabar con snapshot periódico. La captura usa **FFmpeg + DirectShow** (sin OpenCV), reintenta
+  sin tamaño/fps si la cámara no los acepta y **nunca tumba la grabación de pantalla** si falla.
+  Al parar quedan `<nombre>.mp4` y `<nombre>-camara.mp4` (solo vídeo), con `camera.file` y
+  `offset_s` en el sidecar; la recuperación conserva la cámara. La Biblioteca muestra el chip
+  **🎥 cámara**, permite reproducirla y la borra con la grabación. Al importar una grabación, el
+  editor crea sola un `Element.kind="video"` abajo a la derecha (~28 %, sin audio) usando el PiP
+  existente; es movible/borrable y el archivo sigue disponible. La pausa se deshabilita con cámara
+  activa y se avisa (`tools/rec.py --list-cameras`/`--camera` para la prueba manual).
 - **GIF y WebM como formatos de export** (docs/48; modelo v16 sin cambios): selector **Formato**
   en el modal además de MP4, con la extensión visible y del `.part` según el contenedor. WebM usa
   **VP9 + Opus** (CRF del preset o bitrate del personalizado) y GIF usa una **paleta de 256

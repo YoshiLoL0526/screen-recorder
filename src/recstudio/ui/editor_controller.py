@@ -5243,6 +5243,28 @@ class EditorController:
                 state.importing.set(tuple(n for n in state.importing() if n != path.name))
         return assets
 
+    def _add_camera_pips(self, project: Project, imports: list[tuple[MediaAsset, float]]) -> Project:
+        """Añade el PiP de la cámara a cada grabación importada que tenga sidecar (docs/49).
+
+        Es un elemento normal de la capa «Elementos»; si algo falla, se avisa y la importación
+        del video principal sigue adelante. La cámara no duplica composición: usa el PiP que ya
+        existe en preview/export.
+        """
+        for asset, start in imports:
+            info = library.camera_info(asset.path)
+            if info is None:
+                continue
+            try:
+                camera_asset = media.probe(info.path)
+                if camera_asset.kind != "video" or camera_asset.duration <= 0:
+                    continue
+                project, _element = element_mod.add_camera_pip(
+                    project, camera_asset, start, offset_s=info.offset_s
+                )
+            except RecStudioError as exc:
+                state.toast("warning", f"No se pudo añadir la cámara: {exc.message}")
+        return project
+
     def _separate_imported_audio(self, project: Project) -> Project:
         """Deja el audio de los videos importados en «Audio del video» enlazado (docs/24).
 
@@ -5277,9 +5299,14 @@ class EditorController:
                         name=first.name, fps=_nearest_fps(first.fps),
                         width=first.width or 1920, height=first.height or 1080,
                     )
+                    imports: list[tuple[MediaAsset, float]] = []
                     for asset in assets:
-                        project, _ = tl.append_clip(project, asset)
+                        project, _clip = tl.append_clip(project, asset)
+                        imports.append(
+                            (asset, tl.clip_start(project, project.video, len(project.video.clips) - 1))
+                        )
                     project = self._separate_imported_audio(project)
+                    project = self._add_camera_pips(project, imports)
                     path = store_mod.unique_project_file(state.projects_dir(), first.name)
                     try:
                         store_mod.save_project(path, project)
@@ -5294,9 +5321,14 @@ class EditorController:
                         state.toast("warning", "Proyecto en modo lectura: no se puede importar")
                         return
                     project = self.project
+                    imports = []
                     for asset in assets:
-                        project, _ = tl.append_clip(project, asset)
+                        project, _clip = tl.append_clip(project, asset)
+                        imports.append(
+                            (asset, tl.clip_start(project, project.video, len(project.video.clips) - 1))
+                        )
                     project = self._separate_imported_audio(project)
+                    project = self._add_camera_pips(project, imports)
                     self.store.apply("importar", project)
                     self._refresh_offline(project)
                     self.zoom_fit()

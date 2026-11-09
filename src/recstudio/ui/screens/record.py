@@ -31,6 +31,8 @@ PRESET_OPTIONS = (
     ("insane", "Insane · 2K"),
 )
 COUNTDOWN_OPTIONS = ((0, "Sin cuenta atrás"), (3, "3 segundos"), (5, "5 segundos"), (10, "10 segundos"))
+CAMERA_RESOLUTIONS = (("640x360", "640×360"), ("1280x720", "1280×720"), ("1920x1080", "1920×1080"))
+CAMERA_FPS_OPTIONS = (15, 24, 30, 60)
 
 
 def encoder_options() -> list[tuple[str, str]]:
@@ -54,6 +56,7 @@ def preview_panel():
 
     badges = row(position="absolute", left=14, top=12, gap=8, align="center")[
         recording and chip("● REC", tone="rec", size=12),
+        recording and state.rec_camera() and chip("● CÁM", tone="text", size=12),
         recording and chip(time_label(state.rec_elapsed()), tone="text", size=12),
         not recording and chip("vista previa", tone="muted"),
     ]
@@ -281,6 +284,49 @@ def config_panel():
         field("Cuenta atrás", select(state.countdown_s, list(COUNTDOWN_OPTIONS), key="sel-countdown")),
     ]
 
+    # Cámara (docs/49): switch, dispositivo, resolución/fps y un snapshot periódico. Si no hay
+    # dispositivos se muestra el aviso sin quitar el resto de la pantalla.
+    devices = state.camera_devices()
+    camera_block = [field("Cámara", switch(state.camera_enabled, key="sw-camera"))]
+    if devices:
+        current = state.camera_device()
+        options = [(d.name, d.name[:26]) for d in devices]
+        if current and not any(d.name == current for d in devices):
+            options.insert(0, (current, f"{current[:24]} (no conectada)"))
+        camera_block += [
+            field("Dispositivo", select(state.camera_device, options, key="sel-camera")),
+            field("Resolución", select(state.camera_resolution, list(CAMERA_RESOLUTIONS),
+                                       key="sel-cam-res")),
+            field("FPS cámara", select(state.camera_fps, list(CAMERA_FPS_OPTIONS),
+                                       key="sel-cam-fps")),
+        ]
+        if state.camera_enabled():
+            snapshot = state.camera_preview()
+            camera_block.append(
+                image(snapshot, width="100%", height=120, fit="cover", radius="$sm",
+                      key="cam-preview")
+                if snapshot
+                else box(
+                    width="100%", height=120, radius="$sm", bg="$surface_hover",
+                    align="center", justify="center",
+                )[text("Esperando a la cámara…", size=11.5, color="$muted")]
+            )
+        camera_block.append(
+            text("Con la cámara activa la pausa no está disponible.", size=11, color="$muted")
+        )
+    else:
+        camera_block.append(
+            text("No hay cámaras. Conecta una y pulsa «Actualizar».",
+                 size=11.5, color="#F5B851")
+        )
+    camera_block.append(
+        row(gap=8, align="center")[
+            spacer(),
+            button("Actualizar", _refresh_cameras, variant="soft", padding=(5, 12),
+                   font_size=12, key="cam-refresh"),
+        ]
+    )
+
     out_block = [
         field("Carpeta", text_input(state.out_dir, key="out-dir")),
         row(gap=8, align="center")[
@@ -308,11 +354,20 @@ def config_panel():
             divider(),
             section("Video", *video_block),
             divider(),
+            section("Cámara", *camera_block),
+            divider(),
             section("Audio", *audio_block),
             divider(),
             section("Salida", *out_block),
         ]
     ]
+
+
+def _refresh_cameras() -> None:
+    from ..controller import CONTROLLER
+
+    if CONTROLLER is not None:
+        CONTROLLER.refresh_cameras()
 
 
 def _open_out_dir() -> None:

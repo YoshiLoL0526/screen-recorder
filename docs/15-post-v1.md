@@ -661,13 +661,18 @@ Resultados y decisiones completas en [48 — GIF y WebM](48-gif-webm.md).
 
 ## Bloque C — Captura: lo que falta del grabador
 
-### C1 — Webcam PiP y cara separada (⏳ · L)
+### C1 — Webcam PiP y cara separada (✅ · L)
 
 - **Por qué**: el segundo uso más pedido; docs/01 lo tiene como nº2 del post-v1.
-- **Dónde**: `platform/capture.py` (segunda sesión de captura), `services/recording.py` (dos fuentes),
-  `core/graph.py` (overlay), pantalla de Grabar.
+- **Dónde**: `platform/camera.py` (captura DirectShow), `services/recording.py` (dos fuentes y
+  remux), `core/elements.add_camera_pip` (PiP automático), pantalla de Grabar y Biblioteca.
 - **Criterio**: grabar pantalla + cara, con la cara como PiP compuesto en el export y el archivo de
   cara también disponible por separado.
+- **Hecho** (2026-11-09, [docs/49](49-webcam-pip.md)): `CameraConfig` + `Settings`, captura
+  DirectShow sin OpenCV con reintento nativo, archivo `<nombre>-camara.mp4`, sidecar con
+  `camera.file`/`offset_s`, recuperación, Biblioteca con chip/reproducción/borrado, PiP automático
+  en la capa «Elementos» (28 %, abajo a la derecha, sin audio) y pausa deshabilitada con cámara.
+  Export real verificado con la XWF-1080P.
 
 ### C2 — Recortar los últimos N segundos al vuelo (⏳ · S)
 
@@ -778,7 +783,8 @@ Si hay que elegir un orden (y no simplemente el orden del documento):
 3. **Fase 4 del editor (resto)** — PiP de video, subtítulos y keyframes; el canvas interactivo,
    los elementos (figuras/imágenes/blur) y los efectos globales ya están hechos
    ([23](23-canvas-resize.md), [25](25-elementos.md), [26](26-efectos-globales.md)).
-4. **C1** — webcam PiP, el siguiente salto de producto.
+4. ✅ **C1** — webcam PiP ([docs/49](49-webcam-pip.md)); el siguiente salto de producto es C5
+   (pistas de audio separadas) o el resto de la fase 4 del editor.
 5. **D1** — GIF/WebM para compartir en un clic.
 6. **F1** — a medida que se toquen esas pantallas, ir sustituyendo capas propias por componentes de
    Aurora (empezando por `chart` y `overflow`, que son los más baratos).

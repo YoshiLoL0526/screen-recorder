@@ -58,6 +58,10 @@ def recording_row(index: int):
         if CONTROLLER is not None:
             CONTROLLER.editor.open_recording(rec.mp4)
 
+    def open_camera() -> None:
+        if rec.camera is not None:
+            library.open_file(rec.camera)
+
     return box(
         key=f"rec-{index}",
         grow=1,
@@ -77,9 +81,13 @@ def recording_row(index: int):
                     chip(rec.duration_label, tone="text"),
                     chip(f"{rec.size_mb:.1f} MB"),
                     rec.recovered and chip("Recuperada", tone="accent"),
+                    rec.camera is not None and chip("🎥 cámara", tone="accent"),
                     spacer(),
                     button("▶ Reproducir", open_it, variant="soft", padding=(5, 12), font_size=12),
                     button("✂ Editar", edit, variant="soft", padding=(5, 12), font_size=12, key=f"edit-{index}"),
+                    rec.camera is not None and icon_button(
+                        icons.CAMERA, open_camera, tooltip="Reproducir la grabación de cámara", size=28
+                    ),
                     icon_button(icons.FOLDER, lambda: library.reveal_in_explorer(rec.mp4),
                                 tooltip="Mostrar en el explorador", size=28),
                     icon_button(icons.TRASH, ask_delete, tooltip="Mover a la papelera", size=28),

@@ -52,6 +52,7 @@ rec_skip = Signal(0)
 rec_size_mb = Signal(0.0)
 rec_disk_gb = Signal(0.0)
 rec_level = Signal(0.0)
+rec_camera = Signal(False)  # la webcam está grabando junto a la pantalla (docs/49)
 rec_error = Signal("")
 fps_history = Signal(())  # últimos valores para el sparkline
 
@@ -76,6 +77,13 @@ encoder = Signal("auto")
 audio_system = Signal(True)
 keepalive = Signal(True)
 mic_index = Signal(-1)  # -1 = sin micrófono
+# Webcam (docs/49): nombre DirectShow, resolución/fps y snapshot JPEG de la vista previa.
+camera_enabled = Signal(False)
+camera_device = Signal("")
+camera_resolution = Signal("1280x720")
+camera_fps = Signal(30)
+camera_devices = Signal(())  # platform.camera.CameraDevice…
+camera_preview = Signal(b"")
 # Vacío hasta que arranca el controlador: `Settings.normalized()` resuelve la carpeta por defecto.
 # Antes se resolvía aquí, al importar, y un bloqueo de escritura de Windows (Videos protegido por
 # Defender) tumbaba la app antes de abrir ventana.

@@ -36,6 +36,12 @@ class AudioError(RecStudioError):
     code = "audio"
 
 
+class CameraError(RecStudioError):
+    """La webcam no se pudo enumerar o abrir (DirectShow)."""
+
+    code = "camera"
+
+
 class FfmpegError(RecStudioError):
     code = "ffmpeg"
 

@@ -91,7 +91,7 @@ Casos de uso (CU):
 ### Más adelante (post-v1, orden tentativo)
 
 1. Hotkeys globales (con `pynput`) y bandeja del sistema.
-2. Webcam como PiP + captura de cara separada.
+2. ✅ Webcam como PiP + captura de cara separada ([docs/49](49-webcam-pip.md)).
 3. Textos/títulos sobre el video (subtítulos quemados opcionales).
 4. Pista de música dedicada + ducking básico (bajar música cuando hay voz).
 5. Snap de audio y sincronización por waveform.
