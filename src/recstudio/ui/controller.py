@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Any
 
 from .. import state
-from ..core.config import AudioConfig, ConfigError, RecordingConfig, SourceConfig
+from ..core.config import AudioConfig, CameraConfig, ConfigError, RecordingConfig, SourceConfig
 from ..core.errors import RecStudioError
 from ..core.regions import clamp_region
 from ..platform import audio as audio_mod
+from ..platform import camera as camera_mod
 from ..platform import ffmpeg as ffmpeg_mod
 from ..platform import hotkeys as hotkeys_mod
 from ..platform import paths
@@ -31,6 +32,15 @@ CONTROLLER: "Controller | None" = None
 
 _POLL_INTERVAL = 0.25
 _FPS_WINDOW = 180
+
+
+def _camera_size() -> tuple[int, int]:
+    """«1280x720» → `(1280, 720)`; cualquier valor raro cae al tamaño por defecto."""
+    try:
+        width, height = str(state.camera_resolution()).lower().split("x", 1)
+        return int(width), int(height)
+    except (TypeError, ValueError):
+        return 1280, 720
 
 
 def _parse_region() -> tuple[int, int, int, int] | None:
@@ -66,6 +76,7 @@ class Controller:
         self.settings = settings
         self.session: rec_mod.RecordingSession | None = None
         self._preview: preview_mod.PreviewLoop | None = None
+        self._camera_preview: preview_mod.CameraPreviewLoop | None = None
         self._lock = threading.Lock()
         self._save_timer: threading.Timer | None = None
         self._closing = False
@@ -94,6 +105,7 @@ class Controller:
             self._session_frame, self._geometry, state.preview.set, fps=6.0
         )
         self._preview.start()
+        self._ensure_camera_preview()
         threading.Thread(target=self._load_system_info, daemon=True, name="sysinfo").start()
         self.refresh_library()
         self._subscribe_settings()
@@ -118,6 +130,9 @@ class Controller:
             self.session = None
         if self._preview is not None:
             self._preview.stop()
+        if self._camera_preview is not None:
+            self._camera_preview.stop()
+            self._camera_preview = None
         self._save_settings()
 
     # -- ajustes --------------------------------------------------------------
@@ -136,6 +151,10 @@ class Controller:
         state.audio_system.set(s.audio_system)
         state.keepalive.set(s.keepalive)
         state.mic_index.set(s.mic_index)
+        state.camera_enabled.set(s.camera_enabled)
+        state.camera_device.set(s.camera_device)
+        state.camera_resolution.set(f"{s.camera_width}x{s.camera_height}")
+        state.camera_fps.set(s.camera_fps)
         state.out_dir.set(s.out_dir)
         self._warn_blocked_out_dir()
         state.inspector_w.set(s.inspector_w)
@@ -166,7 +185,9 @@ class Controller:
             state.theme_name, state.source_kind, state.monitor_index, state.window_title,
             state.region, state.countdown_s,
             state.fps_target, state.preset, state.encoder, state.audio_system,
-            state.keepalive, state.mic_index, state.out_dir, state.project_path, state.preview_audio,
+            state.keepalive, state.mic_index, state.camera_enabled, state.camera_device,
+            state.camera_resolution, state.camera_fps,
+            state.out_dir, state.project_path, state.preview_audio,
             state.inspector_w, state.inspector_open, state.tl_tracks_extra,
             state.global_hotkeys, state.tray, state.notify_finished,
         ):
@@ -201,6 +222,10 @@ class Controller:
         s.audio_system = bool(state.audio_system())
         s.keepalive = bool(state.keepalive())
         s.mic_index = int(state.mic_index())
+        s.camera_enabled = bool(state.camera_enabled())
+        s.camera_device = state.camera_device()
+        s.camera_width, s.camera_height = _camera_size()
+        s.camera_fps = int(state.camera_fps())
         s.out_dir = state.out_dir()
         s.last_project = state.project_path()
         s.preview_audio = bool(state.preview_audio())
@@ -352,6 +377,7 @@ class Controller:
             state.audio_devices.set(tuple(audio_mod.list_devices()))
         except Exception:
             pass
+        self._load_cameras(select_first=True)
         try:
             state.encoders.set(dict(ffmpeg_mod.probe_encoders()))
         except Exception:
@@ -360,6 +386,55 @@ class Controller:
             state.ffmpeg_version.set(ffmpeg_mod.ffmpeg_version())
         except Exception:
             pass
+
+    def _load_cameras(self, *, select_first: bool = False) -> tuple[camera_mod.CameraDevice, ...]:
+        """Enumera las webcams DirectShow (hilo propio: FFmpeg tarda ~1 s)."""
+        try:
+            devices = camera_mod.list_cameras()
+        except Exception:
+            devices = ()
+        state.camera_devices.set(tuple(devices))
+        if devices and (select_first or not state.camera_device()):
+            if not any(item.name == state.camera_device() for item in devices):
+                state.camera_device.set(devices[0].name)
+        return tuple(devices)
+
+    def refresh_cameras(self) -> None:
+        """Botón «Actualizar» de la sección Cámara (nunca bloquea la UI)."""
+        def worker() -> None:
+            devices = self._load_cameras(select_first=True)
+            if devices:
+                state.toast("success", f"{len(devices)} cámara(s) detectada(s)")
+            else:
+                state.toast("warning", "No se detectó ninguna cámara (conecta una y reintenta)")
+
+        threading.Thread(target=worker, daemon=True, name="camera-list").start()
+
+    def _camera_preview_device(self) -> str | None:
+        """Dispositivo del snapshot de la vista previa; `None` mientras se graba o no hay cámara."""
+        if not state.camera_enabled():
+            return None
+        if state.rec_state() not in ("idle", "done", "error"):
+            return None
+        name = state.camera_device().strip()
+        if not name or not any(item.name == name for item in state.camera_devices()):
+            return None
+        return name
+
+    def _ensure_camera_preview(self) -> None:
+        """(Re)arranca el snapshot de la webcam si no está vivo."""
+        if self._closing or self._camera_preview is not None:
+            return
+        self._camera_preview = preview_mod.CameraPreviewLoop(
+            self._camera_preview_device, state.camera_preview.set
+        )
+        self._camera_preview.start()
+
+    def _stop_camera_preview(self) -> None:
+        """Detiene el snapshot antes de grabar: no debe competir por la cámara con DirectShow."""
+        if self._camera_preview is not None:
+            self._camera_preview.stop()
+            self._camera_preview = None
 
     def _session_frame(self):  # noqa: ANN202
         session = self.session
@@ -482,7 +557,8 @@ class Controller:
             state.rec_state.set("recording")
             state.toast("info", "Grabación reanudada")
         elif state.rec_state() == "recording":
-            session.pause()
+            if not session.pause():
+                return  # con cámara activa: el motor ya avisó de que no se puede pausar
             state.rec_state.set("paused")
             state.toast("info", "Grabación en pausa")
 
@@ -516,6 +592,7 @@ class Controller:
                     "de Seguridad de Windows"
                 ) from exc
 
+            width, height = _camera_size()
             config = RecordingConfig(
                 fps=int(state.fps_target()),
                 preset=state.preset(),
@@ -525,6 +602,13 @@ class Controller:
                     system=bool(state.audio_system()),
                     mic_device_index=None if int(state.mic_index()) < 0 else int(state.mic_index()),
                     keepalive=bool(state.keepalive()),
+                ),
+                camera=CameraConfig(
+                    enabled=bool(state.camera_enabled()),
+                    device_name=state.camera_device().strip() or None,
+                    width=width,
+                    height=height,
+                    fps=int(state.camera_fps()),
                 ),
             )
             return config.validate()
@@ -541,12 +625,22 @@ class Controller:
             self._busy = False
 
     def _start_session(self) -> None:
+        """Arranca la sesión con el snapshot de cámara detenido (no compiten por el dispositivo)."""
+        self._stop_camera_preview()
+        try:
+            self._start_session_inner()
+        finally:
+            if self.session is None:
+                self._ensure_camera_preview()
+
+    def _start_session_inner(self) -> None:
         config = self._build_config()
         if config is None:
             state.rec_state.set("idle")
             return
         state.rec_error.set("")
         state.fps_history.set(())
+        state.rec_camera.set(False)
         state.rec_state.set("starting")
         session: rec_mod.RecordingSession | None = None
         try:
@@ -567,7 +661,10 @@ class Controller:
             return
         self.session = session
         state.rec_state.set("recording")
-        state.toast("success", f"Grabando · {session.backend_name} + {session.encoder_name}")
+        camera_active = bool(getattr(session, "camera_active", False))
+        state.rec_camera.set(camera_active)
+        camera_note = " + cámara" if camera_active else ""
+        state.toast("success", f"Grabando · {session.backend_name} + {session.encoder_name}{camera_note}")
         threading.Thread(target=self._poll_worker, args=(session,), daemon=True, name="rec-poll").start()
 
     def _stop_worker(self) -> None:
@@ -577,6 +674,12 @@ class Controller:
             self._busy = False
 
     def _stop_session(self) -> None:
+        try:
+            self._stop_session_inner()
+        finally:
+            self._ensure_camera_preview()
+
+    def _stop_session_inner(self) -> None:
         session = self.session
         if session is None:
             return
@@ -586,12 +689,14 @@ class Controller:
         except RecStudioError as exc:
             state.rec_state.set("error")
             state.rec_error.set(exc.message)
+            state.rec_camera.set(False)
             state.toast("danger", f"Error al guardar: {exc.message}")
             self.session = None
             self.refresh_library()  # el temporal puede haber quedado como recuperable
             return
         self.session = None
         state.rec_state.set("idle")
+        state.rec_camera.set(False)
         state.toast(
             "success",
             f"Guardado: {result.mp4.name} · {result.duration_s:.1f}s · {result.mp4.stat().st_size / 1e6:.1f} MB",
@@ -613,6 +718,7 @@ class Controller:
             state.rec_size_mb.set(stats.size_bytes / 1e6)
             state.rec_disk_gb.set(stats.disk_free_mb / 1000)
             state.rec_level.set(stats.level)
+            state.rec_camera.set(stats.camera_active)
             if stats.state not in ("idle",):
                 history = state.fps_history()
                 if stats.fps_real > 0:

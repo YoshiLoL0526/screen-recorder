@@ -54,6 +54,13 @@ def run(cmd: list[str], *, timeout: float | None = None) -> subprocess.Completed
     )
 
 
+def run_bytes(cmd: list[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[bytes]:
+    """Ejecuta FFmpeg y devuelve stdout como bytes (p. ej. un JPEG por `pipe:1`)."""
+    return subprocess.run(
+        cmd, capture_output=True, stdin=subprocess.DEVNULL, timeout=timeout, **NO_WINDOW
+    )
+
+
 def ffmpeg_exe() -> str:
     override = os.environ.get(FFMPEG_ENV)
     if override and Path(override).is_file():

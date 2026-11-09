@@ -27,6 +27,13 @@ class Settings:
     audio_system: bool = True
     keepalive: bool = True
     mic_index: int = -1
+    # Webcam (docs/49): el nombre DirectShow sobrevive entre sesiones; si el dispositivo ya no
+    # está, la pantalla de Grabar lo marca y el motor avisa sin romper la grabación de pantalla.
+    camera_enabled: bool = False
+    camera_device: str = ""
+    camera_width: int = 1280
+    camera_height: int = 720
+    camera_fps: int = 30
     out_dir: str = ""
     countdown_s: int = 0
     last_project: str = ""  # project.json abierto al cerrar (se reabre al arrancar)
@@ -66,8 +73,17 @@ class Settings:
         self.global_hotkeys = bool(self.global_hotkeys)
         self.tray = bool(self.tray)
         self.notify_finished = bool(self.notify_finished)
+        self._normalize_camera()
         self._normalize_export()
         return self
+
+    def _normalize_camera(self) -> None:
+        """Acota la webcam y la desactiva si no hay dispositivo elegido (docs/49)."""
+        self.camera_device = str(self.camera_device or "").strip()
+        self.camera_width = _clamp_int(self.camera_width, 1280, 160, 4096, even=True)
+        self.camera_height = _clamp_int(self.camera_height, 720, 160, 4096, even=True)
+        self.camera_fps = _clamp_int(self.camera_fps, 30, 5, 120)
+        self.camera_enabled = bool(self.camera_enabled) and bool(self.camera_device)
 
     def _normalize_export(self) -> None:
         """Valida la configuración personalizada (docs/44) sin tocar el proyecto."""

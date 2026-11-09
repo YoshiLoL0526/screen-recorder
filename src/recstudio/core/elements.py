@@ -41,7 +41,7 @@ from .project import (
     Project,
     new_id,
 )
-from .timeline import total_duration
+from .timeline import add_asset, total_duration
 
 ELEMENT_LABELS = {
     "rect": "Rectángulo",
@@ -381,6 +381,48 @@ def add_element(
     return replace(project, elements=_insert_ordered(project.elements, element)), element
 
 
+CAMERA_PIP_FRACTION = 0.28  # ancho del PiP de la cara respecto al lienzo (docs/49)
+
+
+def add_camera_pip(
+    project: Project,
+    camera: "MediaAsset",
+    start: float,
+    *,
+    offset_s: float = 0.0,
+) -> tuple[Project, Element]:
+    """Añade la cámara de una grabación como PiP abajo a la derecha (docs/49).
+
+    `offset_s` es `t0_video − t0_cámara`: si es positivo, la cámara lleva grabando más tiempo y
+    el elemento avanza `in_`; si es negativo, el PiP empieza más tarde. Sin audio (`gain=0`).
+    Es un `Element` normal: se puede mover, redimensionar, animar o borrar.
+    """
+    project, asset = add_asset(project, camera)
+    if asset.kind != "video" or asset.duration <= 0:
+        raise ProjectError("la cámara no es un vídeo válido")
+    delay = max(0.0, -float(offset_s))
+    in_ = min(max(0.0, float(offset_s)), max(0.0, asset.duration - 0.2))
+    at = max(0.0, float(start)) + delay
+    total = total_duration(project)
+    duration = max(0.2, total - at)
+    width, height = default_image_box(project, asset, CAMERA_PIP_FRACTION)
+    x = min(0.82, 1.0 - width / 2 - 0.02)
+    y = min(0.78, 1.0 - height / 2 - 0.02)
+    return add_element(
+        project,
+        "video",
+        at,
+        duration,
+        x=max(width / 2 + 0.02, x),
+        y=max(height / 2 + 0.02, y),
+        width=width,
+        height=height,
+        asset_id=asset.id,
+        audio_gain=0.0,
+        in_=in_,
+    )
+
+
 def update_element(project: Project, element_id: str, **changes) -> Project:  # noqa: ANN003
     """Cambia campos de un elemento (valida el resultado y respeta el z-order)."""
     current = project.element(element_id)
@@ -527,6 +569,7 @@ def with_effect(element: Element, kind: str, **params: float) -> Element:
 __all__ = [
     "AUDIO_GAIN_MAX",
     "BLUR_MAX",
+    "CAMERA_PIP_FRACTION",
     "ELEMENT_COLOR",
     "ELEMENT_DURATION",
     "ELEMENT_LABELS",
@@ -535,6 +578,7 @@ __all__ = [
     "ElementLayout",
     "SHAPE_KINDS",
     "active",
+    "add_camera_pip",
     "add_element",
     "audio_gain",
     "blur_radius",

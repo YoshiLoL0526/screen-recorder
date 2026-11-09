@@ -200,6 +200,23 @@ Fragmentos de flags por encoder (se documentan en código como tabla):
   Si Δ es negativa (el audio arrancó **antes** que el video), se recorta su
   inicio con `-af "atrim=start=…,asetpts=PTS-STARTPTS"` en lugar de `-itsoffset`.
 
+## Webcam junto a la pantalla (C1, docs/49)
+
+La cámara es una **fuente independiente**, no otra pista del pipe de la pantalla:
+
+- Se abre con **FFmpeg + DirectShow** (`platform/camera.py`): `-f dshow -framerate … -video_size …
+  -i video="Nombre"`, `-an`, libx264 y MKV temporal. No se usa OpenCV (el build de release lo
+  excluye) ni PyAV (solo hace falta lanzar un encoder).
+- Si la cámara no acepta el tamaño/fps pedidos, se reintenta sin ellos. Si no arranca o
+  desaparece, se emite un aviso y la grabación de pantalla continúa; la cámara nunca puede tumbar
+  la sesión.
+- Al parar, `temp/camera.mkv` se remuxa a `<nombre>-camara.mp4` (o se copia el MKV si el remux
+  falla) y se escribe `camera.file` + `offset_s` en el sidecar. La recuperación conserva la
+  cámara. El detalle de archivos, PiP automático y límites está en
+  [49](49-webcam-pip.md).
+- **Pausa**: se deshabilita con cámara activa (proceso aparte; cerrar y concatenar segmentos
+  podría desalinear la cara). La UI lo avisa.
+
 ## Preview en vivo y estadísticas
 
 - **Preview**: no se captura dos veces. Un hilo de preview lee `LatestFrame` (con lock), escala
@@ -264,6 +281,14 @@ class SourceConfig:
     backend: str | None = None                         # None = automático
 
 @dataclass(frozen=True)
+class CameraConfig:                       # docs/49
+    enabled: bool = False
+    device_name: str | None = None        # nombre DirectShow
+    width: int = 1280
+    height: int = 720
+    fps: int = 30
+
+@dataclass(frozen=True)
 class RecordingConfig:
     source: SourceConfig
     fps: int = 60
@@ -272,6 +297,7 @@ class RecordingConfig:
     system_audio: bool = True
     mic_device: str | None = None
     audio_mode: Literal["mix", "separate"] = "mix"
+    camera: CameraConfig = CameraConfig()
     countdown_s: int = 0
     max_size_gb: float | None = None
 ```

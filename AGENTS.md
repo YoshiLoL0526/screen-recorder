@@ -56,17 +56,19 @@ el **recorte interactivo en el preview** (`core/crop_edit.py`, `state.crop_on`, 
 `docs/46`) y el
 **export personalizado** con tamaño/fps/bitrate/códec y presets sociales (`core/graph.py`,
 `services/settings.py`, `ui/export_modal.py`; `docs/44`), el **fondo del lienzo** (color, blur
-de V1 o imagen; `core/background.py`, modelo **v16**, `docs/47`) y los **formatos GIF/WebM**
-(`ExportPreset.format`, VP9/Opus y paleta GIF con límites de 20 fps/720 px; `docs/48`).
+de V1 o imagen; `core/background.py`, modelo **v16**, `docs/47`), los **formatos GIF/WebM**
+(`ExportPreset.format`, VP9/Opus y paleta GIF con límites de 20 fps/720 px; `docs/48`) y la
+**webcam junto a la pantalla** (`platform/camera.py`, `CameraConfig`, `<nombre>-camara.mp4` y
+PiP automático con `core.elements.add_camera_pip`; `docs/49`).
 Lo siguiente es el resto de
-la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
-bloque C).
+la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales,
+C5 —pistas de audio separadas— y el resto del bloque C).
 
 ## Comandos
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 615 tests; la integración usa FFmpeg real
+uv run pytest                                   # 640 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -141,6 +143,11 @@ depender de monitor, GPU ni audio reales del runner.
   pueden aparecer en `-encoders` y no funcionar sin hardware).
 - PyAudio/WASAPI: una única instancia de PyAudio por proceso (`_shared_pa()`), nunca
   terminarla; el callback debe devolver `paContinue` (0) y usar la firma exacta con `time_info`.
+- Webcam (docs/49): captura **FFmpeg + DirectShow** (`platform/camera.py`), sin OpenCV. La
+  cámara es un proceso aparte a `camera.mkv` (solo vídeo) y se remuxa a `<nombre>-camara.mp4` al
+  parar; si falla o desaparece, se avisa y la pantalla sigue. `CameraRecorder.start()` reintenta
+  sin `-video_size`/`-framerate` y `stop()` cierra con `q` por stdin. La pausa se deshabilita con
+  cámara activa. El `offset_s` del sidecar alinea el PiP automático (`in_`/inicio).
 - WGC: `frame_buffer` ya es un numpy BGRA contiguo (copiar: el buffer se recicla);
   `convert_to_bgr()` muta el frame y devuelve el propio `Frame`, no un array.
 - Deriva del reloj de audio (~90 ppm): se compensa en el mux con `asetrate` calculado por
@@ -399,8 +406,9 @@ depender de monitor, GPU ni audio reales del runner.
   `docs/43` el recorte interactivo en el preview, `docs/44` el export personalizado (tamaño, fps,
   bitrate, códec y presets sociales), `docs/45` el texto multilínea con ancho máximo (modelo v15),
   `docs/46` los fundidos de audio con crossfade por corte (modelo v16 sin cambios), `docs/47` el
-  fondo del lienzo con blur o imagen (modelo v16) y `docs/48` los formatos GIF/WebM (VP9/Opus y
-  paleta GIF sin audio).
+  fondo del lienzo con blur o imagen (modelo v16), `docs/48` los formatos GIF/WebM (VP9/Opus y
+  paleta GIF sin audio) y `docs/49` la webcam junto a la pantalla con PiP automático (modelo v16
+  sin cambios).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

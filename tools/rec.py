@@ -20,9 +20,10 @@ from pathlib import Path
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 sys.stderr.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[union-attr]
 
-from recstudio.core.config import AudioConfig, RecordingConfig, SourceConfig  # noqa: E402
+from recstudio.core.config import AudioConfig, CameraConfig, RecordingConfig, SourceConfig  # noqa: E402
 from recstudio.core.errors import RecStudioError  # noqa: E402
 from recstudio.platform import audio as audio_mod  # noqa: E402
+from recstudio.platform import camera as camera_mod  # noqa: E402
 from recstudio.platform import ffmpeg as ffmpeg_mod  # noqa: E402
 from recstudio.platform import screens  # noqa: E402
 from recstudio.services import recording as rec  # noqa: E402
@@ -52,12 +53,21 @@ def build_config(args: argparse.Namespace) -> RecordingConfig:
         mic_device_index=args.mic if args.audio in ("mic", "both") else None,
         keepalive=not args.no_keepalive,
     )
+    width, height = (int(v) for v in args.camera_size.lower().split("x", 1))
+    camera = CameraConfig(
+        enabled=bool(args.camera),
+        device_name=args.camera,
+        width=width,
+        height=height,
+        fps=args.camera_fps,
+    )
     return RecordingConfig(
         fps=args.fps,
         preset=args.preset,
         encoder=None if args.encoder == "auto" else args.encoder,
         source=source,
         audio=audio,
+        camera=camera,
         max_size_gb=args.max_size,
     ).validate()
 
@@ -70,6 +80,12 @@ def print_devices() -> None:
     for dev in audio_mod.list_devices():
         tag = "loopback" if dev.kind == "loopback" else "entrada "
         print(f"  [{dev.index:>3}] {tag} {dev.label}")
+    print("\nCámaras (DirectShow):")
+    cameras = camera_mod.list_cameras()
+    if not cameras:
+        print("  (ninguna)")
+    for index, cam in enumerate(cameras):
+        print(f"  [{index}] {cam.name}" + (f"  id={cam.id}" if cam.id else ""))
     print("\nEncoders (prueba real de encode):")
     available = ffmpeg_mod.probe_encoders()
     for name, ok in available.items():
@@ -116,9 +132,12 @@ def run(args: argparse.Namespace) -> int:
                 flush=True,
             )
             if pause_at is not None and paused_at is None and elapsed >= pause_at:
-                session.pause()
-                paused_at = time.perf_counter()
-                print(f"\r  ⏸ pausado a los {stats.elapsed_s:.2f}s" + " " * 40)
+                if session.pause():
+                    paused_at = time.perf_counter()
+                    print(f"\r  ⏸ pausado a los {stats.elapsed_s:.2f}s" + " " * 40)
+                else:
+                    pause_at = None
+                    print("\r  ⚠ pausa no disponible (cámara activa)" + " " * 30)
             if paused_at is not None and resume_after is not None and time.perf_counter() - paused_at >= resume_after:
                 session.resume()
                 pause_at = None  # una sola pausa en este modo
@@ -148,6 +167,8 @@ def run(args: argparse.Namespace) -> int:
     for track in result.audio:
         offset = track.first_callback_t  # solo informativo
         print(f"    · {track.device} · {track.seconds:.2f}s")
+    if result.camera is not None:
+        print(f"  cámara: {result.camera}  (desfase {result.camera_offset_s:+.3f}s)")
     if result.thumbnail:
         print(f"  miniatura: {result.thumbnail}")
     print(f"  sidecar: {result.sidecar}")
@@ -167,6 +188,8 @@ def run(args: argparse.Namespace) -> int:
             "duplicated": result.duplicated,
             "skipped": result.skipped,
             "audio": [asdict(track) | {"path": str(track.path)} for track in result.audio],
+            "camera": str(result.camera) if result.camera is not None else None,
+            "camera_offset_s": round(result.camera_offset_s, 4),
         }
         print(json.dumps(payload, ensure_ascii=False))
     return exit_code
@@ -176,6 +199,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(prog="rec", description="RecStudio · grabadora CLI (F1)")
     parser.add_argument("--list", action="store_true", help="monitores, dispositivos y encoders")
     parser.add_argument("--probe-encoders", action="store_true", help="re-prueba los encoders (sin caché)")
+    parser.add_argument("--list-cameras", action="store_true", help="webcams DirectShow disponibles")
     parser.add_argument("--list-recoverable", action="store_true", help="sesiones interrumpidas")
     parser.add_argument("--recover", nargs="?", const="", default=None, metavar="DIR",
                         help="recupera una sesión interrumpida (la más reciente si no se indica DIR)")
@@ -193,6 +217,9 @@ def main() -> int:
                         choices=["auto", "h264_nvenc", "h264_amf", "h264_qsv", "libx264"])
     parser.add_argument("--audio", default="system", choices=["system", "mic", "both", "none"])
     parser.add_argument("--mic", type=int, default=None, help="índice del micrófono (--list)")
+    parser.add_argument("--camera", default=None, help="webcam DirectShow junto a la pantalla (--list-cameras)")
+    parser.add_argument("--camera-size", default="1280x720", help="resolución de la cámara (default 1280x720)")
+    parser.add_argument("--camera-fps", type=int, default=30, help="fps de la cámara (default 30)")
     parser.add_argument("--no-keepalive", action="store_true", help="sin silencio de keep-alive (loopback)")
     parser.add_argument("--max-size", type=float, default=None, help="tamaño máximo en GB")
     parser.add_argument("-o", "--out", default=None, help="carpeta de salida")
@@ -204,6 +231,13 @@ def main() -> int:
 
     if args.list:
         print_devices()
+        return 0
+    if args.list_cameras:
+        cameras = camera_mod.list_cameras()
+        if not cameras:
+            print("No se detectó ninguna cámara DirectShow.")
+        for index, cam in enumerate(cameras):
+            print(f"[{index}] {cam.name}" + (f"  id={cam.id}" if cam.id else ""))
         return 0
     if args.probe_encoders:
         available = ffmpeg_mod.probe_encoders(force=True)

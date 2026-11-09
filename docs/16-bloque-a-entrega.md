@@ -199,6 +199,24 @@ prueba manual de sensación.
 
 ---
 
+## C1 — Webcam PiP (prueba manual)
+
+Procedimiento (detalle en [docs/49](49-webcam-pip.md)):
+
+```bash
+uv run python tools/rec.py --list-cameras
+uv run python tools/rec.py --duration 4 --fps 30 --preset baja --audio none \
+  --camera "XWF-1080P" --camera-size 1280x720 --camera-fps 30 -o salida/
+```
+
+Comprobar los tres archivos (`<nombre>.mp4`, `<nombre>-camara.mp4` y `<nombre>.json`), abrir la
+Biblioteca y usar **✂ Editar**: el PiP debe estar abajo a la derecha y exportarse compuesto.
+**Ejecutado el 2026-11-09** con la XWF-1080P: pantalla 4,03 s / 1280×720 / 30 fps, cámara 4,53 s /
+1280×720 / 15,44 fps (el dispositivo entrega ~15 fps aunque se pidan 30), desfase +0,0068 s y PiP
+visible en el frame exportado.
+
+---
+
 ## Cierre
 
 Con A1/A3/A4/A5 cerrados, la v1 ya tiene red de seguridad (CI), medidas reales de arranque/memoria,

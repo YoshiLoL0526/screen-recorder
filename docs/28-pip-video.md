@@ -21,6 +21,9 @@
 - El intervalo se limita a la duración real del archivo.
 - El **audio del PiP** se mezcla con el del proyecto, con volumen propio (0 = silencio) y botones
   «Silenciar»/«Original» en el inspector.
+- **Webcam** (docs/49): al importar una grabación hecha con cámara, el editor crea solo un PiP
+  con `<nombre>-camara.mp4` abajo a la derecha (~28 %, sin audio), usando este mismo
+  `Element.kind="video"`. Es un elemento normal: se puede mover, animar o borrar.
 
 ## Modelo (`SCHEMA_VERSION = 7`)
 

@@ -15,6 +15,16 @@ from .recording import scan_recoverable
 
 
 @dataclass(frozen=True)
+class CameraInfo:
+    """Archivo de cámara de una grabación (docs/49). `offset_s` alinea el PiP."""
+
+    path: Path
+    device: str = ""
+    offset_s: float = 0.0
+    duration_s: float = 0.0
+
+
+@dataclass(frozen=True)
 class Recording:
     mp4: Path
     thumb: Path | None
@@ -26,10 +36,17 @@ class Recording:
     size_bytes: int
     created_at: float  # epoch (mtime del mp4)
     encoder: str = "?"
+    camera: Path | None = None
+    camera_duration_s: float = 0.0
+    camera_offset_s: float = 0.0
 
     @property
     def name(self) -> str:
         return self.mp4.stem
+
+    @property
+    def has_camera(self) -> bool:
+        return self.camera is not None
 
     @property
     def recovered(self) -> bool:
@@ -52,6 +69,43 @@ class Recording:
         return time.strftime("%Y-%m-%d %H:%M", time.localtime(self.created_at))
 
 
+def _sidecar_camera(folder: Path, data: dict) -> CameraInfo | None:
+    """Resuelve `camera.file` del sidecar (nombre relativo) a un archivo existente."""
+    raw = data.get("camera")
+    if not isinstance(raw, dict):
+        return None
+    name = str(raw.get("file") or "").strip()
+    if not name:
+        return None
+    path = folder / Path(name).name  # solo el nombre: el sidecar nunca apunta fuera
+    if not path.is_file():
+        return None
+    try:
+        offset = float(raw.get("offset_s") or 0.0)
+        duration = float(raw.get("duration_s") or 0.0)
+    except (TypeError, ValueError):
+        offset, duration = 0.0, 0.0
+    return CameraInfo(
+        path=path,
+        device=str(raw.get("device") or ""),
+        offset_s=offset,
+        duration_s=duration,
+    )
+
+
+def camera_info(mp4: str | Path) -> CameraInfo | None:
+    """Cámara de una grabación a partir de su sidecar (o `None`)."""
+    mp4 = Path(mp4)
+    sidecar = mp4.with_suffix(".json")
+    if not sidecar.is_file():
+        return None
+    try:
+        data = json.loads(sidecar.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+    return _sidecar_camera(mp4.parent, data)
+
+
 def list_recordings(out_dir: str | Path) -> list[Recording]:
     """Todos los MP4 de la carpeta (con sidecar/miniatura si existen), el más nuevo primero."""
     if not str(out_dir).strip():  # carpeta sin configurar: no listar el directorio actual
@@ -61,6 +115,8 @@ def list_recordings(out_dir: str | Path) -> list[Recording]:
         return []
     items: list[Recording] = []
     for mp4 in folder.glob("*.mp4"):
+        if mp4.stem.endswith("-camara"):
+            continue  # el vídeo de la cámara es un hermano de su grabación, no otra grabación
         sidecar = mp4.with_suffix(".json")
         thumb = mp4.with_suffix(".jpg")
         data: dict = {}
@@ -73,6 +129,7 @@ def list_recordings(out_dir: str | Path) -> list[Recording]:
             stat = mp4.stat()
         except OSError:
             continue
+        camera = _sidecar_camera(folder, data)
         items.append(
             Recording(
                 mp4=mp4,
@@ -85,6 +142,9 @@ def list_recordings(out_dir: str | Path) -> list[Recording]:
                 size_bytes=stat.st_size,
                 created_at=stat.st_mtime,
                 encoder=str(data.get("encoder") or "?"),
+                camera=camera.path if camera is not None else None,
+                camera_duration_s=camera.duration_s if camera is not None else 0.0,
+                camera_offset_s=camera.offset_s if camera is not None else 0.0,
             )
         )
     items.sort(key=lambda r: r.created_at, reverse=True)
@@ -147,9 +207,9 @@ def move_to_trash(path: Path) -> bool:
 
 
 def delete_recording_files(recording: Recording) -> list[Path]:
-    """Borra (a la papelera) el mp4 y sus hermanos: miniatura y sidecar."""
+    """Borra (a la papelera) el mp4 y sus hermanos: miniatura, sidecar y cámara."""
     removed: list[Path] = []
-    for path in (recording.mp4, recording.thumb, recording.sidecar):
+    for path in (recording.mp4, recording.thumb, recording.sidecar, recording.camera):
         if path is not None and path.exists() and move_to_trash(path):
             removed.append(path)
     return removed

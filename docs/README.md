@@ -15,9 +15,10 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > **easing de las envolventes de volumen**, **copiar/pegar de claves**, **añadir claves desde
 > el timeline**, el **recorte interactivo en el preview**, el **export personalizado** con presets
 > sociales, el **texto multilínea con ancho máximo**, los **fundidos de audio con crossfade por
-> corte en el timeline**, el **fondo del lienzo** con blur o imagen y los formatos **GIF/WebM**
-> (docs/27-48). Quedan las comprobaciones manuales de A y la fase 4+. Los documentos 01-07 son la
-> especificación de diseño; 08-48 recogen lo implementado, con mediciones y bugs.
+> corte en el timeline**, el **fondo del lienzo** con blur o imagen, los formatos **GIF/WebM** y
+> la **webcam como PiP automático** con archivo de cámara separado (docs/27-49). Quedan las
+> comprobaciones manuales de A y la fase 4+. Los documentos 01-07 son la especificación de
+> diseño; 08-49 recogen lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -71,6 +72,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 46 | [Fundidos de audio y crossfade por corte](46-fundidos-audio.md) | Asas de `audio_fade_in/out` sobre la waveform, geometría y límites, crossfade por corte con `Track.transitions`, undo por gesto, preview/export y límites (modelo v16 sin cambios). |
 | 47 | [Fondo del lienzo](47-fondo-lienzo.md) | `background_mode`/`background_blur`/`background_asset`, blur de V1 e imagen, orden de composición, graph, preview, UI, migración v15 → v16 y límites. |
 | 48 | [GIF y WebM](48-gif-webm.md) | Formatos MP4/WebM/GIF, VP9 + Opus, paleta GIF con límites de 20 fps/720 px, selector del modal, persistencia, encoders y tests. |
+| 49 | [Webcam PiP](49-webcam-pip.md) | Captura DirectShow junto a la pantalla, archivo `<nombre>-camara.mp4`, sidecar/recuperación, Biblioteca, PiP automático en el editor y pausa deshabilitada (modelo v16 sin cambios). |
 
 ## Orden de lectura sugerido
 

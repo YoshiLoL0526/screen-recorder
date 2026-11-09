@@ -14,6 +14,8 @@ from collections.abc import Callable
 
 import numpy as np
 
+from ..platform import camera as camera_mod
+
 
 def encode_preview(frame: np.ndarray, max_height: int = 360, quality: int = 80) -> bytes:
     """BGRA/RGBA → JPEG escalado (reduce entero + ajuste fino, como midió F0)."""
@@ -110,3 +112,52 @@ class PreviewLoop:
             return None
         finally:
             sct.close()
+
+
+class CameraPreviewLoop:
+    """Snapshot periódico de la webcam para la pantalla de Grabar (docs/49).
+
+    `device_getter` devuelve el nombre DirectShow solo cuando toca capturar (cámara activada y
+    sesión en reposo); así el mismo hilo no compite con la grabación por el dispositivo. El
+    JPEG se produce en este hilo con `camera.capture_snapshot`, nunca en el de UI.
+    """
+
+    def __init__(
+        self,
+        device_getter: Callable[[], str | None],
+        on_frame: Callable[[bytes], None],
+        *,
+        interval: float = 3.0,
+        width: int = 320,
+    ) -> None:
+        self._device_getter = device_getter
+        self._on_frame = on_frame
+        self._interval = max(0.5, interval)
+        self._width = width
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
+        self.errors = 0
+
+    def start(self) -> None:
+        if self._thread is not None:
+            return
+        self._thread = threading.Thread(target=self._run, name="camera-preview", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread is not None:
+            self._thread.join(timeout=8)
+            self._thread = None
+
+    def _run(self) -> None:
+        while not self._stop.is_set():
+            try:
+                device = self._device_getter()
+                if device:
+                    data = camera_mod.capture_snapshot(device, width=self._width)
+                    if data:
+                        self._on_frame(data)
+            except Exception:
+                self.errors += 1
+            self._stop.wait(self._interval)

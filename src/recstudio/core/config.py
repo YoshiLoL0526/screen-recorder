@@ -20,6 +20,10 @@ PRESETS: dict[str, dict[str, int]] = {
 
 FPS_CHOICES = (15, 24, 30, 48, 60, 120)
 BACKENDS = (None, "wgc", "dxgi", "dxcam", "mss")
+CAMERA_SIZE_MIN = 160
+CAMERA_SIZE_MAX = 4096
+CAMERA_FPS_MIN = 5
+CAMERA_FPS_MAX = 120
 
 SourceKind = Literal["monitor", "window", "region"]
 
@@ -88,12 +92,48 @@ class AudioConfig:
 
 
 @dataclass(frozen=True)
+class CameraConfig:
+    """Webcam junto a la pantalla (docs/49): vídeo aparte y PiP automático en el editor.
+
+    `device_name` es el nombre DirectShow que devuelve `platform.camera.list_cameras()`.
+    Solo se valida cuando la cámara está activada: así una configuración antigua sin cámara
+    sigue siendo válida. Las dimensiones deben ser pares (H.264/yuv420p) y el fps, razonable.
+    """
+
+    enabled: bool = False
+    device_name: str | None = None
+    width: int = 1280
+    height: int = 720
+    fps: int = 30
+
+    def validate(self) -> "CameraConfig":
+        if not self.enabled:
+            return self
+        if not self.device_name or not str(self.device_name).strip():
+            raise ConfigError("cámara activada pero sin dispositivo: elige una cámara en Grabar")
+        for name, value in (("ancho", self.width), ("alto", self.height)):
+            if not CAMERA_SIZE_MIN <= int(value) <= CAMERA_SIZE_MAX:
+                raise ConfigError(
+                    f"{name} de cámara fuera de rango: {value} "
+                    f"({CAMERA_SIZE_MIN}…{CAMERA_SIZE_MAX})"
+                )
+            if int(value) % 2:
+                raise ConfigError(f"{name} de cámara debe ser par: {value}")
+        if not CAMERA_FPS_MIN <= int(self.fps) <= CAMERA_FPS_MAX:
+            raise ConfigError(
+                f"fps de cámara fuera de rango: {self.fps} ({CAMERA_FPS_MIN}…{CAMERA_FPS_MAX})"
+            )
+        return self
+
+
+@dataclass(frozen=True)
 class RecordingConfig:
     fps: int = 60
     preset: str = "media"
     encoder: str | None = None  # None = automático (nvenc → amf → qsv → libx264)
     source: SourceConfig = field(default_factory=SourceConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    camera: CameraConfig = field(default_factory=CameraConfig)
     max_size_gb: float | None = None
     min_free_disk_mb: int = 500
 
@@ -103,6 +143,7 @@ class RecordingConfig:
         if self.preset not in PRESETS:
             raise ConfigError(f"preset desconocido: {self.preset!r} (opciones: {tuple(PRESETS)})")
         self.source.validate()
+        self.camera.validate()
         if self.max_size_gb is not None and self.max_size_gb <= 0:
             raise ConfigError("max_size_gb debe ser positivo")
         return self

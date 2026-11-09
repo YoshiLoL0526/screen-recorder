@@ -30,6 +30,7 @@ import numpy as np
 from ..core.config import RecordingConfig
 from ..core.errors import CaptureError, DiskSpaceError, FfmpegError, RecStudioError
 from ..platform import audio as audio_mod
+from ..platform import camera as camera_mod
 from ..platform import capture as capture_mod
 from ..platform import cursor as cursor_mod
 from ..platform import ffmpeg as ffmpeg_mod
@@ -79,6 +80,7 @@ class RecordingStats:
     size_bytes: int = 0
     disk_free_mb: float = 0.0
     level: float = 0.0  # vúmetro: máximo de las pistas activas
+    camera_active: bool = False  # la webcam está grabando junto a la pantalla (docs/49)
     error: str | None = None
 
     def copy(self) -> "RecordingStats":
@@ -104,6 +106,8 @@ class RecordingResult:
     started_at: str
     ended_at: str
     warnings: list[str] = field(default_factory=list)
+    camera: Path | None = None  # `<nombre>-camara.mp4` (o .mkv si el remux falló)
+    camera_offset_s: float = 0.0  # t0_video − t0_cámara: desfase para el PiP automático
 
 
 class RecordingSession:
@@ -145,6 +149,16 @@ class RecordingSession:
         self._capture_thread: threading.Thread | None = None
         self._recorders: list[audio_mod.AudioRecorder] = []
         self._keepalive: audio_mod.SilenceKeepAlive | None = None
+        # Webcam (docs/49): vídeo aparte, nunca dentro del pipe de la pantalla.
+        self._camera: camera_mod.CameraRecorder | None = None
+        self._camera_track: camera_mod.CameraTrack | None = None
+        self._camera_temp = self.temp_dir / "camera.mkv"
+        self._camera_device = str(self.config.camera.device_name or "")
+        self._camera_started = False
+        self._camera_started_at: float | None = None
+        self._camera_offset = 0.0
+        self._camera_failed = False
+        self._camera_meta: dict | None = None
 
         self._size = (0, 0)
         self._crop: tuple[int, int, int, int] | None = None
@@ -171,6 +185,11 @@ class RecordingSession:
     @property
     def encoder_name(self) -> str:
         return self._encoder
+
+    @property
+    def camera_active(self) -> bool:
+        """La cámara arrancó y sigue viva (si falló, la grabación de pantalla continúa)."""
+        return self._camera is not None and self._camera.running
 
     @property
     def stopped_by_itself(self) -> bool:
@@ -228,9 +247,21 @@ class RecordingSession:
             self._stats.state = RecState.RECORDING.value
         self._event("recording", backend=self._backend_name, encoder=self._encoder)
 
-    def pause(self) -> None:
+    def pause(self) -> bool:
+        """Pausa el vídeo y el audio. Con cámara activa devuelve `False` y avisa.
+
+        La cámara es un proceso FFmpeg aparte: pausarla exigiría cerrar y concatenar segmentos
+        (con riesgo de desfase). Se elige la opción simple y honesta: no se pausa y se explica
+        en la UI; el usuario puede detener y volver a grabar (docs/49).
+        """
         if self._state is not RecState.RECORDING:
-            return
+            return False
+        if self.config.camera.enabled:
+            self._warn(
+                "la pausa no está disponible con la cámara activa: detén la grabación y vuelve "
+                "a empezar sin cámara si necesitas pausar"
+            )
+            return False
         self._paused.set()
         self._paused_at = time.perf_counter()
         for recorder in self._recorders:
@@ -239,6 +270,7 @@ class RecordingSession:
         with self._lock:
             self._stats.state = RecState.PAUSED.value
         self._event("paused")
+        return True
 
     def resume(self) -> None:
         if self._state is not RecState.PAUSED:
@@ -317,6 +349,12 @@ class RecordingSession:
         if self._keepalive is not None:
             self._keepalive.stop()
             self._keepalive = None
+        if self._camera is not None:
+            try:
+                self._camera_track = self._camera.stop()
+            except Exception:
+                self._camera_track = None
+            self._camera = None
         if self._backend is not None:
             self._backend.stop()
             self._backend = None
@@ -380,6 +418,7 @@ class RecordingSession:
             max_height=cfg.quality["max_height"],
         )
         self._proc = ffmpeg_mod.run_capture_process(cmd, self._stderr_path)
+        self._start_camera()
 
         if cfg.audio.any:
             if cfg.audio.system and cfg.audio.keepalive:
@@ -415,6 +454,47 @@ class RecordingSession:
                 raise CaptureError("la fuente de captura se cerró antes de empezar")
             time.sleep(0.01)
         raise CaptureError("no llegó ningún frame de la fuente en 6 s")
+
+    # -- webcam -----------------------------------------------------------------
+
+    def _start_camera(self) -> None:
+        """Arranca la cámara; si falla, avisa y sigue con la pantalla (nunca lanza)."""
+        cfg = self.config.camera
+        if not cfg.enabled:
+            return
+        try:
+            recorder = camera_mod.CameraRecorder(
+                cfg.device_name or "",
+                self._camera_temp,
+                width=cfg.width,
+                height=cfg.height,
+                fps=cfg.fps,
+                on_failure=self._camera_failure,
+            )
+            recorder.start()
+        except Exception as exc:  # hardware, permisos, FFmpeg…: la sesión sigue sin cámara
+            self._camera = None
+            self._camera_failed = True
+            detail = getattr(exc, "message", str(exc))
+            self._warn(
+                f"la cámara «{cfg.device_name}» no se pudo iniciar ({detail}); "
+                "se graba solo la pantalla"
+            )
+            return
+        self._camera = recorder
+        self._camera_started = True
+        self._camera_started_at = time.perf_counter()
+        self._camera_offset = 0.0  # se fija con el primer frame de pantalla
+        self._camera_failed = False
+        with self._lock:
+            self._stats.camera_active = True
+
+    def _camera_failure(self, message: str) -> None:
+        """Callback del vigilante de la cámara (hilo propio): solo avisa, no detiene nada."""
+        self._camera_failed = True
+        with self._lock:
+            self._stats.camera_active = False
+        self._warn(f"{message}; la grabación de pantalla continúa")
 
     # -- bucle de captura --------------------------------------------------------
 
@@ -478,6 +558,10 @@ class RecordingSession:
                 break
             if self._t0_video is None:
                 self._t0_video = time.perf_counter()
+                if self._camera_started_at is not None:
+                    # Positivo: la cámara lleva más tiempo grabando que la pantalla; el PiP
+                    # automático avanza `in_` ese desfase para alinear la cara (docs/49).
+                    self._camera_offset = round(self._t0_video - self._camera_started_at, 4)
                 # ya hay t0: guardar los offsets reales para una posible recuperación (al
                 # arrancar aún valían 0 y el MP4 recuperado salía desfasado ~200 ms)
                 self._write_session_json("recording", self._current_offsets())
@@ -496,6 +580,7 @@ class RecordingSession:
                     stats.elapsed_s = elapsed
                     stats.fps_real = stats.frames_sent / elapsed if elapsed > 0.5 else 0.0
                 stats.level = max((r.level for r in self._recorders), default=0.0)
+                stats.camera_active = self.camera_active
 
             now = time.perf_counter()
             if now - last_housekeeping >= 1.0:
@@ -608,6 +693,8 @@ class RecordingSession:
         if not has_thumb:
             thumbnail_path = None
 
+        camera_path = self._finalize_camera(out_mp4, exe)
+
         ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
         with self._lock:
             stats = self._stats.copy()
@@ -629,9 +716,66 @@ class RecordingSession:
             started_at=self.started_at,
             ended_at=ended_at,
             warnings=list(self._warnings),
+            camera=camera_path,
+            camera_offset_s=round(self._camera_offset, 4),
         )
         self._write_sidecar(result, stats)
         return result
+
+    def _finalize_camera(self, out_mp4: Path, exe: str) -> Path | None:
+        """MKV temporal de la cámara → `<nombre>-camara.mp4` junto al MP4 principal.
+
+        Si el remux `-c copy` falla, se conserva el MKV tal cual (es reproducible y no se pierde
+        la cara); si tampoco se puede copiar, se avisa y la grabación de pantalla sigue siendo
+        válida. La cámara **nunca** es un motivo para perder la grabación principal.
+        """
+        self._camera_meta = None
+        temp = self._camera_temp
+        try:
+            if not temp.is_file() or temp.stat().st_size == 0:
+                if self.config.camera.enabled and self._camera_started:
+                    self._warn("la cámara no dejó ningún archivo utilizable")
+                return None
+        except OSError:
+            return None
+
+        dest = self._unique_path(out_mp4.with_name(f"{out_mp4.stem}-camara.mp4"))
+        try:
+            proc = ffmpeg_mod.run(camera_mod.remux_cmd(exe, temp, dest), timeout=120)
+        except Exception as exc:
+            self._warn(f"no se pudo convertir el vídeo de la cámara: {exc}")
+            proc = None
+        if proc is None or proc.returncode != 0 or not dest.is_file() or dest.stat().st_size == 0:
+            fallback = self._unique_path(out_mp4.with_name(f"{out_mp4.stem}-camara.mkv"))
+            try:
+                shutil.copy2(temp, fallback)
+                dest = fallback
+            except OSError as exc:
+                self._warn(f"no se pudo guardar el vídeo de la cámara: {exc}")
+                return None
+
+        try:
+            info = ffmpeg_mod.probe_media(dest, exe)
+        except FfmpegError as exc:
+            self._warn(f"el vídeo de la cámara no se pudo validar: {exc.message}")
+            return None
+        if not info.video_codec or info.duration_s <= 0.05:
+            self._warn("el vídeo de la cámara quedó vacío")
+            return None
+
+        self._camera_meta = {
+            "file": dest.name,
+            "device": self._camera_device,
+            "width": info.width,
+            "height": info.height,
+            "fps": round(info.fps, 2),
+            "duration_s": round(info.duration_s, 3),
+            "size_bytes": info.size_bytes,
+            "offset_s": round(self._camera_offset, 4),
+        }
+        if self._camera_track is not None and self._camera_track.failed:
+            self._warn("la cámara se cortó antes de terminar; se conserva lo grabado")
+        return dest
 
     def _unique_path(self, path: Path) -> Path:
         if not path.exists():
@@ -653,6 +797,13 @@ class RecordingSession:
             "backend": self._backend_name,
             "size": list(self._size),
             "offsets": offsets,
+            "camera": {
+                "enabled": bool(self.config.camera.enabled),
+                "device": self._camera_device,
+                "offset_s": round(self._camera_offset, 4),
+                "file": self._camera_temp.name if self.config.camera.enabled else "",
+                "failed": self._camera_failed,
+            },
             "warnings": self._warnings,
         }
         try:
@@ -690,6 +841,7 @@ class RecordingSession:
                 for track in result.audio
             ],
             "cursor": self._cursor_mode,
+            "camera": self._camera_meta,
             "config": _config_to_dict(self.config),
             "stats": asdict(stats),
             "warnings": result.warnings,
@@ -707,6 +859,12 @@ class RecordingSession:
         try:
             if self._proc is not None:
                 self._close_ffmpeg()
+            if self._camera is not None:
+                try:
+                    self._camera_track = self._camera.stop()
+                except Exception:
+                    pass
+                self._camera = None
             if self._backend is not None:
                 self._backend.stop()
         except Exception:
@@ -753,6 +911,7 @@ def recover_session(
     offsets: dict[str, float] = {}
     started_at = time.strftime("%Y-%m-%d %H:%M:%S")
     config = RecordingConfig()
+    camera_data: dict = {}
     backend = "?"
     encoder = "?"
     if session_file.exists():
@@ -762,13 +921,14 @@ def recover_session(
             started_at = data.get("started_at", started_at)
             backend = data.get("backend", backend)
             encoder = data.get("encoder", encoder)
+            camera_data = data.get("camera") or {}
             raw = data.get("config") or {}
             config = RecordingConfig(
                 fps=int(raw.get("fps", config.fps)),
                 preset=str(raw.get("preset", config.preset)),
             )
         except (json.JSONDecodeError, OSError, TypeError, ValueError):
-            pass
+            camera_data = {}
 
     tracks: list[audio_mod.AudioTrack] = []
     for wav in sorted(temp_dir.glob("audio_*.wav")):
@@ -791,6 +951,14 @@ def recover_session(
     session.base_name = base_name or f"{session.base_name}"
     session._backend_name = backend
     session._encoder = encoder
+    # La recuperación conserva el desfase y el nombre del dispositivo para que el PiP
+    # automático del editor alinee la cara igual que en la grabación original (docs/49).
+    session._camera_device = str(camera_data.get("device") or "")
+    try:
+        session._camera_offset = float(camera_data.get("offset_s") or 0.0)
+    except (TypeError, ValueError):
+        session._camera_offset = 0.0
+    session._camera_failed = bool(camera_data.get("failed") or False)
     ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
     result = session._mux(tracks, offsets, recover=True)  # valida el MP4 o lanza
     result.started_at = started_at
