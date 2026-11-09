@@ -105,7 +105,8 @@ Animation("x", (
   - Suave al salir (`ease_out`);
   - Suave entrada/salida (`ease_in_out`).
 - El selector decide el easing de las **nuevas claves**; no hace falta seleccionar una clave
-  existente. Los botones «Clave X/Y/…» pasan el valor a `set_keyframe`.
+  existente. Los botones «Clave X/Y/…» y el modo «Añadir clave» del timeline
+  ([docs/42](42-claves-desde-timeline.md)) pasan el valor a `set_keyframe`.
 - Volver a grabar en el mismo instante actualiza el easing de esa clave (no crea duplicados).
 - `state.insp_easing` es un `Signal` de UI **no persistido**: no viaja al `.rsproj` y no cambia el
   esquema por sí solo.
@@ -121,9 +122,10 @@ Animation("x", (
 - El **color animado** de textos (`TextOverlay.color_keys`, [docs/36](36-color-tamano-textos.md))
   sigue interpolándose linealmente en sRGB; no es un `Animation`.
 - No hay editor gráfico de curvas ni Bézier libres: son cuatro curvas fijas por clave.
-- Las claves siguen siendo **explícitas** (no se graban al mover el playhead); el copiar/pegar
-  de claves llegó en [docs/41](41-copiar-pegar-claves.md) y las asas de animación en el timeline
-  en [docs/38](38-asas-animaciones.md).
+- Las claves siguen siendo **explícitas** (no se graban al mover el playhead): se crean desde el
+  inspector o con el modo «Añadir clave» del timeline ([docs/42](42-claves-desde-timeline.md)); el
+  copiar/pegar de claves llegó en [docs/41](41-copiar-pegar-claves.md) y las asas de animación en
+  el timeline en [docs/38](38-asas-animaciones.md).
 - El corte rápido sigue bloqueado por elementos/textos/efectos, como antes.
 
 ## Tests y verificación

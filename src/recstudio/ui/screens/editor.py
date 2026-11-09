@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from aurora import (
     box, button, color_picker, column, component, image, number_input, row, scroll, select,
-    spacer, text, text_input,
+    spacer, switch, text, text_input,
 )
 
 from ... import state
@@ -705,6 +705,7 @@ def _transition_controls(index: int | None):
 
 def _animation_controls(kind: str, item, channels, *, color_keys=None) -> object:
     """Sección de keyframes; el valor de la clave es el campo actual en el playhead."""
+    key_add = state.key_add_on()
     rows = [
         _row("Canal del timeline", select(
             state.keyframe_channel, list(channels), key=f"insp-{kind}-anim-channel",
@@ -750,12 +751,18 @@ def _animation_controls(kind: str, item, channels, *, color_keys=None) -> object
         "el campo. El easing elegido decide la curva de las nuevas claves y de los tramos que "
         "salen de ellas. El canal elegido se edita con asas sobre la barra del timeline."
     )
+    if key_add:
+        note += (
+            " Modo añadir clave activo: un clic en la barra del elemento/texto crea una clave "
+            "del canal en ese instante; Esc sale del modo."
+        )
     if kind in ("element", "text"):
         note += " Escala 1.0 = tamaño base; rotación en grados horarios."
     return section(
         "Animación",
         *rows,
         _row("Easing", select(state.insp_easing, _EASINGS, key="insp-easing")),
+        switch(state.key_add_on, "Añadir clave con clic (N)", key=f"insp-{kind}-key-add"),
         text(note, size=11, color="$muted", line_height=1.35),
         gap=8,
     )
@@ -1247,6 +1254,7 @@ def timeline_toolbar():
     zoom = state.tl_zoom()
     snap_on = state.snap_on()
     has_selection = state.selection() is not None
+    key_add = state.key_add_on()
     project = state.editor_project()
     start, end = tl.play_range(project)
     return row(gap=6, align="center", shrink=0)[
@@ -1287,10 +1295,12 @@ def timeline_toolbar():
                                        size=11, color="$primary", family="Consolas", max_lines=1, shrink=0),
         spacer(),
         text("Razor activa: clic para cortar · V o Esc para salir" if state.razor_on() else
+             "Añadir clave activa: clic en la barra del elemento/texto seleccionado · N o Esc "
+             "para salir" if key_add else
              "Env activa: clic en la waveform para añadir claves · arrastra los puntos · Supr borra"
              if state.env_edit_on() else
              "Arrastra clips y asas para mover/recortar · M/S/L en las cabeceras · la regla para moverte",
-             size=11, color="$primary" if state.razor_on() or state.env_edit_on() else "$muted",
+             size=11, color="$primary" if state.razor_on() or state.env_edit_on() or key_add else "$muted",
              max_lines=1),
     ]
 

@@ -12,9 +12,9 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 > **envolventes de volumen**, **escala/rotación de elementos**, **envolventes de audio de
 > elementos**, **escala/rotación de textos**, **color/tamaño de textos**, **edición de claves
 > de envolvente en el timeline**, **asas de animaciones visuales**, **easing de las claves** y
-> **easing de las envolventes de volumen** y **copiar/pegar de claves** (docs/27-41). Quedan las
-> comprobaciones manuales de A y la fase 4+. Los documentos 01-07 son la especificación de diseño;
-> 08-41 recogen lo implementado, con mediciones y bugs.
+> **easing de las envolventes de volumen**, **copiar/pegar de claves** y **añadir claves desde
+> el timeline** (docs/27-42). Quedan las comprobaciones manuales de A y la fase 4+. Los documentos
+> 01-07 son la especificación de diseño; 08-42 recogen lo implementado, con mediciones y bugs.
 
 ## Índice
 
@@ -61,6 +61,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 39 | [Easing de las claves](39-easing.md) | Curvas `linear`/`ease_in`/`ease_out`/`ease_in_out` por clave, expresiones FFmpeg, migración v12 → v13, selector del inspector y paridad preview/export. |
 | 40 | [Easing de las envolventes de volumen](40-easing-audio.md) | `VolumePoint.easing` en clips y elementos, curvas compartidas con `Animation`, expresiones FFmpeg, migración v13 → v14, selector del inspector y audio real. |
 | 41 | [Copiar y pegar claves](41-copiar-pegar-claves.md) | Portapapeles de claves visuales (valor/easing) y puntos de envolvente, pegado en el canal activo y el playhead, menús del asa, no-op con aviso y undo. |
+| 42 | [Añadir claves desde el timeline](42-claves-desde-timeline.md) | Modo `N`, clic sobre la barra del elemento/texto, valor base/interpolado, easing del inspector, undo por clic, indicadores y límites (modelo v14 sin cambios). |
 
 ## Orden de lectura sugerido
 

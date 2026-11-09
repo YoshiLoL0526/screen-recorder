@@ -21,7 +21,8 @@
 - **Clic sin mover** en un asa solo la selecciona (no crea undo).
 - **Supr** borra la clave seleccionada; el **menú contextual** del asa ofrece la misma acción.
 - Las claves nuevas y el borrado de todo el canal siguen en el inspector (**Clave …** y
-  **Quitar**), como hasta ahora.
+  **Quitar**), como hasta ahora. También se pueden crear con un clic sobre la barra usando el
+  modo de [docs/42](42-claves-desde-timeline.md) (**N**).
 - `Esc` cancela el arrastre en curso y devuelve el proyecto al estado anterior al gesto.
 
 ## Canales y geometría (`ui/timeline.py`)
@@ -79,8 +80,9 @@ keyframe_time(start, duration, x, zoom)           # inversa, acotada a 0…durac
 
 ## Límites
 
-- Solo se editan **claves existentes** desde el timeline; añadir una clave nueva se hace desde
-  el inspector (no hay modo «Añadir clave» como el modo Env de las envolventes).
+- Las claves existentes se editan desde el timeline; para **crear** una clave nueva está el
+  modo «Añadir clave» de [docs/42](42-claves-desde-timeline.md) (**N**): un clic sobre la barra
+  del elemento/texto crea la clave del canal elegido con el easing del inspector.
 - El copiar/pegar de claves (valor, easing y punto de envolvente) llegó en
   [docs/41](41-copiar-pegar-claves.md). No hay grabación automática al mover el playhead; el
   easing de una clave se elige en el inspector ([docs/39](39-easing.md)) y las envolventes de

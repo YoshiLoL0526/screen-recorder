@@ -77,8 +77,9 @@ explícito** y un menú nativo:
 ## Límites
 
 - Las claves de `Animation` (x/y/opacity/scale/rotation/size) tienen sus propias asas desde
-  [docs/38](38-asas-animaciones.md), con un selector de canal en el inspector; este documento
-  cubre solo `Clip.envelope` y `Element.envelope`.
+  [docs/38](38-asas-animaciones.md), con un selector de canal en el inspector y un modo para
+  crearlas con un clic desde [docs/42](42-claves-desde-timeline.md); este documento cubre solo
+  `Clip.envelope` y `Element.envelope`.
 - El copiar/pegar de claves y puntos de envolvente llegó en
   [docs/41](41-copiar-pegar-claves.md); aquí no se duplican puntos. Sigue sin haber «grabar
   automáticamente» al mover el playhead.

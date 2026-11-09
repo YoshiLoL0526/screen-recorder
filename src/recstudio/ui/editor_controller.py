@@ -189,6 +189,7 @@ class EditorController:
             return lambda value: None if self._closing.is_set() else fn(value)
 
         state.selection.subscribe(live(self._on_selection))
+        state.key_add_on.subscribe(live(self._on_key_add_mode))
         state.insp_speed.subscribe(live(self._on_insp_speed))
         state.insp_transition.subscribe(live(self._on_insp_transition))
         state.insp_transition_dur.subscribe(live(self._on_insp_transition_dur))
@@ -305,6 +306,18 @@ class EditorController:
         ):
             state.keyframe_key.set(None)
         self._sync_inspector()
+
+    def _on_key_add_mode(self, on: bool) -> None:
+        """El modo «añadir clave» es excluyente con razor, marquesina y Env (docs/42)."""
+        if not on:
+            return
+        state.razor_on.set(False)
+        state.marquee_on.set(False)
+        state.env_edit_on.set(False)
+        state.marquee.set(None)
+        selection = state.selection()
+        if selection is None or selection[0] not in ("element", "text"):
+            state.toast("info", "Selecciona un elemento o texto para añadir claves en el timeline")
 
     def _sync_inspector(self) -> None:
         """Lleva el modelo a los campos/selects del inspector (sus escuchas ignoran lo igual)."""
@@ -1058,6 +1071,7 @@ class EditorController:
         if state.marquee_on():
             state.razor_on.set(False)  # las herramientas son excluyentes
             state.env_edit_on.set(False)
+            state.key_add_on.set(False)
         else:
             state.marquee.set(None)
 
@@ -1067,6 +1081,7 @@ class EditorController:
         if state.razor_on():
             state.marquee_on.set(False)
             state.env_edit_on.set(False)
+            state.key_add_on.set(False)
             state.marquee.set(None)
 
     def toggle_envelope_edit(self) -> None:
@@ -1077,13 +1092,21 @@ class EditorController:
         if state.env_edit_on():
             state.razor_on.set(False)
             state.marquee_on.set(False)
+            state.key_add_on.set(False)
             state.marquee.set(None)
 
+    def toggle_key_add(self) -> None:
+        """Modo «añadir clave» (N): clic en la barra del elemento/texto crea una clave (docs/42)."""
+        if not state.project_open():
+            return
+        state.key_add_on.set(not state.key_add_on())
+
     def select_tool(self) -> None:
-        """V: vuelve a la herramienta normal (ni marquesina ni razor)."""
+        """V: vuelve a la herramienta normal (ni marquesina, ni razor, ni Env ni añadir clave)."""
         state.razor_on.set(False)
         state.marquee_on.set(False)
         state.env_edit_on.set(False)
+        state.key_add_on.set(False)
         state.marquee.set(None)
 
     def set_speed(self, speed: float) -> None:
@@ -2448,12 +2471,83 @@ class EditorController:
             "scope": scope, "id": item_id, "channel": channel, "index": int(index),
             "project": self.project, "points": animation.points, "start": start,
             "duration": duration, "t": point.t, "value": point.value,
+            "easing": point.easing,
             "current_t": point.t, "current_value": point.value,
             "animations": item.animations,
             "inner_h": max(1.0, float(row_height) - 4.0),
             "low": low, "high": high,
             "dx": 0.0, "dy": 0.0, "begun": False,
         }
+
+    def begin_keyframe_add(
+        self, scope: str, item_id: str, window_x: float, row_height: float = 0.0,
+    ) -> None:
+        """Modo «añadir clave» (N): crea o actualiza una clave en el instante pulsado (docs/42).
+
+        Solo actúa sobre la capa seleccionada y el canal activo. El valor es el interpolado en
+        ese instante (o la base de la capa si aún no hay animación) y el easing sale de
+        `state.insp_easing`. Si ya había una clave en ese instante se reemplaza. La clave queda
+        seleccionada y el mismo gesto puede arrastrarla; un clic sin movimiento deja **una**
+        entrada de undo (`añadir clave X`) y no mueve la capa.
+        """
+        if not self._guard_editable() or self.player.playing or not state.key_add_on():
+            return
+        selection = state.selection()
+        if selection is None or selection[0] != scope or selection[1] != item_id:
+            state.toast("warning", "Selecciona un elemento o texto para añadir claves")
+            return
+        self.cancel_drag()
+        channel = state.keyframe_channel()
+        ref = self._keyframe_ref(scope, item_id, channel)
+        if ref is None:
+            state.toast("warning", "Ese canal no se puede animar en esta capa")
+            return
+        item, start, duration, _animation = ref
+        if duration <= 0:
+            return
+        from .timeline import keyframe_time, keyframe_value_at
+
+        local = round(
+            keyframe_time(start, duration, self.content_x(window_x), max(1.0, state.tl_zoom())),
+            4,
+        )
+        value = keyframe_value_at(item, channel, local)
+        try:
+            animations = anim.set_keyframe(
+                item.animations, channel, local, value, easing=state.insp_easing(),
+            )
+        except ProjectError as exc:
+            state.toast("warning", exc.message)
+            return
+        updated = anim.find(animations, channel)
+        if updated is None:  # no debería ocurrir: `set_keyframe` siempre deja una animación
+            return
+        index = min(range(len(updated.points)), key=lambda i: abs(updated.points[i].t - local))
+        point = updated.points[index]
+        label = self._key_label(channel)
+        if animations == item.animations:
+            # Mismo instante, valor y easing: solo selecciona (sin undo), como las asas.
+            self.begin_keyframe_key_drag(scope, item_id, channel, index, row_height)
+            state.keyframe_key.set(state.KeyframeKey(scope, item_id, channel, point.t))
+            return
+        project = self._project_with_animations(self.project, scope, item_id, animations)
+        if project is None:
+            return
+        low, high = anim.channel_range(channel)
+        base = self.project
+        self.store.begin(f"añadir clave {label}")
+        self.store.update(project)
+        self._keyframe_drag = {
+            "scope": scope, "id": item_id, "channel": channel, "index": index,
+            "project": base, "points": updated.points, "start": start, "duration": duration,
+            "t": point.t, "value": point.value, "easing": point.easing,
+            "current_t": point.t, "current_value": point.value,
+            "animations": item.animations,
+            "inner_h": max(1.0, float(row_height) - 4.0),
+            "low": low, "high": high,
+            "dx": 0.0, "dy": 0.0, "begun": True, "add": True,
+        }
+        state.keyframe_key.set(state.KeyframeKey(scope, item_id, channel, point.t))
 
     def drag_keyframe_key(self, dx: float, dy: float) -> None:
         drag = self._keyframe_drag
@@ -2477,7 +2571,9 @@ class EditorController:
         span = float(drag["high"]) - float(drag["low"])
         value = float(drag["value"]) - float(dy) / drag["inner_h"] * span
         value = max(float(drag["low"]), min(float(drag["high"]), value))
-        point = anim.Keyframe(round(t, 4), round(value, 4))
+        point = anim.Keyframe(
+            round(t, 4), round(value, 4), drag.get("easing", "linear"),
+        )
         updated = (*points[:index], point, *points[index + 1:])
         animations = self._animations_with_points(
             drag["animations"], drag["channel"], updated,
@@ -2513,6 +2609,9 @@ class EditorController:
         if drag.get("begun"):
             self.store.cancel()
             self._sync_meta()
+        if drag.get("add"):
+            # La clave recién creada se ha revertido: su selección ya no existe.
+            state.keyframe_key.set(None)
         return True
 
     def select_keyframe_key(
@@ -4126,6 +4225,9 @@ class EditorController:
         if e.matches("escape"):
             if self.cancel_drag():
                 return True
+            if state.key_add_on():
+                state.key_add_on.set(False)  # Esc también sale del modo «añadir clave» (docs/42)
+                return True
             if state.envelope_key() is not None:
                 state.envelope_key.set(None)
                 return True
@@ -4228,6 +4330,7 @@ class EditorController:
             ("j", lambda: self.shuttle(-1)), ("k", self.stop_shuttle), ("l", lambda: self.shuttle(1)),
             ("q", lambda: self.trim_to_playhead("start")), ("w", lambda: self.trim_to_playhead("end")),
             ("c", self.toggle_razor), ("v", self.select_tool), ("e", self.toggle_envelope_edit),
+            ("n", self.toggle_key_add),
         ):
             if e.matches(combo):
                 action()
@@ -4416,6 +4519,7 @@ class EditorController:
         state.multi_selection.set(frozenset())
         state.marquee.set(None)
         state.env_edit_on.set(False)
+        state.key_add_on.set(False)
         state.envelope_key.set(None)
         state.keyframe_key.set(None)
         state.project_path.set(str(path) if path else "")
@@ -4747,6 +4851,7 @@ class EditorController:
                 state.multi_selection.set(frozenset())
                 state.marquee.set(None)
                 state.env_edit_on.set(False)
+                state.key_add_on.set(False)
                 state.envelope_key.set(None)
                 state.keyframe_key.set(None)
                 state.posters.set({})

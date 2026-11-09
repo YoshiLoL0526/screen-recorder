@@ -16,8 +16,9 @@
 > el **color/tamaño de textos** ([36](36-color-tamano-textos.md)), la **edición de claves de
 > envolvente en el timeline** ([37](37-editor-claves.md)), las **asas de animaciones visuales**
 > ([38](38-asas-animaciones.md)), el **easing de las animaciones y de las envolventes de audio**
-> ([39](39-easing.md) y [40](40-easing-audio.md)) y el **copiar/pegar de claves**
-> ([41](41-copiar-pegar-claves.md)).
+> ([39](39-easing.md) y [40](40-easing-audio.md)), el **copiar/pegar de claves**
+> ([41](41-copiar-pegar-claves.md)) y el **modo para añadir claves desde el timeline**
+> ([42](42-claves-desde-timeline.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -441,7 +442,8 @@ Resultados y decisiones completas en [38 — Asas de animaciones](38-asas-animac
   gesto (`mover clave …`); `Esc` cancela. Clic sin mover solo selecciona; `Supr`/menú contextual
   borran la clave y **Quitar** del inspector sigue borrando el canal entero.
 - **Límite**: no hay modo para añadir claves desde el timeline ni copiar/pegar; las asas solo
-  aparecen con la capa seleccionada y el canal con claves.
+  aparecen con la capa seleccionada y el canal con claves. El modo para añadir llegó en B29
+  ([docs/42](42-claves-desde-timeline.md)).
 - Tests nuevos en `test_animation_handles`; **513 tests** en verde (505 + 8).
 
 ### B26 - Easing de las claves de animación (✅ · S)
@@ -498,9 +500,30 @@ Resultados y decisiones completas en [41 — Copiar y pegar claves](41-copiar-pe
   aviso. En audio se reemplaza/inserta el punto en el clip o video superpuesto seleccionado.
 - **Undo**: `pegar clave X` o `pegar punto de volumen`, una entrada por pegado; los no-op no abren
   transacción. Claves y clips comparten un único portapapeles lógico (gana el último copiado).
-- **Límite**: no crea claves nuevas desde el timeline, no convierte valores entre canales y deja
-  fuera el color animado de textos. El easing de las envolventes se eligió en B27.
+- **Límite**: no convierte valores entre canales y deja fuera el color animado de textos. El
+  easing de las envolventes se eligió en B27 y crear claves desde el timeline llegó en B29.
 - Tests nuevos en `test_key_clipboard`; **531 tests** en verde en su rama (520 + 11).
+
+### B29 - Añadir claves de animación desde el timeline (✅ · S)
+
+Resultados y decisiones completas en [42 — Claves desde el timeline](42-claves-desde-timeline.md).
+
+- **Sin cambios de modelo** (`SCHEMA_VERSION=14`): se reutilizan `Element.animations`,
+  `TextOverlay.animations`, `animation.set_keyframe` y `Animation.value_at`.
+- **Modo «Añadir clave con clic»** (`state.key_add_on`, no persistido): switch en la sección
+  Animación del inspector y tecla **N** (libre). Excluyente con razor, marquesina y Env; `Esc`
+  cancela el gesto y, sin gesto, sale del modo.
+- **Clic sobre la barra** del elemento/texto seleccionado: tiempo local con
+  `keyframe_time`, valor interpolado o base (`keyframe_default`/`keyframe_value_at`) y easing
+  de `state.insp_easing`. Si ya hay clave en ese instante, la actualiza; la clave queda
+  seleccionada y una sola entrada de undo (`añadir clave X`). El clic no mueve la capa.
+- **Indicador**: barra rosa con cursor de cruz, zona translúcida `anim-add-*`, texto en la barra
+  del timeline y en el inspector.
+- **Límite**: solo canales de `Animation` de elementos/textos; el color de textos y las
+  envolventes de audio siguen por sus caminos; no hay grabación automática. El copiar/pegar
+  llegó en B28.
+- Tests nuevos en `test_key_add_mode`; **526 tests** en verde en su rama.
+- Tras integrar las tres ramas: **545 tests** en verde.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

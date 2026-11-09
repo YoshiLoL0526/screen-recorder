@@ -217,6 +217,7 @@ marquee_on = Signal(False)  # herramienta de selección activa (B3); excluyente 
 razor_on = Signal(False)  # herramienta razor (C): un clic corta donde se pulsa (fase 3)
 env_edit_on = Signal(False)  # modo envolvente (E): clic en la waveform añade claves (docs/37)
 envelope_key = Signal(None)  # state.EnvelopeKey | None: clave seleccionada en el timeline
+key_add_on = Signal(False)  # modo «añadir clave» (N): clic en la barra crea una clave (docs/42)
 keyframe_channel = Signal("x")  # canal de Animation con asas en el timeline (docs/38)
 keyframe_key = Signal(None)  # state.KeyframeKey | None: clave de animación seleccionada
 loop_on = Signal(False)  # loop de reproducción del rango In/Out (o de todo el timeline)

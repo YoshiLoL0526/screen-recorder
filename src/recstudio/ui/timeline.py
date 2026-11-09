@@ -361,6 +361,25 @@ def keyframe_time(start: float, duration: float, x: float, zoom: float) -> float
     return envelope_time(start, duration, x, zoom)
 
 
+def keyframe_default(item, channel: str) -> float:  # noqa: ANN001
+    """Valor base de un canal de animación de un elemento/texto (docs/42).
+
+    Los canales derivados no viven en el modelo: `scale` empieza en 1.0 y `rotation` usa la
+    rotación base de la capa (0.0 en textos, que no tienen campo). El resto (`x`, `y`, `opacity`
+    y `size`) es el campo homónimo del elemento/texto.
+    """
+    if channel == "scale":
+        return 1.0
+    if channel == "rotation":
+        return float(getattr(item, "rotation", 0.0))
+    return float(getattr(item, channel))
+
+
+def keyframe_value_at(item, channel: str, t: float) -> float:  # noqa: ANN001
+    """Valor actual del canal en `t` local: interpolado o su base si aún no hay claves."""
+    return anim.value_at(item.animations, channel, float(t), keyframe_default(item, channel))
+
+
 def keyframe_value_y(top: float, height: float, channel: str, value: float) -> float:
     """`y` del contenido para un valor del canal de animación dentro de una fila.
 
@@ -596,6 +615,31 @@ def _keyframe_boxes(
     return boxes
 
 
+def _keyframe_add_box(
+    item, scope: str, start: float, row, zoom: float, x0: float, x1: float,
+):  # noqa: ANN001, ANN202
+    """Zona translúcida de «añadir clave» sobre la barra del elemento/texto (docs/42).
+
+    Ocupa la barra entera del elemento/texto seleccionado y va antes que las asas en la capa:
+    las asas siguen ganando el clic para arrastrar una clave existente. Sin la capa (o con el
+    modo apagado) el gesto no existe y la barra se comporta como siempre.
+    """
+    duration = float(item.end - item.start)
+    x, w = start * zoom, max(4.0, duration * zoom)
+    if duration <= 0 or x > x1 or x + w < x0:
+        return None
+    top, height = row.top + 2, row.height - 4
+    label = "Modo añadir clave: clic para crear una clave del canal elegido"
+    return box(
+        key=f"anim-add-{scope}-{item.id}", position="absolute", left=x, top=top,
+        width=w, height=height, radius=4, bg="#FF6EC70D", border_width=1,
+        border_color="#FF6EC766", cursor="crosshair",
+        tooltip=label + " · arrastra para colocarla",
+        label=label,
+        on_drag=_keyframe_add_drag(scope, item.id, row.height),
+    )
+
+
 def _clip_meta(clip, *, offline: bool) -> str:
     """Segunda línea de un clip (duración + velocidad + efectos); la comparten canvas y overlay."""
     meta = tl.format_time(clip.duration)
@@ -649,6 +693,7 @@ def _element_boxes(
             (selection is not None and selection[0] == "element" and selection[1] == item.id)
             or item.id in multi
         )
+        adding = state.key_add_on() and selected
         if item.kind == "video":
             try:
                 label = project.asset(item.asset_id or "").name
@@ -671,11 +716,13 @@ def _element_boxes(
             box(
                 key=f"tl-element-{item.id}", position="absolute", left=x,
                 top=row.top + 2, width=w, height=row.height - 4, radius=4,
-                bg=color + "33", border_width=1.5 if selected else 1,
-                border_color=color if selected else color + "66", cursor="grab",
+                bg=ANIMATION_COLOR + "22" if adding else color + "33",
+                border_width=2 if adding else (1.5 if selected else 1),
+                border_color=ANIMATION_COLOR if adding else (color if selected else color + "66"),
+                cursor="crosshair" if adding else "grab",
                 padding=(2, 6),
-                tooltip=tooltip,
-                label=f"Capa {track}: {label}",
+                tooltip=tooltip + (" · modo añadir clave (N)" if adding else ""),
+                label=f"Capa {track}: {label}" + (" · añadir clave" if adding else ""),
                 on_drag=_overlay_drag("element", item.id, "move"),
             )[
                 box(key=f"tl-trim-l-{item.id}", position="absolute", left=0, top=0, width=6,
@@ -1181,6 +1228,24 @@ def _envelope_key_click(scope: str, item_id: str, track_index: int, t: float):
     return handler
 
 
+def _keyframe_add_drag(scope: str, item_id: str, height: float):
+    """Clic/arrastre en la barra en modo «añadir clave»: crea la clave y la deja arrastrable."""
+
+    def handler(e) -> None:  # noqa: ANN001
+        editor = _editor()
+        if editor is None:
+            return
+        if e.phase == "start":
+            editor.begin_keyframe_add(scope, item_id, e.x, height)
+        elif e.phase == "move":
+            editor.drag_keyframe_key(e.dx, e.dy)
+        else:
+            editor.drag_keyframe_key(e.dx, e.dy)
+            editor.end_keyframe_key_drag()
+
+    return handler
+
+
 def _keyframe_key_drag(scope: str, item_id: str, channel: str, index: int, height: float):
     """Arrastra un asa de animación; el primer movimiento abre la transacción (docs/38)."""
 
@@ -1347,6 +1412,7 @@ def timeline_layer():
                     continue
                 color = "#38D6B0" if item.subtitle else "#F5B851"
                 selected = selection is not None and selection[0] == "text" and selection[1] == item.id
+                adding = state.key_add_on() and selected
                 label = item.text
                 if selected:
                     label = f"{label} · {item.start:.2f}–{item.end:.2f}s"
@@ -1356,11 +1422,14 @@ def timeline_layer():
                     box(
                         key=f"tl-text-{item.id}", position="absolute", left=x,
                         top=row.top + 2, width=w, height=row.height - 4, radius=4,
-                        bg=color + "33", border_width=1.5 if selected else 1,
-                        border_color=color if selected else color + "66", cursor="grab",
+                        bg=ANIMATION_COLOR + "22" if adding else color + "33",
+                        border_width=2 if adding else (1.5 if selected else 1),
+                        border_color=ANIMATION_COLOR if adding else (color if selected else color + "66"),
+                        cursor="crosshair" if adding else "grab",
                         padding=(2, 6),
-                        tooltip=f"Texto: {tl.format_time(item.start)}–{tl.format_time(item.end)}",
-                        label=f"Capa {label}",
+                        tooltip=f"Texto: {tl.format_time(item.start)}–{tl.format_time(item.end)}"
+                                + (" · modo añadir clave (N)" if adding else ""),
+                        label=f"Capa {label}" + (" · añadir clave" if adding else ""),
                         on_drag=_overlay_drag("text", item.id, "move"),
                     )[
                         box(key=f"tl-trim-l-{item.id}", position="absolute", left=0, top=0, width=6,
@@ -1561,10 +1630,11 @@ def _selected_envelope_boxes(
 def _selected_keyframe_boxes(
     project: Project, selection, lay: Tracks, zoom: float, x0: float, x1: float,
 ):  # noqa: ANN001
-    """Asas de animación del elemento/texto seleccionado (docs/38).
+    """Asas de animación y zona de añadir del elemento/texto seleccionado (docs/38 y docs/42).
 
     Van en su propia capa **encima del playhead**, igual que las de las envolventes: la línea
-    de 2 px del playhead bloquearía el centro de un asa en ese instante.
+    de 2 px del playhead bloquearía el centro de un asa en ese instante. La zona de añadir va
+    primero para que un asa existente siga ganando su propio clic.
     """
     if selection is None or state.razor_on():
         return []
@@ -1572,13 +1642,20 @@ def _selected_keyframe_boxes(
     if target is None:
         return []
     item, scope, row = target
-    return _keyframe_boxes(item, scope, float(item.start), row, zoom, x0, x1)
+    boxes = []
+    if state.key_add_on():
+        add = _keyframe_add_box(item, scope, float(item.start), row, zoom, x0, x1)
+        if add is not None:
+            boxes.append(add)
+    boxes.extend(_keyframe_boxes(item, scope, float(item.start), row, zoom, x0, x1))
+    return boxes
 
 
 @component
 def animation_handles_layer():
     state.keyframe_channel()  # dependencias: canal y clave seleccionada repintan las asas
     state.keyframe_key()
+    state.key_add_on()  # el modo añadir muestra/oculta la zona de la barra (docs/42)
     project: Project = state.editor_project()
     selection = state.selection()
     zoom = state.tl_zoom()
