@@ -1213,7 +1213,7 @@ def add_text(
     p: Project, text: str, start: float, duration: float = 3.0, *,
     x: float = 0.5, y: float = 0.82, size: int = 42, color: str = "#FFFFFF",
     bold: bool = False, opacity: float = 1.0, subtitle: bool = False,
-    animations: tuple = (), color_keys: tuple = (),
+    animations: tuple = (), color_keys: tuple = (), wrap_width: float = 0.0,
 ) -> tuple[Project, TextOverlay]:
     """Añade un texto en `start` (acotado al timeline) y devuelve `(proyecto, overlay)`."""
     total = total_duration(p)
@@ -1229,6 +1229,7 @@ def add_text(
         id=new_id("t"), text=str(text), start=round(start, 4), end=round(end, 4),
         x=x, y=y, size=int(size), color=color, bold=bold,
         opacity=opacity, subtitle=subtitle, animations=animations, color_keys=color_keys,
+        wrap_width=wrap_width,
     )
     return replace(p, texts=(*p.texts, overlay)), overlay
 
@@ -1238,12 +1239,16 @@ def update_text(p: Project, text_id: str, **changes) -> Project:  # noqa: ANN003
     current = p.text(text_id)
     allowed = {
         "text", "start", "end", "x", "y", "size", "color", "bold",
-        "opacity", "subtitle", "animations", "color_keys",
+        "opacity", "subtitle", "animations", "color_keys", "wrap_width",
     }
     unknown = set(changes) - allowed
     if unknown:
         raise ProjectError(f"campos de texto desconocidos: {', '.join(sorted(unknown))}")
-    overlay = replace(current, **{k: (int(v) if k == "size" else v) for k, v in changes.items()})
+    converted = {
+        k: (int(v) if k == "size" else float(v) if k == "wrap_width" else v)
+        for k, v in changes.items()
+    }
+    overlay = replace(current, **converted)
     total = total_duration(p)
     if overlay.end > total + 1e-6 or overlay.start < 0:
         raise ProjectError("el texto se sale del timeline")

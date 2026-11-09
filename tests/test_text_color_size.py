@@ -125,7 +125,7 @@ def test_color_keys_round_trip_y_migracion_v11_a_v12(tmp_path: Path) -> None:
         video=Track("video", (Clip("c1", "a", 0.0, 4.0),)),
         texts=(overlay,), width=WIDTH, height=HEIGHT, fps=30,
     ).validate()
-    assert SCHEMA_VERSION == 14
+    assert SCHEMA_VERSION == 15
     data = json.loads(json.dumps(to_dict(project)))
     assert data["texts"][0]["color_keys"] == [
         {"t": 0.0, "color": RED},

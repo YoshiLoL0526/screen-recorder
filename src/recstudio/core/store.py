@@ -253,6 +253,8 @@ def migrate(data: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         data = _migrate_v12_v13(data)
     if version < 14:
         data = _migrate_v13_v14(data)
+    if version < 15:
+        data = _migrate_v14_v15(data)
     data = {**data, "schema_version": SCHEMA_VERSION}
     return data, False
 
@@ -412,6 +414,15 @@ def _migrate_v13_v14(data: dict[str, Any]) -> dict[str, Any]:
 
     Los puntos de `Clip.envelope` y `Element.envelope` no tenían `easing`; `from_dict` los deja
     en `"linear"`, así que la curva y el sonido son exactamente los de antes.
+    """
+    return {**data}
+
+
+def _migrate_v14_v15(data: dict[str, Any]) -> dict[str, Any]:
+    """v14 → v15: texto multilínea con ancho máximo (docs/45).
+
+    Los textos antiguos no tenían `wrap_width`; `from_dict` lo deja en `0.0` (sin límite), así
+    que se dibujan en una línea exactamente como antes. No hay nada que reescribir.
     """
     return {**data}
 

@@ -54,6 +54,8 @@ TextOverlay(..., animations=(...))
 - **Textos**: `timeline.text_values(overlay, t)` devuelve `(x, y, opacity, scale, rotation)`;
   `_draw_texts` aplica posición y opacidad sobre una capa RGBA y, si hay escala/rotación, usa
   `text_rgba` para rasterizar el texto transformado ([docs/35](35-textos-escala-rotacion.md)).
+  Los textos multilínea usan la misma rasterización con todas las líneas
+  ([docs/45](45-texto-multilinea.md)).
 - La interpolación es la misma función que usa el export, así que no hay dos fórmulas.
 
 ## Export
@@ -64,7 +66,8 @@ TextOverlay(..., animations=(...))
   ```
 - **Textos**: `drawtext` usa `x='...'`, `y='...'` y `alpha='...'` con la misma expresión (tiempo
   global; la clave local 0 equivale a `start`). Si el texto tiene escala o rotación, se hornea a
-  un vídeo RGBA y X/Y pasan a expresiones de `overlay` ([docs/35](35-textos-escala-rotacion.md)).
+  un vídeo RGBA y X/Y pasan a expresiones de `overlay` ([docs/35](35-textos-escala-rotacion.md));
+  los textos multilínea también se hornean ([docs/45](45-texto-multilinea.md)).
 - Sin animación, las cadenas son **las de siempre** (los golden de textos y elementos no cambian).
 - La expresión se acota en los extremos y se evalúa por frame; verificado con export real de
   posición de un PiP y de opacidad de un texto.
@@ -90,7 +93,8 @@ TextOverlay(..., animations=(...))
 - No hay animación de **color** en elementos ni de la transformación de un clip de V1. Los
   textos añadieron color y tamaño en [docs/36](36-color-tamano-textos.md); los elementos
   ampliaron los canales con **escala y rotación** en [docs/33](33-escala-rotacion.md) y los
-  textos en [docs/35](35-textos-escala-rotacion.md).
+  textos en [docs/35](35-textos-escala-rotacion.md). El ajuste multilínea es independiente de
+  los canales ([docs/45](45-texto-multilinea.md)).
 - Hay cuatro easings fijos por clave ([docs/39](39-easing.md)); no hay curvas Bézier libres ni
   copiar/pegar claves.
 - Las claves son **explícitas**: no hay modo «grabar automáticamente al mover el playhead».

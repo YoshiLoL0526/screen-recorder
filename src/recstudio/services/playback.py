@@ -37,6 +37,7 @@ from ..core import elements as el
 from ..core import global_effects
 from ..core import graph as graph_mod
 from ..core import overlays
+from ..core import text_layout
 from ..core import timeline as tl
 from ..core import transform as tx
 from ..core.color import apply_eq
@@ -342,64 +343,120 @@ def text_font(bold: bool, size: int):
 _TEXT_STROKE = 2.0  # px de contorno a la altura del proyecto (igual que `drawtext`)
 
 
-def _text_layout(overlay, t: float, frame_size: tuple[int, int], project_height: int):  # noqa: ANN001, ANN202
-    """Métricas compartidas por el preview y el bake de export (docs/35 y docs/36).
+@dataclass(frozen=True)
+class _TextMetrics:
+    """Métricas de un texto en `t`, ya con sus líneas y el bloque centrado en `(x, y)`."""
 
-    Devuelve `(x, y, opacity, font, border, (left, top, width, height), rotation, color)` o
-    `None` si el texto no se ve en `t`. `left/top` son la caja de la fuente respecto al centro;
-    la imagen aislada se dibuja desplazada `(-left, -top)`. El tamaño y el color salen de
-    `timeline.text_style_values` (keyframes de tamaño y claves de color incluidos).
+    x: float
+    y: float
+    opacity: float
+    font: object
+    border: int
+    left: int
+    top: int
+    width: int
+    height: int
+    rotation: float
+    color: str
+    lines: tuple[str, ...]
+    offsets: tuple[float, ...]
+
+
+def _line_bbox(font, line: str, border: int) -> tuple[float, float, float, float]:  # noqa: ANN001
+    try:
+        return font.getbbox(line, anchor="mm", stroke_width=border)
+    except (AttributeError, TypeError, ValueError):
+        return font.getbbox(line)
+
+
+def _text_layout(  # noqa: ANN001, ANN202
+    overlay, t: float, frame_size: tuple[int, int], project_height: int,
+    project_width: int | None = None,
+) -> _TextMetrics | None:
+    """Métricas compartidas por el preview y el bake de export (docs/35, docs/36 y docs/45).
+
+    Devuelve las líneas ajustadas con `core.text_layout.wrap_text` (mismo corte en preview y
+    export), la fuente efectiva y el bloque que las engloba. `left/top` son la caja del bloque
+    respecto a su centro; la imagen aislada se dibuja desplazada `(-left, -top)`. El tamaño y el
+    color salen de `timeline.text_style_values` (keyframes de tamaño y claves de color incluidos).
     """
     x, y, opacity, value_scale, rotation = tl.text_values(overlay, t)
     if opacity <= 1e-4:
         return None
+    frame_w = max(1, int(frame_size[0]))
     frame_h = max(1, int(frame_size[1]))
     project_h = max(1, int(project_height))
+    if project_width is None or project_width <= 0:
+        project_w = max(1, int(round(frame_w * project_h / frame_h)))
+    else:
+        project_w = max(1, int(project_width))
     style_size, color = tl.text_style_values(overlay, t)
     size = max(8, int(round(style_size * frame_h / project_h * value_scale)))
     font = _font(overlay.bold, size)
     border = max(1, int(round(_TEXT_STROKE * frame_h / project_h)))
-    try:
-        left, top, right, bottom = font.getbbox(overlay.text, anchor="mm", stroke_width=border)
-    except (AttributeError, TypeError, ValueError):
-        left, top, right, bottom = font.getbbox(overlay.text)
+    lines = (
+        text_layout.wrap_text(
+            overlay.text, size=style_size * value_scale, wrap_width=overlay.wrap_width,
+            project_width=project_w,
+        )
+        if text_layout.breaks_lines(overlay)
+        else (overlay.text,)
+    ) or (overlay.text,)
+    step = max(1.0, float(size) * text_layout.LINE_HEIGHT)
+    offsets = tuple((index - (len(lines) - 1) / 2.0) * step for index in range(len(lines)))
+    boxes = [_line_bbox(font, line, border) for line in lines]
+    lefts = [box[0] for box in boxes]
+    tops = [box[1] + offset for box, offset in zip(boxes, offsets)]
+    rights = [box[2] for box in boxes]
+    bottoms = [box[3] + offset for box, offset in zip(boxes, offsets)]
+    left, top = min(lefts), min(tops)
+    right, bottom = max(rights), max(bottoms)
     width = max(1, int(round(right - left)))
     height = max(1, int(round(bottom - top)))
-    return x, y, opacity, font, border, (int(left), int(top), width, height), rotation, color
+    return _TextMetrics(
+        x=x, y=y, opacity=opacity, font=font, border=border,
+        left=int(left), top=int(top), width=width, height=height,
+        rotation=rotation, color=color, lines=lines, offsets=offsets,
+    )
 
 
 def text_extent(
     overlay, t: float, frame_size: tuple[int, int], *, project_height: int,  # noqa: ANN001
+    project_width: int | None = None,
 ) -> tuple[int, int]:
     """Tamaño del texto ya rotado en `t` (lienzo que necesita el bake)."""
-    metrics = _text_layout(overlay, t, frame_size, project_height)
+    metrics = _text_layout(overlay, t, frame_size, project_height, project_width)
     if metrics is None:
         return (1, 1)
-    _x, _y, _opacity, _font, _border, (left, top, width, height), rotation, _color = metrics
-    return el.rotated_size(width, height, rotation)
+    return el.rotated_size(metrics.width, metrics.height, metrics.rotation)
 
 
 def text_rgba(
     overlay, t: float, frame_size: tuple[int, int], *, project_height: int,  # noqa: ANN001
+    project_width: int | None = None,
 ):
-    """Texto RGBA aislado con escala, rotación, tamaño, color y opacidad horneados (docs/35/36).
+    """Texto RGBA aislado con líneas, escala, rotación, tamaño, color y opacidad (docs/35/36/45).
 
-    Es la única rasterización del texto transformado: la usan el preview y el bake del export,
-    así que ambos ven exactamente los mismos píxeles (salvo la codificación del intermedio).
+    Es la única rasterización del texto transformado o envuelto: la usan el preview y el bake
+    del export, así que ambos ven exactamente los mismos píxeles (salvo la codificación del
+    intermedio).
     """
     from PIL import Image, ImageColor, ImageDraw
 
-    metrics = _text_layout(overlay, t, frame_size, project_height)
+    metrics = _text_layout(overlay, t, frame_size, project_height, project_width)
     if metrics is None:
         return None
-    _x, _y, opacity, font, border, (left, top, width, height), rotation, color = metrics
-    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    image = Image.new("RGBA", (metrics.width, metrics.height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    red, green, blue = ImageColor.getrgb(color)
-    alpha = max(0, min(255, int(round(opacity * 255))))
-    draw.text((-left, -top), overlay.text, font=font, fill=(red, green, blue, alpha),
-              anchor="mm", stroke_width=border, stroke_fill=(0, 0, 0, alpha))
-    return overlays.rotate_rgba(image, rotation)
+    red, green, blue = ImageColor.getrgb(metrics.color)
+    alpha = max(0, min(255, int(round(metrics.opacity * 255))))
+    for line, offset in zip(metrics.lines, metrics.offsets):
+        draw.text(
+            (-metrics.left, offset - metrics.top), line, font=metrics.font,
+            fill=(red, green, blue, alpha), anchor="mm", stroke_width=metrics.border,
+            stroke_fill=(0, 0, 0, alpha),
+        )
+    return overlays.rotate_rgba(image, metrics.rotation)
 
 
 def _composite_clipped(layer, image, left: int, top: int) -> None:  # noqa: ANN001
@@ -427,31 +484,35 @@ def _draw_texts(project: Project, t: float, rgb: np.ndarray) -> np.ndarray:
     draw = ImageDraw.Draw(layer)
     frame_size = base.size
     for overlay in active:
-        metrics = _text_layout(overlay, t, frame_size, project.height)
+        metrics = _text_layout(overlay, t, frame_size, project.height, project.width)
         if metrics is None:
             continue
-        x, y, opacity, font, border, _box, _rotation, color = metrics
-        cx, cy = x * base.width, y * base.height
+        cx, cy = metrics.x * base.width, metrics.y * base.height
         if (anim.is_animated(overlay.animations, "scale")
                 or anim.is_animated(overlay.animations, "rotation")
                 or anim.is_animated(overlay.animations, "size")
-                or bool(overlay.color_keys)):
-            # Tamaño y color animados comparten la rasterización del bake (docs/36); así el
-            # preview y el export no tienen dos implementaciones del mismo estilo.
-            image = text_rgba(overlay, t, frame_size, project_height=project.height)
+                or bool(overlay.color_keys)
+                or text_layout.breaks_lines(overlay)):
+            # Tamaño/color animados y textos multilínea comparten la rasterización del bake
+            # (docs/36 y docs/45); así el preview y el export no tienen dos implementaciones.
+            image = text_rgba(
+                overlay, t, frame_size, project_height=project.height,
+                project_width=project.width,
+            )
             if image is None:
                 continue
             _composite_clipped(
                 layer, image, int(round(cx - image.width / 2)), int(round(cy - image.height / 2)),
             )
             continue
-        red, green, blue = ImageColor.getrgb(color)
-        alpha = max(0, min(255, int(round(opacity * 255))))
+        red, green, blue = ImageColor.getrgb(metrics.color)
+        alpha = max(0, min(255, int(round(metrics.opacity * 255))))
         # Mismo contorno que `drawtext` (borderw=2) para que el preview no mienta: antes se
         # dibujaba una sombra desplazada que el export no tenía. La capa RGBA permite animar
         # la opacidad sin alterar el resto del frame.
-        draw.text((cx, cy), overlay.text, font=font, fill=(red, green, blue, alpha), anchor="mm",
-                  stroke_width=border, stroke_fill=(0, 0, 0, alpha))
+        draw.text((cx, cy), overlay.text, font=metrics.font, fill=(red, green, blue, alpha),
+                  anchor="mm", stroke_width=metrics.border,
+                  stroke_fill=(0, 0, 0, alpha))
     return np.asarray(Image.alpha_composite(base, layer).convert("RGB"))
 
 

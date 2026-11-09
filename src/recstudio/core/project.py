@@ -25,9 +25,10 @@ from typing import Any, Literal
 from . import animation as anim
 from . import audio_envelope as env
 from . import text_color as tc
+from . import text_layout
 from .errors import ProjectError
 
-SCHEMA_VERSION = 14  # v14: easing de las claves de volumen (docs/40)
+SCHEMA_VERSION = 15  # v15: ancho máximo y texto multilínea (docs/45)
 FPS_CHOICES = (24, 30, 60)
 SPEED_MIN, SPEED_MAX = 0.25, 4.0
 TRANSITION_MIN, TRANSITION_MAX = 0.2, 2.0
@@ -130,7 +131,11 @@ class Transition:
 
 @dataclass(frozen=True)
 class TextOverlay:
-    """Texto quemado sobre el video (B2). `x`/`y` son el **centro** en fracciones del frame."""
+    """Texto quemado sobre el video (B2). `x`/`y` son el **centro** en fracciones del frame.
+
+    `wrap_width` (v15, docs/45) limita el ancho del bloque como fracción del lienzo; `0` deja
+    el texto sin ajuste automático (una línea salvo `\\n` explícitos).
+    """
 
     id: str
     text: str
@@ -145,6 +150,7 @@ class TextOverlay:
     subtitle: bool = False  # v9: cue importada de SRT/VTT (docs/30)
     animations: tuple[anim.Animation, ...] = ()  # v9: x, y, opacity (docs/31); escala/rotación/tamaño (docs/35 y docs/36)
     color_keys: tuple[tc.ColorKeyframe, ...] = ()  # v12: color animado (docs/36)
+    wrap_width: float = 0.0  # v15: ancho máximo como fracción del lienzo (0 = sin límite; docs/45)
 
     def __post_init__(self) -> None:
         if not self.text.strip():
@@ -159,6 +165,17 @@ class TextOverlay:
             raise ProjectError(f"texto {self.id}: color inválido ({self.color!r})")
         if not math.isfinite(float(self.opacity)) or not 0.0 <= self.opacity <= 1.0:
             raise ProjectError(f"texto {self.id}: opacidad fuera de [0, 1] ({self.opacity})")
+        try:
+            wrap_width = float(self.wrap_width)
+        except (TypeError, ValueError) as exc:
+            raise ProjectError(f"texto {self.id}: ancho máximo inválido ({self.wrap_width!r})") from exc
+        if not math.isfinite(wrap_width) or not 0.0 <= wrap_width <= 1.0:
+            raise ProjectError(f"texto {self.id}: ancho máximo fuera de [0, 1] ({wrap_width})")
+        if 0.0 < wrap_width < text_layout.TEXT_WRAP_MIN:
+            raise ProjectError(
+                f"texto {self.id}: el ancho máximo debe ser 0 o al menos "
+                f"{text_layout.TEXT_WRAP_MIN} ({wrap_width})"
+            )
         anim.validate(self.animations, anim.TEXT_CHANNELS)
         tc.validate(self.color_keys)
 
@@ -649,6 +666,7 @@ def to_dict(project: Project) -> dict[str, Any]:
                 "opacity": t.opacity, "subtitle": t.subtitle,
                 "animations": [animation_dict(a) for a in t.animations],
                 "color_keys": [{"t": key.t, "color": key.color} for key in t.color_keys],
+                "wrap_width": t.wrap_width,
             }
             for t in project.texts
         ],
@@ -782,6 +800,7 @@ def from_dict(data: dict[str, Any]) -> Project:
                     tc.ColorKeyframe(t=float(key["t"]), color=str(key["color"]))
                     for key in t.get("color_keys", ())
                 ),
+                wrap_width=float(t.get("wrap_width", 0.0)),
             )
             for t in data.get("texts", ())
         )

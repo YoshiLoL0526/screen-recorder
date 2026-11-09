@@ -18,7 +18,8 @@
 > ([38](38-asas-animaciones.md)), el **easing de las animaciones y de las envolventes de audio**
 > ([39](39-easing.md) y [40](40-easing-audio.md)), el **copiar/pegar de claves**
 > ([41](41-copiar-pegar-claves.md)) y el **modo para añadir claves desde el timeline**
-> ([42](42-claves-desde-timeline.md)).
+> ([42](42-claves-desde-timeline.md)), y el **texto multilínea con ancho máximo**
+> ([45](45-texto-multilinea.md)).
 > Este documento es la **fuente de verdad de lo que queda**; [06](06-roadmap.md) conserva las fases
 > F0–F5, sus criterios de aceptación y la tabla de riesgos (R1–R11), a los que aquí se hace
 > referencia.
@@ -524,6 +525,27 @@ Resultados y decisiones completas en [42 — Claves desde el timeline](42-claves
   llegó en B28.
 - Tests nuevos en `test_key_add_mode`; **526 tests** en verde en su rama.
 - Tras integrar las tres ramas: **545 tests** en verde.
+
+### B32 - Texto multilínea con ancho máximo (✅ · M)
+
+Resultados y decisiones completas en [45 — Texto multilínea](45-texto-multilinea.md).
+
+- **Modelo v15**: `TextOverlay.wrap_width: float = 0.0` (fracción del ancho del lienzo; `0` = sin
+  límite, mínimo `0.1` si es mayor que cero). Serialización, `from_dict`, `add_text`/`update_text`
+  y migración v14 → v15 no-op.
+- **Wrap puro** (`core/text_layout.py`): `wrap_text(text, *, size, wrap_width, project_width)`
+  respeta `\n`, colapsa espacios, parte por palabras y rompe palabras largas sin PIL.
+- **Preview**: `_draw_texts`/`text_rgba` dibujan todas las líneas centradas con interlineado
+  `1.15 × size` y el bloque centrado en `(x, y)`; `text_box` cubre el bloque completo.
+- **Export**: `needs_bake` incluye `wrap_width > 0` (y `\n`); el texto se hornea a RGBA con PIL
+  aunque no tenga animaciones y conserva el orden de `Project.texts`. Los textos de una línea
+  sin wrap mantienen `drawtext` byte a byte.
+- **UI**: campo **Ancho máx.** (`insp-text-wrap`) en el inspector; los valores inválidos se
+  normalizan a `0` o `0.1` sin romper el proyecto. Los subtítulos importados quedan en
+  `wrap_width=0.0`.
+- **Límite**: el ancho es una estimación de Arial compartida por preview y export; el
+  interlineado y la alineación son fijos y el campo del inspector sigue siendo de una línea.
+- Tests nuevos en `test_text_multiline`; **555 tests** en verde en su rama.
 
 > Las herramientas del editor que aún faltan (composición avanzada y export) se analizan en
 > [18 — Herramientas del editor](18-herramientas-editor.md). **Lo siguiente de la fase 4** es

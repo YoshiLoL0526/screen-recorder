@@ -27,7 +27,9 @@
 - `timeline.text_style_values(overlay, t) -> (size, color)`; `text_values` conserva su firma de
   cinco valores.
 - `services.text_animation.needs_bake(overlay)` incluye `size` y `color_keys`; el graph usa la
-  misma condición (`anim.TEXT_BAKE_CHANNELS` + `color_keys`).
+  misma condición (`anim.TEXT_BAKE_CHANNELS` + `color_keys`). Desde [docs/45](45-texto-multilinea.md)
+  también devuelve `True` para textos con `wrap_width > 0` o `\n`, que se hornean aunque no
+  tengan animaciones.
 - Claves de UI estables: `insp-text-key-size`, `insp-text-clear-size`, `insp-text-key-color` e
   `insp-text-clear-color`.
 
@@ -133,7 +135,8 @@ los textos con `size`, `scale`, `rotation` o `color_keys` se **hornean** igual q
   usa el easing de [docs/39](39-easing.md). Las claves son explícitas: no se graban al mover el
   playhead.
 - Un subtítulo con color/tamaño animado se hornea entero; el `.mov` sin pérdidas puede ser grande
-  y la preparación es CPU (PIL), aunque se borra con el temporal del export.
+  y la preparación es CPU (PIL), aunque se borra con el temporal del export. Lo mismo ocurre con
+  los textos envueltos ([docs/45](45-texto-multilinea.md)).
 - El corte rápido sigue bloqueado por `Project.texts`, como cualquier superposición.
 - La exportación SRT no incluye animaciones (solo tiempos y texto).
 

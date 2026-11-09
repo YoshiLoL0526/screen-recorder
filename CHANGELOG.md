@@ -7,6 +7,13 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Texto multilínea con ancho máximo** (docs/45; modelo v15 con migración v14 → v15 no-op):
+  `TextOverlay.wrap_width` (fracción del lienzo; `0` = sin límite, mínimo `0.1`), helper puro
+  `core.text_layout.wrap_text` (respeta `\n`, colapsa espacios, parte por palabras y rompe
+  palabras largas sin PIL), preview con todas las líneas centradas e interlineado `1.15 × size`,
+  caja de selección del bloque completo y campo **Ancho máx.** en el inspector. Los textos
+  envueltos se hornean a RGBA para garantizar la paridad preview/export aunque no tengan
+  animaciones; los de una línea sin wrap conservan `drawtext`.
 - **Easing de las envolventes de volumen** (docs/40; modelo v14 con migración v13 → v14):
   `VolumePoint.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) en `Clip.envelope` y
   `Element.envelope`, con la curva de la clave izquierda compartida por `value_at` y las
