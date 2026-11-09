@@ -43,7 +43,9 @@ y la **edición de claves de envolvente en el timeline** (asas sobre la waveform
 y undo por gesto; `docs/37`), las **asas de animaciones visuales** (selector de canal en el
 inspector, polilínea y asas sobre la barra de elementos/textos; `docs/38`) y el **easing de las
 claves de animación** (`Keyframe.easing`, curvas cúbicas en preview/export y selector del
-inspector; modelo **v13**, `docs/39`).
+inspector; modelo **v13**, `docs/39`), y el **easing de las envolventes de volumen**
+(`VolumePoint.easing`, las mismas curvas en preview/export y selector en las dos secciones de
+envolvente; modelo **v14**, `docs/40`).
 Lo siguiente es el resto de
 la fase 4 (más composición y export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y
 bloque C).
@@ -52,7 +54,7 @@ bloque C).
 
 ```bash
 uv sync                                         # entorno (Python 3.12, ver .python-version)
-uv run pytest                                   # 520 tests; la integración usa FFmpeg real
+uv run pytest                                   # 528 tests; la integración usa FFmpeg real
 uv run aurora check main.py                    # construye y pinta un frame: errores + avisos de layout
 uv run aurora tree main.py                     # árbol pintado en texto y avisos (texto, tamaño, nombres)
 uv run aurora docs <tema>                      # referencia de la versión instalada (button, pilot…)
@@ -106,8 +108,9 @@ depender de monitor, GPU ni audio reales del runner.
   animado** de textos es un modelo aparte (`core/text_color.py`, `TextOverlay.color_keys`) y
   también se hornea. No hay animación de color en elementos ni clips. Las **envolventes de
   volumen** (`core/audio_envelope.py`, `Clip.envelope` y `Element.envelope`) son un modelo
-  aparte: ganancias 0…4 en tiempo local al clip/elemento, `volume=…:eval=frame` en el export y
-  preview por `build_audio` (docs/32 y docs/34).
+  aparte: ganancias 0…4 en tiempo local al clip/elemento, easing por clave (`linear`, `ease_in`,
+  `ease_out`, `ease_in_out`; docs/40), `volume=…:eval=frame` en el export y preview por
+  `build_audio` (docs/32 y docs/34).
 - La UI nunca bloquea: nada de IO/subprocess en handlers. Lo asíncrono comunica por `Signal`
   (único canal cross-thread) o `app.spawn()`. Todo el estado de la app vive en
   `src/recstudio/state.py`.
@@ -232,19 +235,23 @@ depender de monitor, GPU ni audio reales del runner.
   `text_style_values` devuelve `(size, color)` aparte para no cambiar esa firma;
   `format_srt` exporta solo `subtitle=True`. `TextOverlay` es de una línea (los cues multilínea
   se unen con espacios).
-- Envolventes de volumen (docs/32 y docs/34): `Clip.envelope` y `Element.envelope` son
+- Envolventes de volumen (docs/32, docs/34 y docs/40): `Clip.envelope` y `Element.envelope` son
   independientes de `Animation`; sus claves son locales al clip/elemento (0…duración) y la
-  ganancia 0…4. El export añade `volume=volume='<expr>':eval=frame` **después** del volumen
-  estático, así que la curva multiplica; en un clip entrante con transición la expresión usa
-  `start=-skip` para alinear el tramo audible y en un elemento usa `start=0` (la fuente se lee
-  desde su `in_`; el `adelay` va después de la curva). Sin envolvente la cadena no cambia. El
-  preview usa `build_audio` si hay audio de elemento o `graph.has_audio_envelope` (WAV cacheado
-  con el proyecto entero). El corte rápido se bloquea. Las claves se editan en el timeline con
-  asas (`docs/37`): capa aparte **encima del playhead** (su línea de 2 px bloquearía el centro de
-  un asa en ese instante), `dx`/`dy` = tiempo/ganancia, modo **Env** (`E`) para añadir con un clic
+  ganancia 0…4. Cada clave tiene `easing` (el de la clave izquierda aplica al tramo) y `expr`
+  reutiliza `animation.ease`/`_curve_expr`: `linear` conserva la cadena histórica byte a byte.
+  El export añade `volume=volume='<expr>':eval=frame` **después** del volumen estático, así que
+  la curva multiplica; en un clip entrante con transición la expresión usa `start=-skip` para
+  alinear el tramo audible y en un elemento usa `start=0` (la fuente se lee desde su `in_`; el
+  `adelay` va después de la curva). Sin envolvente la cadena no cambia. El preview usa
+  `build_audio` si hay audio de elemento o `graph.has_audio_envelope` (WAV cacheado con el
+  proyecto entero). El corte rápido se bloquea. Las claves se editan en el timeline con asas
+  (`docs/37`): capa aparte **encima del playhead** (su línea de 2 px bloquearía el centro de un
+  asa en ese instante), `dx`/`dy` = tiempo/ganancia, modo **Env** (`E`) para añadir con un clic
   y `Supr`/menú para borrar; la transacción empieza en el primer movimiento (`begun=False`). En
   las barras de elemento se dibujan solo asas (sin polilínea). El audio de un elemento con gain 0
-  sigue en silencio aunque tenga curva.
+  sigue en silencio aunque tenga curva. El selector **Easing** (`state.insp_env_easing`, no
+  persistido) decide las claves nuevas (también las del modo Env) y regrabar el mismo instante
+  actualiza el easing; arrastrar un asa lo conserva.
 - Asas de animaciones visuales (docs/38): `state.keyframe_channel` elige el canal (no se
   persiste) y `state.keyframe_key` la clave seleccionada; el controlador corrige el canal al
   cambiar entre elemento y texto. La polilínea se pinta en el canvas (`_draw_animation_curve`) y
@@ -319,7 +326,7 @@ depender de monitor, GPU ni audio reales del runner.
   de audio de elementos (modelo v11), `docs/35` la escala/rotación de textos, `docs/36` el color y
   tamaño animados de textos (modelo v12), `docs/37` la edición de claves de envolvente en el
   timeline, `docs/38` las asas de animaciones visuales y `docs/39` el easing de las claves de
-  animación (modelo v13).
+  animación (modelo v13); `docs/40` el easing de las envolventes de volumen (modelo v14).
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

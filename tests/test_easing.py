@@ -97,7 +97,7 @@ def test_serializacion_easing_y_migracion_v12_v13(tmp_path: Path) -> None:
             ),
         ),
     )
-    assert SCHEMA_VERSION == 13
+    assert SCHEMA_VERSION == 14
     data = json.loads(json.dumps(to_dict(project)))
     points = data["texts"][0]["animations"][0]["points"]
     assert [point["easing"] for point in points] == ["ease_in", "ease_in_out"]
@@ -109,7 +109,7 @@ def test_serializacion_easing_y_migracion_v12_v13(tmp_path: Path) -> None:
     for point in old["texts"][0]["animations"][0]["points"]:
         point.pop("easing")
     migrated, read_only = store.migrate(old)
-    assert read_only is False and migrated["schema_version"] == 13
+    assert read_only is False and migrated["schema_version"] == 14
     restored = from_dict(migrated)
     assert [point.easing for point in restored.texts[0].animations[0].points] == [
         "linear", "linear",

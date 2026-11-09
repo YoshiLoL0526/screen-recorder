@@ -80,8 +80,10 @@ explícito** y un menú nativo:
   [docs/38](38-asas-animaciones.md), con un selector de canal en el inspector; este documento
   cubre solo `Clip.envelope` y `Element.envelope`.
 - No hay copiar/pegar claves ni «grabar automáticamente» al mover el playhead.
-- La interpolación de las envolventes de audio sigue siendo **lineal** y la ganancia se acota a
-  0…4; el easing de [docs/39](39-easing.md) es solo de `Animation`.
+- La interpolación de las envolventes de audio usa el easing de la clave izquierda
+  (`linear`, `ease_in`, `ease_out`, `ease_in_out`; [docs/40](40-easing-audio.md)). El selector
+  **Easing** del inspector decide el de las claves nuevas, incluidas las que se crean en modo
+  Env; arrastrar una clave conserva el easing que ya tenía. La ganancia se acota a 0…4.
 - Si la pista está bloqueada, el clip no muestra asas; con la razor activa se ocultan para no
   mezclar gestos. El modo Env no cambia el bloqueo ni el modo lectura.
 - Cambiar la velocidad de un clip no reescala las claves (tiempos locales al timeline del clip),
@@ -99,7 +101,9 @@ explícito** y un menú nativo:
   - **pilot**: modo Env añade una clave en la waveform, queda seleccionada y `Supr` la borra;
   - clic en un asa sin mover solo selecciona (no crea undo);
   - **pilot**: asas de un clip de audio y de un elemento de video (barra sin waveform).
-- `uv run pytest -q`: **505 passed** (496 en la rama aislada, antes de integrar docs/36).
+- `tests/test_audio_envelope_easing.py` (8): el easing por clave de [docs/40](40-easing-audio.md)
+  se aplica también a las claves añadidas con el modo Env y se conserva al arrastrarlas.
+- `uv run pytest -q`: **505 passed** (496 en la rama aislada, antes de integrar docs/36; hoy 528).
 - `uv run aurora check main.py`: OK; `uv run aurora tree main.py`: sin avisos de layout.
 - `git diff --check`: limpio.
 - Export/preview: la feature solo edita el modelo; `tests/test_audio_envelope.py` y
@@ -117,5 +121,5 @@ explícito** y un menú nativo:
 - `src/recstudio/ui/screens/editor.py` (botón Env, ayuda contextual y textos del inspector).
 - `src/recstudio/ui/icons.py` (icono de envolvente).
 - `tests/test_envelope_handles.py`.
-- `docs/37-editor-claves.md`, `docs/15`, `docs/32`, `docs/34`, `docs/README.md`, `CHANGELOG.md`
-  y `AGENTS.md`.
+- `docs/37-editor-claves.md`, `docs/15`, `docs/32`, `docs/34`, `docs/README.md`, `CHANGELOG.md`,
+  `AGENTS.md` y `docs/40-easing-audio.md`.

@@ -7,12 +7,17 @@ detalle de cada fase está en `docs/08`–`docs/16`.
 ## [Sin publicar]
 
 ### Añadido
+- **Easing de las envolventes de volumen** (docs/40; modelo v14 con migración v13 → v14):
+  `VolumePoint.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) en `Clip.envelope` y
+  `Element.envelope`, con la curva de la clave izquierda compartida por `value_at` y las
+  expresiones FFmpeg. Selector **Easing** en las dos secciones de envolvente del inspector
+  (decide las claves nuevas y no se persiste); preview/export con la misma curva y la rama
+  lineal byte a byte. Las claves arrastradas conservan su easing.
 - **Easing de las claves de animación** (docs/39; modelo v13 con migración v12 → v13):
   `Keyframe.easing` (`linear`, `ease_in`, `ease_out`, `ease_in_out`) con curvas cúbicas
   compartidas por `value_at` y las expresiones de FFmpeg, selector **Easing** en la sección
   Animación del inspector (decide las nuevas claves y no se persiste) y paridad preview/export,
-  incluidos los canales horneados. Las claves lineales conservan las cadenas históricas; las
-  envolventes de audio y el color animado de textos siguen lineales.
+  incluidos los canales horneados. Las claves lineales conservan las cadenas históricas.
 - **Asas de animaciones visuales en el timeline** (docs/38; modelo v12 sin cambios): selector de
   canal en el inspector, polilínea y asas arrastrables sobre la barra de un elemento/texto para
   `x`, `y`, `opacity`, `scale`, `rotation` y `size`. `dx` mueve el tiempo local y `dy` el valor

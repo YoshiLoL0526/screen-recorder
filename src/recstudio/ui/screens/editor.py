@@ -606,6 +606,7 @@ def _envelope_controls(clip, *, active: bool = True):
     count = len(clip.envelope)
     return section(
         "Envolvente de volumen",
+        _row("Easing", select(state.insp_env_easing, _EASINGS, key="insp-env-easing")),
         row(gap=8, align="center")[
             text(
                 f"{count} clave{'s' if count != 1 else ''}" if count else "Sin claves",
@@ -627,8 +628,10 @@ def _envelope_controls(clip, *, active: bool = True):
         text("La clave usa el volumen actual del clip en el playhead. La curva multiplica el "
              "volumen del clip y de la pista: 1.0 deja el sonido como está y 0 lo silencia.",
              size=11, color="$muted", line_height=1.35),
-        text("En el timeline: arrastra los puntos para cambiar tiempo y ganancia; activa «Env» (E) "
-             "y haz clic en la waveform para añadir una clave; Supr borra la seleccionada.",
+        text("El easing decide el tramo de las nuevas claves (el de la clave izquierda); vuelve "
+             "a grabar en el mismo instante para cambiarlo. En el timeline: arrastra los puntos "
+             "para cambiar tiempo y ganancia; activa «Env» (E) y haz clic en la waveform para "
+             "añadir una clave; Supr borra la seleccionada.",
              size=11, color="$muted", line_height=1.35),
         gap=8,
     )
@@ -639,6 +642,7 @@ def _element_envelope_controls(element):
     count = len(element.envelope)
     return section(
         "Envolvente de volumen",
+        _row("Easing", select(state.insp_env_easing, _EASINGS, key="insp-el-env-easing")),
         row(gap=8, align="center")[
             text(
                 f"{count} clave{'s' if count != 1 else ''}" if count else "Sin claves",
@@ -656,8 +660,10 @@ def _element_envelope_controls(element):
         text("La clave usa el volumen actual del elemento en el playhead. La curva multiplica "
              "su volumen: 1.0 deja el sonido como está y 0 lo silencia.",
              size=11, color="$muted", line_height=1.35),
-        text("En el timeline: arrastra los puntos de la barra; activa «Env» (E) y haz clic en la "
-             "barra para añadir una clave; Supr borra la seleccionada.",
+        text("El easing decide el tramo de las nuevas claves (el de la clave izquierda); vuelve "
+             "a grabar en el mismo instante para cambiarlo. En el timeline: arrastra los puntos "
+             "de la barra; activa «Env» (E) y haz clic en la barra para añadir una clave; Supr "
+             "borra la seleccionada.",
              size=11, color="$muted", line_height=1.35),
         gap=8,
     )
