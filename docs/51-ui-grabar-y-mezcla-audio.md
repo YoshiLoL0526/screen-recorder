@@ -86,7 +86,9 @@ Dos fallos independientes en `platform/ffmpeg.py:mux_cmd()`:
 
 - `tests/test_ui_layout.py` (16 tests, nuevo): cada `source_kind`, tres tamaños de ventana,
   cámara + pistas separadas, y 24 filas sintéticas con scroll hasta la última. Con el layout
-  anterior fallaban 8.
+  anterior fallaban 8. El fixture dobla también la enumeración de monitores, audio, cámaras y
+  encoders: `Controller.boot()` la hace en un hilo y, sin doblarla, publicaba el hardware real
+  después de que el test fijara el suyo (en un runner sin cámara, `sel-camera` desaparecía).
 - `tests/test_audio_sync.py` (9 tests, nuevo): WAV sintéticos + FFmpeg real, mide dónde caen los
   clics (≤ 10 ms) y cuánto satura la mezcla; cubre desfases de signo distinto, dos positivos, dos
   negativos, deriva + retardo, punta a punta por `RecordingSession._mux` y el modo separado.

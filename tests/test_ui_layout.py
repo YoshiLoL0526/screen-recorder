@@ -20,11 +20,16 @@ from pathlib import Path
 import pytest
 
 from recstudio import state
+from recstudio.platform import audio as audio_mod
+from recstudio.platform import camera as camera_mod
+from recstudio.platform import ffmpeg as ffmpeg_mod
 from recstudio.platform import paths
+from recstudio.platform import screens as screens_mod
 from recstudio.platform.audio import AudioDevice
 from recstudio.platform.camera import CameraDevice
 from recstudio.platform.screens import MonitorInfo
 from recstudio.services import library
+from recstudio.services import preview as preview_mod
 from recstudio.services.library import Recording
 from recstudio.ui.screens.record import PANEL_PAD, PANEL_W
 
@@ -63,6 +68,17 @@ def ui(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # que el test y el listado es determinista (no depende de las grabaciones del equipo).
     monkeypatch.setattr(library, "list_recordings", lambda out_dir: list(_fake_recordings(24)))
     monkeypatch.setattr(library, "list_recoverable", lambda: [])
+    # `Controller.boot()` enumera monitores, dispositivos de audio, cámaras y encoders en un
+    # hilo (`_load_system_info`). Si no se doblan también esas funciones, el hilo publica el
+    # hardware real **después** de que el test fije el suyo (carrera): en un runner sin cámara,
+    # `sel-camera` desaparece y el test falla según quién llegue antes. Doblándolas, el hilo
+    # publica exactamente lo mismo que el test y nada toca hardware.
+    monkeypatch.setattr(screens_mod, "list_monitors", lambda: MONITORS)
+    monkeypatch.setattr(audio_mod, "list_devices", lambda: [MIC])
+    monkeypatch.setattr(camera_mod, "list_cameras", lambda **_kwargs: (CAMERA,))
+    monkeypatch.setattr(camera_mod, "capture_snapshot", lambda *_a, **_k: None)
+    monkeypatch.setattr(preview_mod.CameraPreviewLoop, "start", lambda self: None)
+    monkeypatch.setattr(ffmpeg_mod, "probe_encoders", lambda: {"h264_nvenc": True})
     from recstudio.app import build_app
 
     app, controller = build_app(size=(1280, 800))
