@@ -267,7 +267,7 @@ def capture_cmd(
 class MuxTrack:
     """Pista de audio para el mux con su desfase respecto al primer frame de video.
 
-    `offset_s` > 0: el audio arrancó después (se retrasa con `-itsoffset`).
+    `offset_s` > 0: el audio arrancó después (se retrasa con `adelay`).
     `offset_s` < 0: arrancó antes (se recorta con `atrim`).
     `drift_ppm` ≠ 0: corrección del reloj del dispositivo medida durante la grabación
     (`asetrate` con la tasa corregida; el pitch cambia ~0.009 %, inaudible).
@@ -290,12 +290,24 @@ def mux_cmd(
 ) -> list[str]:
     """Mux final: video copiado + audio AAC 48 kHz, con desfases compensados.
 
+    Los desfases se aplican **dentro** del filter graph: `atrim` si la pista arrancó antes que
+    el primer frame y `adelay` si arrancó después. No se usa `-itsoffset` como opción de
+    entrada: medido en FFmpeg 7.1, ese desfase no sobrevive al `amix` (las pistas se mezclan
+    alineadas por su propio inicio, los clics de dos pistas con desfase distinto acaban
+    encima, y con una pista retrasada el bloque entero se adelanta), así que el micrófono
+    sonaba solapado y desfasado respecto al sistema — ver docs/03.
+
     El audio pasa siempre por `aresample=async=1000`, que rellena huecos de timestamp (pausas
     largas, callbacks perdidos) y remuestrea a 48 kHz. OJO: `async` **no** corrige la deriva
     continua del reloj del dispositivo (F1: ~90 ppm ⇒ ~53 ms/10 min), porque los timestamps de
     cada archivo son internamente coherentes. Esa deriva se corrige por pista con
     `MuxTrack.drift_ppm` (medida por regresión al parar): `asetrate` a la tasa real del
     dispositivo y `aresample` de vuelta a la nominal — ver docs/11.
+
+    La mezcla va con `normalize=1`: el `amix` por defecto reparte la ganancia entre las pistas
+    activas, así que dos fuentes fuertes (o la misma voz capturada por el micrófono y por el
+    loopback) ya no suman por encima de 0 dBFS y no saturan; con `normalize=0` la mezcla
+    recortaba (picos ~+6 dB) y sonaba pisada.
 
     `mix=False` es el modo de **pistas separadas** (docs/50): solo entra la **primera** pista
     (el sistema) y el micrófono se guarda como WAV hermano. Se filtran las demás antes de abrir
@@ -308,16 +320,17 @@ def mux_cmd(
     labels: list[str] = []
 
     for i, track in enumerate(tracks, start=1):
-        if track.offset_s > 0.0005:
-            args += ["-itsoffset", f"{track.offset_s:.3f}"]
         args += ["-i", str(track.path)]
         steps: list[str] = []
         if track.offset_s < -0.0005:
-            steps.append(f"atrim=start={abs(track.offset_s):.3f},asetpts=PTS-STARTPTS")
+            steps += [f"atrim=start={abs(track.offset_s):.3f}", "asetpts=PTS-STARTPTS"]
         if track.rate and abs(track.drift_ppm) >= 5.0:
             corrected = round(track.rate * (1.0 + track.drift_ppm / 1e6))
             steps.append(f"asetrate={corrected}")       # acorta/alarga según el reloj real
             steps.append(f"aresample={track.rate}")     # vuelve a la tasa nominal (pre-amix)
+        if track.offset_s > 0.0005:
+            # en ms y después de la deriva: el retardo es tiempo real de la pista ya corregida
+            steps.append(f"adelay={max(1, round(track.offset_s * 1000))}:all=1")
         if steps:
             chains.append(f"[{i}:a]{','.join(steps)}[t{i}]")
             labels.append(f"[t{i}]")
@@ -327,10 +340,10 @@ def mux_cmd(
     if not tracks:
         args += ["-map", "0:v", "-an"]
     else:
-        if len(tracks) == 1 or not mix:  # una sola pista, o modo "separadas" (entra la primera)
+        if len(tracks) == 1:  # una sola pista (o modo «separadas», que deja solo la primera)
             source = labels[0]
         else:
-            chains.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=0:duration=longest[amixout]")
+            chains.append("".join(labels) + f"amix=inputs={len(labels)}:normalize=1:duration=longest[amixout]")
             source = "[amixout]"
         chains.append(f"{source}aresample=async=1000[aout]")
         args += ["-map", "0:v", "-map", "[aout]"]

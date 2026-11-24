@@ -43,14 +43,14 @@ def test_encoder_args_por_familia() -> None:
         F.encoder_args("h265_magic", cq=1, crf=1)
 
 
-def test_mux_offset_positivo_usa_itsoffset() -> None:
+def test_mux_offset_positivo_usa_adelay() -> None:
+    # `-itsoffset` (opción de entrada) no sobrevive al `amix`: el retardo va en el filter graph.
     cmd = F.mux_cmd(
         "ff", video="v.mkv", tracks=[F.MuxTrack(Path("a.wav"), 0.250)], out_path="o.mp4", duration_s=10.0
     )
-    itso = cmd.index("-itsoffset")
-    assert cmd[itso + 1] == "0.250"
-    assert cmd.index("a.wav") > itso  # el offset precede a su entrada
+    assert "-itsoffset" not in cmd
     chain = cmd[cmd.index("-filter_complex") + 1]
+    assert "adelay=250:all=1" in chain
     assert "aresample=async=1000" in chain and "[aout]" in chain  # anti-deriva del reloj
     assert cmd[cmd.index("-t") + 1] == "10.000"
     assert "-c:v" in cmd and cmd[cmd.index("-c:v") + 1] == "copy"
@@ -63,6 +63,7 @@ def test_mux_offset_negativo_usa_atrim() -> None:
     assert "-itsoffset" not in cmd
     chain = cmd[cmd.index("-filter_complex") + 1]
     assert "atrim=start=0.100" in chain
+    assert "adelay" not in chain
     assert "aresample=async=1000" in chain
     assert cmd[cmd.index("-map") + 1] == "0:v"
 
@@ -74,8 +75,11 @@ def test_mux_mezcla_dos_pistas() -> None:
         out_path="o.mp4", duration_s=12.5,
     )
     chain = cmd[cmd.index("-filter_complex") + 1]
-    assert "amix=inputs=2" in chain
+    # `normalize=1`: dos fuentes fuertes sumadas a ganancia unidad recortaban (picos +6 dB).
+    assert "amix=inputs=2:normalize=1" in chain
     assert "atrim=start=0.050" in chain
+    assert "adelay=100:all=1" in chain  # el desfase positivo va dentro del graph
+    assert "-itsoffset" not in cmd
     assert "aresample=async=1000" in chain
     assert chain.endswith("[aout]")
     assert "-ar" in cmd and cmd[cmd.index("-ar") + 1] == "48000"
