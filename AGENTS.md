@@ -61,7 +61,8 @@ de V1 o imagen; `core/background.py`, modelo **v16**, `docs/47`), los **formatos
 **webcam junto a la pantalla** (`platform/camera.py`, `CameraConfig`, `<nombre>-camara.mp4` y
 PiP automático con `core.elements.add_camera_pip`; `docs/49`) y las **pistas de micrófono
 separadas** (`AudioConfig.mode`, `<nombre>-microfono.wav`, sidecar `mic` e importación como pista
-absoluta «Micrófono»; `docs/50`). Lo siguiente es el resto de la fase 4 (más composición y
+absoluta «Micrófono»; `docs/50`) y los **arreglos de UI de Grabar/Biblioteca** y de la **mezcla
+sistema + micrófono** (`docs/51`). Lo siguiente es el resto de la fase 4 (más composición y
 export), además del backlog de `docs/15` (A2/A6/A7/A8 manuales y el resto del bloque C).
 
 ## Comandos
@@ -154,6 +155,20 @@ depender de monitor, GPU ni audio reales del runner.
   mic arrancó antes) y `mix` lo deja en `null`. La importación crea una pista **absoluta**
   «Micrófono» en `clip_start + offset_s`; con offset negativo inserta con margen, recorta con
   `trim_audio` y vuelve a `move_audio` para no adelantar el audio. El esquema no cambia (16).
+- Mux de audio (docs/51): los desfases de cada pista van **dentro** del filter graph (`atrim` si
+  arrancó antes, `adelay=<ms>:all=1` si después), nunca con `-itsoffset` como opción de entrada:
+  medido en FFmpeg 7.1, ese desfase **no sobrevive al `amix`** (alinea por el inicio de cada WAV y
+  las pistas se colapsan). El `adelay` va **después** de `asetrate`/`aresample` de la deriva. La
+  mezcla de dos o más pistas usa `amix=…:normalize=1`: con `normalize=0` las fuentes suman a
+  ganancia unidad y el AAC recorta (picos ~+6 dB). El corte vertical de `-t` y el esquema del
+  sidecar no cambian.
+- UI de Grabar (docs/51): ningún control puede depender de un ancho fijo con etiqueta que no
+  encoge. `components.field(..., stacked=True)` apila etiqueta y control para nombres de
+  dispositivo, la fila de la región son dos filas de dos campos (`grow=1, width=0` +
+  `text_input(width="100%")`) y el `min_width` del preview es 300 (con 440 la fila no cabía por
+  debajo de ~950 px de ventana). En «Biblioteca» la columna de la pantalla lleva `height=0`: sin
+  él mide su min-content, el `virtual_list` recibe un hueco tan alto como el contenido y no hay
+  nada que desplazar.
 - WGC: `frame_buffer` ya es un numpy BGRA contiguo (copiar: el buffer se recicla);
   `convert_to_bgr()` muta el frame y devuelve el propio `Frame`, no un array.
 - Deriva del reloj de audio (~90 ppm): se compensa en el mux con `asetrate` calculado por
@@ -414,7 +429,8 @@ depender de monitor, GPU ni audio reales del runner.
   `docs/46` los fundidos de audio con crossfade por corte (modelo v16 sin cambios), `docs/47` el
   fondo del lienzo con blur o imagen (modelo v16), `docs/48` los formatos GIF/WebM (VP9/Opus y
   paleta GIF sin audio), `docs/49` la webcam junto a la pantalla con PiP automático (modelo v16
-  sin cambios) y `docs/50` las pistas de micrófono separadas (modelo v16 sin cambios).
+  sin cambios) y `docs/50` las pistas de micrófono separadas (modelo v16 sin cambios). `docs/51`
+  documenta los arreglos de layout de Grabar/Biblioteca y de la mezcla sistema + micrófono.
   **`docs/15-post-v1.md` es el backlog vivo**: qué falta, por bloques, con estado y
   criterio de aceptación. `CHANGELOG.md` resume cada versión.
 - `tools/spikes/` son prototipos de F0 ya cerrados; no los toques para trabajo nuevo.

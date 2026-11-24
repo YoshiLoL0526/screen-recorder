@@ -191,17 +191,30 @@ Fragmentos de flags por encoder (se documentan en código como tabla):
   (primer callback) con `time.perf_counter()`. En el mux:
 
   ```bash
-  # audio arrancó Δ segundos después del video → se retrasa Δ
-  ffmpeg -i video.mkv -itsoffset <Δ> -i audio.wav \
+  # una sola pista: Δ > 0 se rellena con adelay, Δ < 0 se recorta con atrim
+  ffmpeg -i video.mkv -i audio.wav \
          -map 0:v -map 1:a -c:v copy -c:a aac -b:a 192k -ar 48000 \
-         -af "aresample=async=1000:first_pts=0" -shortest out.mp4
+         -af "adelay=<ms>:all=1,aresample=async=1000:first_pts=0" -shortest out.mp4
+
+  # dos pistas (sistema + micrófono): se retrasan por separado y se mezclan
+  ffmpeg -i video.mkv -i sistema.wav -i microfono.wav \
+         -filter_complex "[1:a]adelay=100:all=1[t1];[2:a]atrim=start=0.200,asetpts=PTS-STARTPTS[t2];\
+                          [t1][t2]amix=inputs=2:normalize=1:duration=longest[a];\
+                          [a]aresample=async=1000[aout]" \
+         -map 0:v -map "[aout]" -c:v copy -c:a aac -b:a 192k -ar 48000 -t <duración> out.mp4
   ```
+
+  Los desfases van **dentro** del filter graph, nunca con `-itsoffset` como opción de entrada:
+  medido en FFmpeg 7.1, ese desfase no sobrevive al `amix` (mezcla alineando por el inicio de cada
+  WAV), así que con sistema + micrófono las pistas se colapsaban o sonaba una antes de tiempo
+  ([docs/51](51-ui-grabar-y-mezcla-audio.md)). La mezcla usa `normalize=1`: con `normalize=0` las
+  dos fuentes sumaban a ganancia unidad y el AAC recortaba (picos ~+6 dB) — se oía pisado.
 
   `aresample=async=1000` rellena huecos de timestamp (pausas largas, callbacks perdidos) — no
   corrige la deriva continua del reloj del dispositivo (F1: ~90 ppm ⇒ ~53 ms/10 min, dentro del
   criterio); esa corrección por ratio llega en F1.1 (ver `docs/09-f1-motor-grabacion.md`).
   Si Δ es negativa (el audio arrancó **antes** que el video), se recorta su
-  inicio con `-af "atrim=start=…,asetpts=PTS-STARTPTS"` en lugar de `-itsoffset`.
+  inicio con `atrim=start=…,asetpts=PTS-STARTPTS` en lugar de retrasarla.
 
 ## Webcam junto a la pantalla (C1, docs/49)
 

@@ -75,6 +75,7 @@ Documentación de diseño de una app de escritorio para **grabar la pantalla** y
 | 48 | [GIF y WebM](48-gif-webm.md) | Formatos MP4/WebM/GIF, VP9 + Opus, paleta GIF con límites de 20 fps/720 px, selector del modal, persistencia, encoders y tests. |
 | 49 | [Webcam PiP](49-webcam-pip.md) | Captura DirectShow junto a la pantalla, archivo `<nombre>-camara.mp4`, sidecar/recuperación, Biblioteca, PiP automático en el editor y pausa deshabilitada (modelo v16 sin cambios). |
 | 50 | [Pistas de micrófono](50-pistas-microfono.md) | `AudioConfig.mode` (mezclar/separar), MP4 con el sistema y `<nombre>-microfono.wav`, sidecar `mic`, recuperación, Biblioteca e importación automática como pista absoluta en su `offset_s` (modelo v16 sin cambios). |
+| 51 | [UI de Grabar/Biblioteca y mezcla de audio](51-ui-grabar-y-mezcla-audio.md) | Anchos fijos del panel de configuración (campo apilado, región en dos filas, `min_width` 300), `height=0` para el scroll de la Biblioteca, `adelay` en el filter graph en lugar de `-itsoffset` y `amix normalize=1` (modelo v16 sin cambios). |
 
 ## Orden de lectura sugerido
 

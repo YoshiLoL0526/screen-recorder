@@ -4,6 +4,25 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 [SemVer](https://semver.org/lang/es/) desde la 1.0.0 (las fases anteriores no se publicaron como versión). El
 detalle de cada fase está en `docs/08`–`docs/16`.
 
+## [Sin publicar]
+
+### Corregido
+- **UI de Grabar y scroll de Biblioteca** (docs/51): el panel de configuración cortaba controles
+  contra el borde derecho de la ventana (la fila de la región sumaba 301 px en un hueco de 272, y
+  los desplegables del micrófono y del modo no caben en 180 px porque Aurora no trunca sus
+  etiquetas). Ahora `field(..., stacked=True)` apila etiqueta y control para los nombres de
+  dispositivo, la región son dos filas de dos campos que se reparten el ancho y la columna del
+  preview baja su `min_width` de 440 a 300 (con 440 la fila no cabía por debajo de ~950 px de
+  ventana). En **Biblioteca** la lista no hacía scroll: la columna medía su min-content y el
+  `virtual_list` no tenía nada que desplazar; con `height=0` se desplaza hasta la última fila y la
+  cabecera sigue fija.
+- **Mezcla sistema + micrófono** (docs/51): sonaba solapada y desfasada. El `amix` sumaba a
+  ganancia unidad (`normalize=0`) y recortaba (picos ~+6 dB), y el desfase positivo iba con
+  `-itsoffset`, que **no sobrevive al `amix`**: con dos pistas retrasadas se colapsaban en el mismo
+  instante. Ahora la mezcla va con `normalize=1` y el retardo se aplica en el filter graph con
+  `adelay=<ms>:all=1`, por pista y después de la corrección de deriva. El sidecar y el esquema del
+  proyecto no cambian.
+
 ## [1.3.0] — 2026-11-09
 
 ### Añadido
