@@ -33,10 +33,16 @@ PRESET_OPTIONS = (
 COUNTDOWN_OPTIONS = ((0, "Sin cuenta atrás"), (3, "3 segundos"), (5, "5 segundos"), (10, "10 segundos"))
 AUDIO_MODE_OPTIONS = (
     ("mix", "Mezclar en el MP4"),
-    ("separate", "Pistas separadas (micrófono editable)"),
+    ("separate", "Pistas separadas"),
 )
 CAMERA_RESOLUTIONS = (("640x360", "640×360"), ("1280x720", "1280×720"), ("1920x1080", "1920×1080"))
 CAMERA_FPS_OPTIONS = (15, 24, 30, 60)
+
+# Geometría del panel de configuración: ancho fijo y `padding` lateral. Lo que tiene que caber en
+# un control es `PANEL_W - 2 * PANEL_PAD` (272 px); el test de layout lo comprueba con estas
+# constantes en vez de con números sueltos.
+PANEL_W = 310
+PANEL_PAD = 16
 
 
 def encoder_options() -> list[tuple[str, str]]:
@@ -227,6 +233,18 @@ def controls_panel():
 
 # -- columna de configuración ---------------------------------------------------
 
+def _region_number(label: str, signal, key: str, name: str):
+    """Campo de la región: etiqueta encima y valor a todo el ancho, dos por fila.
+
+    Con la etiqueta al lado (`field`) los cuatro campos no caben en el panel y el último se
+    salía por la derecha de la ventana. `name` es el nombre accesible del campo.
+    """
+    return column(gap=2, grow=1, width=0)[
+        text(label, size=10.5, weight=700, color="$muted"),
+        text_input(signal, width="100%", key=key, label=name),
+    ]
+
+
 @component
 def config_panel():
     kind = state.source_kind()
@@ -251,16 +269,18 @@ def config_panel():
             state.window_title, placeholder="parte del título…", key="win-title",
         )))
     else:
+        # Dos filas de dos campos que se reparten el ancho: los cuatro de una vez (54/54/58/58 px
+        # fijos más etiquetas y gaps) sumaban más que el panel y el último se salía por la derecha.
         source_block.append(
-            row(gap=6, align="center")[
-                text("x", size=12, color="$muted"),
-                text_input(state.region_x, width=54, key="rx", label="Posición X de la región"),
-                text("y", size=12, color="$muted"),
-                text_input(state.region_y, width=54, key="ry", label="Posición Y de la región"),
-                text("an", size=12, color="$muted"),
-                text_input(state.region_w, width=58, key="rw", label="Ancho de la región"),
-                text("al", size=12, color="$muted"),
-                text_input(state.region_h, width=58, key="rh", label="Alto de la región"),
+            column(gap=8)[
+                row(gap=8)[
+                    _region_number("X", state.region_x, "rx", "Posición X de la región"),
+                    _region_number("Y", state.region_y, "ry", "Posición Y de la región"),
+                ],
+                row(gap=8)[
+                    _region_number("Ancho", state.region_w, "rw", "Ancho de la región"),
+                    _region_number("Alto", state.region_h, "rh", "Alto de la región"),
+                ],
             ]
         )
         source_block.append(
@@ -274,11 +294,12 @@ def config_panel():
     audio_block = [
         field("Sistema", switch(state.audio_system, key="sw-system")),
         field("Keep-alive", switch(state.keepalive, key="sw-keep")),
+        # Los nombres de dispositivo no caben al lado de la etiqueta (84 px + control): apilado.
         field("Micrófono", select(
             state.mic_index,
             [(-1, "Sin micrófono")] + [(d.index, d.name[:26]) for d in devices],
             key="sel-mic",
-        )),
+        ), stacked=True),
         field("Modo", select(state.audio_mode, list(AUDIO_MODE_OPTIONS), key="sel-audio-mode")),
     ]
     if state.mic_index() < 0:
@@ -317,7 +338,8 @@ def config_panel():
         if current and not any(d.name == current for d in devices):
             options.insert(0, (current, f"{current[:24]} (no conectada)"))
         camera_block += [
-            field("Dispositivo", select(state.camera_device, options, key="sel-camera")),
+            field("Dispositivo", select(state.camera_device, options, key="sel-camera"),
+                  stacked=True),
             field("Resolución", select(state.camera_resolution, list(CAMERA_RESOLUTIONS),
                                        key="sel-cam-res")),
             field("FPS cámara", select(state.camera_fps, list(CAMERA_FPS_OPTIONS),
@@ -361,10 +383,10 @@ def config_panel():
     ]
 
     return scroll(
-        width=310,
+        width=PANEL_W,
         grow=0,  # sin esto, `scroll()` añade grow=1 y el panel crece dentro de la row
         shrink=0,
-        padding=(16, 16, 16, 20),
+        padding=(PANEL_PAD, PANEL_PAD, PANEL_PAD, 20),
         gap=18,
         bg="$surface",
         border_width=1,
@@ -419,8 +441,10 @@ def _open_region_editor() -> None:
 def record_screen():
     return row(grow=1, height=0, gap=0)[  # base 0: la config (alta) hace scroll en vez de estirar la fila
         # `width=0 + grow=1`: el truco de Aurora para que la columna ocupe el resto sin que
-        # su min-content (la imagen) impida encoger al panel de configuración.
-        column(grow=1, width=0, padding=16, gap=12, min_width=440, shrink=1)[
+        # su min-content (la imagen) impida encoger al panel de configuración. `min_width` bajo
+        # porque el panel mide 310 fijos: con 440 la fila no cabía y él se recortaba contra el
+        # borde derecho de la ventana en cuanto esta bajaba de ~950 px.
+        column(grow=1, width=0, padding=16, gap=12, min_width=300, shrink=1)[
             preview_panel(),
             stats_panel(),
             controls_panel(),

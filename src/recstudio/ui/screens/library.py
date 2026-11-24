@@ -186,7 +186,11 @@ def library_screen():
             key="library-list",
         )
 
-    return column(grow=1, padding=(18, 20), gap=14)[
+    # `height=0` + `grow=1`: sin esto la columna mide su min-content (la lista entera), el
+    # `virtual_list` recibe un hueco tan alto como su contenido y no hay nada que desplazar: con
+    # muchas grabaciones la lista se salía de la ventana y no se podía recorrer. Con la columna
+    # acotada, la lista se queda con el hueco libre y la cabecera (e «Interrumpida») no se mueven.
+    return column(grow=1, height=0, padding=(18, 20), gap=14)[
         recoverable_section(),
         header,
         body,

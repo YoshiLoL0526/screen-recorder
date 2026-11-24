@@ -72,9 +72,19 @@ def label_control(control, label: str) -> None:
         control.style.setdefault("label", label)
 
 
-def field(label: str, control):
-    """Etiqueta a la izquierda y control a la derecha."""
+def field(label: str, control, *, stacked: bool = False):
+    """Etiqueta y control (etiqueta a la izquierda).
+
+    `stacked=True` pone la etiqueta encima y deja al control todo el ancho del panel: los
+    desplegables con nombres de dispositivo no caben al lado de la etiqueta en el panel estrecho
+    de «Grabar» (84 px de etiqueta + 8 de gap dejan 180 px de control).
+    """
     label_control(control, label)
+    if stacked:
+        return column(gap=3)[
+            text(label, size=11, weight=600, color="$muted"),
+            control,
+        ]
     return row(gap=8, align="center")[
         text(label, size=12.5, color="$muted", width=84, shrink=0),
         box(grow=1)[control],
