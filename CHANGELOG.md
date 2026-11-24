@@ -4,7 +4,7 @@ Formato basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/); v
 [SemVer](https://semver.org/lang/es/) desde la 1.0.0 (las fases anteriores no se publicaron como versión). El
 detalle de cada fase está en `docs/08`–`docs/16`.
 
-## [Sin publicar]
+## [1.3.1] — 2026-11-24
 
 ### Corregido
 - **UI de Grabar y scroll de Biblioteca** (docs/51): el panel de configuración cortaba controles
